@@ -6,53 +6,20 @@ import {
   insertPendingProfile,
   getProfileByTelegramId,
   resetRejectedProfile,
+  setProfileCategoriesByProfileId,
 } from "../repositories/profilesRepo.js";
 import { notifySuperadmin } from "../services/notifyAdmin.js";
 
 // ✅ Menu Utama harus muncul setelah registrasi selesai
 import { buildTeManMenuKeyboard } from "./telegram.commands.user.js";
 
-// =============================
-// DB helpers (D1 style)
-// =============================
-async function dbListCategories(env) {
-  const res = await env.DB.prepare(
-    "SELECT id, kode FROM categories ORDER BY kode ASC"
-  ).all();
-  return res?.results || [];
-}
-
-function formatCategoryList(categories) {
-  let msg = "🧾 *Tipe Layanan*\nPilih kategori (boleh lebih dari satu).\n\n";
-  categories.forEach((c, i) => {
-    msg += `${i + 1}. ${c.kode}\n`;
-  });
-  msg +=
-    "\nKetik nomor pilihan dipisah koma.\nContoh: `1,2,3`\nAtau ketik `-` untuk lewati.";
-  return msg;
-}
-
-function parseMultiIndexInput(text, max) {
-  const raw = String(text || "").trim();
-
-  if (raw === "-" || raw.toLowerCase() === "skip") {
-    return { ok: true, indexes: [], skipped: true };
-  }
-
-  const parts = raw.split(",").map((p) => p.trim()).filter(Boolean);
-  if (!parts.length) return { ok: false, reason: "empty" };
-
-  const nums = [];
-  for (const p of parts) {
-    if (!/^\d+$/.test(p)) return { ok: false, reason: "nan" };
-    const n = Number(p);
-    if (!Number.isInteger(n) || n < 1 || n > max) return { ok: false, reason: "range" };
-    nums.push(n);
-  }
-
-  const uniq = Array.from(new Set(nums));
-  return { ok: true, indexes: uniq, skipped: false };
-}
+// ✅ Shared category flow
+import {
+  loadCategoriesForChoice,
+  buildCategoryChoiceMessage,
+  parseMultiIndexInputRequired,
+  mapIndexesToCategoryIds,
+} from "../utils/categoryFlow.js";
 
 function statusMessage(status) {
   if (status === "pending") {
@@ -64,7 +31,6 @@ function statusMessage(status) {
   if (status === "suspended") {
     return "⛔ Akun kamu saat ini *SUSPENDED*. Silakan hubungi admin.";
   }
-  // rejected tidak dipakai di sini karena rejected boleh daftar ulang
   return "ℹ️ Kamu sudah pernah terdaftar.";
 }
 
@@ -117,8 +83,9 @@ export async function handleRegistrationFlow({
     session.data.no_whatsapp = text.replace(/\D/g, "");
 
     try {
-      const categories = await dbListCategories(env);
+      const categories = await loadCategoriesForChoice(env);
 
+      // kalau belum ada kategori di DB, lanjut tanpa pilih
       if (!categories.length) {
         session.step = "input_kecamatan";
         await saveSession(env, STATE_KEY, session);
@@ -126,11 +93,12 @@ export async function handleRegistrationFlow({
         return true;
       }
 
+      // ada kategori -> wajib pilih minimal 1
       session.data._category_list = categories;
       session.step = "select_categories";
       await saveSession(env, STATE_KEY, session);
 
-      await sendMessage(env, chatId, formatCategoryList(categories), {
+      await sendMessage(env, chatId, buildCategoryChoiceMessage(categories), {
         parse_mode: "Markdown",
       });
       return true;
@@ -143,37 +111,38 @@ export async function handleRegistrationFlow({
     }
   }
 
-  // 4b. SELECT CATEGORIES
+  // 4b. SELECT CATEGORIES (required)
   if (session.step === "select_categories") {
     const categories = Array.isArray(session.data._category_list)
       ? session.data._category_list
       : [];
 
+    // fallback: kalau somehow kosong, lanjut
     if (!categories.length) {
-      session.data.category_ids = [];
+      delete session.data._category_list;
       session.step = "input_kecamatan";
       await saveSession(env, STATE_KEY, session);
       await sendMessage(env, chatId, "Masukkan Kecamatan:");
       return true;
     }
 
-    const parsed = parseMultiIndexInput(text, categories.length);
+    const parsed = parseMultiIndexInputRequired(text, categories.length);
     if (!parsed.ok) {
       await sendMessage(
         env,
         chatId,
-        `Input tidak valid.\nKetik nomor dipisah koma.\nContoh: 1,3\nAtau "-" untuk lewati.`
+        `Input tidak valid. Pilih minimal 1.\nKetik nomor dipisah koma.\nContoh: 1,3`
       );
       return true;
     }
 
-    if (parsed.skipped) {
-      session.data.category_ids = [];
-    } else {
-      const picked = parsed.indexes.map((n) => categories[n - 1]).filter(Boolean);
-      session.data.category_ids = picked.map((c) => c.id);
+    const categoryIds = mapIndexesToCategoryIds(parsed.indexes, categories);
+    if (!categoryIds.length) {
+      await sendMessage(env, chatId, "Pilihan kategori tidak valid. Coba lagi ya.");
+      return true;
     }
 
+    session.data.category_ids = categoryIds;
     delete session.data._category_list;
 
     session.step = "input_kecamatan";
@@ -291,14 +260,10 @@ export async function handleRegistrationFlow({
         foto_fullbody_file_id: d.foto_fullbody_file_id,
       });
 
-      // insert ke profile_categories
+      // ✅ set kategori (wajib kalau kategori tersedia)
       const categoryIds = Array.isArray(d.category_ids) ? d.category_ids : [];
-      for (const categoryId of categoryIds) {
-        await env.DB.prepare(
-          "INSERT INTO profile_categories (profile_id, category_id) VALUES (?, ?)"
-        )
-          .bind(id, categoryId)
-          .run();
+      if (categoryIds.length) {
+        await setProfileCategoriesByProfileId(env, id, categoryIds);
       }
 
       await notifySuperadmin(env, {
