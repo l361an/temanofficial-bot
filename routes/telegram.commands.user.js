@@ -10,11 +10,17 @@ import {
   getProfileByTelegramId,
   updateEditableProfileFields,
   updateCloseupPhoto,
-  setProfileCategoriesByCodes,
+  setProfileCategoriesByProfileId,
   listCategoryKodesByProfileId,
 } from "../repositories/profilesRepo.js";
 
-import { listCategories } from "../repositories/categoriesRepo.js";
+// ✅ Shared category flow
+import {
+  loadCategoriesForChoice,
+  buildCategoryChoiceMessage,
+  parseMultiIndexInputRequired,
+  mapIndexesToCategoryIds,
+} from "../utils/categoryFlow.js";
 
 // =====================
 // Helpers
@@ -187,12 +193,28 @@ async function askCloseupPhoto(env, chatId, STATE_KEY) {
 }
 
 async function askKategori(env, chatId, STATE_KEY) {
-  const cats = await listCategories(env);
-  let msg = "<b>Ubah Kategori</b>\n\nKetik kode kategori dipisah koma.\n\n<b>Daftar kode:</b>\n";
-  msg += !cats.length ? "- (belum ada kategori)\n" : cats.map((c) => `• ${escapeHtml(c.kode)}`).join("\n");
+  const cats = await loadCategoriesForChoice(env);
 
-  await saveSession(env, STATE_KEY, { mode: "edit_profile", step: "await_kategori" });
-  await sendHtml(env, chatId, msg, { reply_markup: buildTeManMenuKeyboard() });
+  if (!cats.length) {
+    await saveSession(env, STATE_KEY, { mode: "edit_profile", step: "await_kategori_select", data: { _category_list: [] } });
+    await sendHtml(env, chatId, "⚠️ Belum ada kategori yang tersedia. Hubungi admin ya.", {
+      reply_markup: buildTeManMenuKeyboard(),
+    });
+    return;
+  }
+
+  // simpan list kategori ke session supaya parse konsisten
+  await saveSession(env, STATE_KEY, {
+    mode: "edit_profile",
+    step: "await_kategori_select",
+    data: { _category_list: cats },
+  });
+
+  // gunakan message yang sama dengan registrasi (angka)
+  await sendMessage(env, chatId, buildCategoryChoiceMessage(cats), {
+    parse_mode: "Markdown",
+    reply_markup: buildTeManMenuKeyboard(),
+  });
 }
 
 async function stopEdit(env, chatId, STATE_KEY, msg) {
@@ -359,7 +381,6 @@ export async function handleUserEditFlow({ env, chatId, telegramId, text, sessio
   // semua status boleh update (yang penting profile ada)
   // (menu self tetap dikontrol di teman:menu, sehingga user yang rejected tidak masuk ke update)
 
-
   const photoFileId = getPhotoFileId(update);
 
   if (session?.step === "await_text") {
@@ -376,25 +397,37 @@ export async function handleUserEditFlow({ env, chatId, telegramId, text, sessio
     await clearSession(env, STATE_KEY);
     await sendHtml(env, chatId, "✅ Data berhasil diupdate.", { reply_markup: buildTeManMenuKeyboard() });
 
-    // setelah update selesai, Menu TeMan ready (user bisa klik lagi)
     return;
   }
 
-  if (session?.step === "await_kategori") {
-    const raw = String(text || "").trim();
-    if (!raw)
-      return void (
-        await sendHtml(env, chatId, "⚠️ Input kosong. Ketik kode kategori dipisah koma.", { reply_markup: buildTeManMenuKeyboard() })
-      );
+  // ✅ Update kategori: pakai flow yang sama dengan registrasi (angka) dan wajib pilih 1
+  if (session?.step === "await_kategori_select") {
+    const categories = Array.isArray(session?.data?._category_list) ? session.data._category_list : [];
 
-    const codes = raw
-      .split(",")
-      .map((x) => x.trim())
-      .filter(Boolean);
-    const res = await setProfileCategoriesByCodes(env, telegramId, codes);
+    if (!categories.length) {
+      await stopEdit(env, chatId, STATE_KEY, "⚠️ Belum ada kategori yang tersedia. Hubungi admin ya.");
+      return;
+    }
 
+    const parsed = parseMultiIndexInputRequired(text, categories.length);
+    if (!parsed.ok) {
+      await sendMessage(env, chatId, `Input tidak valid. Pilih minimal 1.\nKetik nomor dipisah koma.\nContoh: 1,3`, {
+        reply_markup: buildTeManMenuKeyboard(),
+      });
+      return;
+    }
+
+    const categoryIds = mapIndexesToCategoryIds(parsed.indexes, categories);
+    if (!categoryIds.length) {
+      await sendMessage(env, chatId, "Pilihan kategori tidak valid. Coba lagi ya.", {
+        reply_markup: buildTeManMenuKeyboard(),
+      });
+      return;
+    }
+
+    const res = await setProfileCategoriesByProfileId(env, profile.id, categoryIds);
     if (!res?.ok) {
-      await sendHtml(env, chatId, "⚠️ Kode kategori tidak cocok / tidak ditemukan. Coba cek daftar kodenya lagi.", {
+      await sendHtml(env, chatId, "⚠️ Gagal update kategori. Coba lagi ya.", {
         reply_markup: buildTeManMenuKeyboard(),
       });
       return;
