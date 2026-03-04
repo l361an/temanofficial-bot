@@ -72,7 +72,6 @@ async function resolveTelegramId(env, rawTarget) {
 function buildHelpMessage(role) {
   const isSuper = isSuperadminRole(role);
 
-  // ✅ inline-only: /list /activate /suspend /delpartner /viewpartner removed
   const adminCmds = [
     ["`/start`", "Menu Officer (inline: Partner Database + Partner Moderation)"],
     ["`/approve @username|telegram_id`", "Setujui partner (approved)"],
@@ -92,7 +91,7 @@ function buildHelpMessage(role) {
     "*Admin + Superadmin:*\n" +
     adminCmds.map(([cmd, desc]) => `• ${cmd} — ${desc}`).join("\n") +
     "\n\n" +
-    "ℹ️ *Catatan:* Partner Database & Partner Moderation sekarang *inline-only* lewat `/start`.\n";
+    "ℹ️ *Catatan:* Partner Database & Partner Moderation lewat `/start` (inline menu).\n";
 
   if (isSuper) {
     msg += "\n*Superadmin only:*\n" + superCmds.map(([cmd, desc]) => `• ${cmd} — ${desc}`).join("\n") + "\n";
@@ -142,12 +141,8 @@ const CATEGORY_CMDS = {
   },
 };
 
-function inlineOnlyNotice() {
-  return (
-    "ℹ️ Fitur ini sudah pindah ke <b>inline menu</b>.\n\n" +
-    "Gunakan <code>/start</code> → pilih <b>Partner Database</b> / <b>Partner Moderation</b>."
-  );
-}
+// Command legacy yang udah dibuang: redirect balik ke Officer Home
+const DEAD_CMDS = new Set(["/list", "/activate", "/suspend", "/delpartner", "/viewpartner"]);
 
 // =============================
 // Main
@@ -166,11 +161,16 @@ export async function handleAdminCommand({ env, chatId, text, role, telegramId }
   const needArg = async (msg) => (await sendMessage(env, chatId, msg), true);
   const badTarget = async () => (await sendMessage(env, chatId, "Target tidak ditemukan / format tidak valid."), true);
 
+  // ✅ Legacy commands: jangan nyasar ke UX user — redirect ke Officer Home
+  if (DEAD_CMDS.has(command)) {
+    const msg = "Hallo Officer TeMan...\nSilahkan tekan tombol dibawah atau ketik /help untuk bantuan.";
+    await sendMessage(env, chatId, msg, { reply_markup: buildOfficerStartKeyboard() });
+    return true;
+  }
+
   // /start (Officer)
   if (command === "/start") {
-    const msg =
-      "Hallo Officer TeMan...\n" +
-      "Silahkan tekan tombol dibawah atau ketik /help untuk bantuan.";
+    const msg = "Hallo Officer TeMan...\nSilahkan tekan tombol dibawah atau ketik /help untuk bantuan.";
     await sendMessage(env, chatId, msg, { reply_markup: buildOfficerStartKeyboard() });
     return true;
   }
@@ -181,22 +181,91 @@ export async function handleAdminCommand({ env, chatId, text, role, telegramId }
     return true;
   }
 
-  // ✅ inline-only disabled commands (including /viewpartner)
-  if (
-    command === "/list" ||
-    command === "/activate" ||
-    command === "/suspend" ||
-    command === "/delpartner" ||
-    command === "/viewpartner"
-  ) {
-    await sendMessage(env, chatId, inlineOnlyNotice(), {
-      parse_mode: "HTML",
-      reply_markup: buildOfficerStartKeyboard(),
-    });
+  // /approve
+  if (STATUS_CMDS[command]) {
+    const flow = STATUS_CMDS[command];
+    const raw = args[0];
+    if (!raw) return needArg(flow.fmt);
+
+    const targetId = await resolveTelegramId(env, raw);
+    if (!targetId) return badTarget();
+
+    await setProfileStatus(env, targetId, flow.status);
+
+    const label = await getPartnerLabelByTelegramId(env, targetId);
+    await sendMessage(env, chatId, flow.ok(label));
+
+    const dmText = typeof flow.dm === "function" ? await flow.dm(env) : flow.dm;
+    await sendMessage(env, targetId, dmText, flow.dmOpts).catch(() => {});
     return true;
   }
 
-  // SUPERADMIN: /setwelcome
+  // /ceksub
+  if (command === "/ceksub") {
+    const raw = args[0];
+    if (!raw) return needArg("Format:\n/ceksub @username\natau\n/ceksub telegram_id");
+
+    const targetId = await resolveTelegramId(env, raw);
+    if (!targetId) return badTarget();
+
+    const info = await getSubscriptionInfo(env, targetId);
+    if (!info.supported) {
+      await sendMessage(
+        env,
+        chatId,
+        "⚠️ Fitur cek subscription belum siap.\nKolom `subscription_status` dan `subscription_end_at` belum ada di tabel `profiles`."
+      );
+      return true;
+    }
+
+    if (!info.found) {
+      await sendMessage(env, chatId, "Data partner tidak ditemukan.");
+      return true;
+    }
+
+    const label = await getPartnerLabelByTelegramId(env, targetId);
+    await sendMessage(
+      env,
+      chatId,
+      `📦 Subscription Partner ${label}\n\nStatus: ${info.subscription_status ?? "-"}\nBerakhir: ${info.subscription_end_at ?? "-"}`
+    );
+    return true;
+  }
+
+  // SUPERADMIN ONLY
+  if (command === "/listcategory") {
+    if (!isSuperadminRole(role)) return deny();
+
+    const rows = await listCategories(env);
+    if (!rows.length) {
+      await sendMessage(env, chatId, "Belum ada kategori. Tambah dengan:\n/addcategory <kode>");
+      return true;
+    }
+
+    let msg = "📚 LIST CATEGORY:\n\n";
+    rows.forEach((r, i) => (msg += `${i + 1}. ${r.kode}\n`));
+    await sendMessage(env, chatId, msg);
+    return true;
+  }
+
+  if (CATEGORY_CMDS[command]) {
+    if (!isSuperadminRole(role)) return deny();
+
+    const flow = CATEGORY_CMDS[command];
+    const kode = args.join(" ").trim();
+    if (!kode) return needArg(flow.fmt);
+
+    const res = await flow.action(env, kode);
+    if (!res.ok) {
+      await sendMessage(env, chatId, flow.errs(kode, res.reason));
+      return true;
+    }
+
+    await sendMessage(env, chatId, flow.ok(res.kode));
+    return true;
+  }
+
+  // /setwelcome
   if (command === "/setwelcome") {
     if (!isSuperadminRole(role)) return deny();
 
@@ -226,95 +295,16 @@ export async function handleAdminCommand({ env, chatId, text, role, telegramId }
     await sendMessage(env, chatId, msg, {
       parse_mode: "Markdown",
       reply_markup: {
-        inline_keyboard: [[
-          { text: "✅ Confirm", callback_data: `setwelcome_confirm:${adminId}` },
-          { text: "❌ Cancel", callback_data: `setwelcome_cancel:${adminId}` },
-        ]],
+        inline_keyboard: [
+          [
+            { text: "✅ Confirm", callback_data: `setwelcome_confirm:${adminId}` },
+            { text: "❌ Cancel", callback_data: `setwelcome_cancel:${adminId}` },
+          ],
+        ],
       },
       disable_web_page_preview: true,
     });
 
-    return true;
-  }
-
-  // /approve (command-only tetap)
-  if (STATUS_CMDS[command]) {
-    const flow = STATUS_CMDS[command];
-    const raw = args[0];
-    if (!raw) return needArg(flow.fmt);
-
-    const targetId = await resolveTelegramId(env, raw);
-    if (!targetId) return badTarget();
-
-    await setProfileStatus(env, targetId, flow.status);
-
-    const label = await getPartnerLabelByTelegramId(env, targetId);
-    await sendMessage(env, chatId, flow.ok(label));
-
-    const dmText = typeof flow.dm === "function" ? await flow.dm(env) : flow.dm;
-    await sendMessage(env, targetId, dmText, flow.dmOpts).catch(() => {});
-    return true;
-  }
-
-  // /ceksub
-  if (command === "/ceksub") {
-    const raw = args[0];
-    if (!raw) return needArg("Format:\n/ceksub @username\natau\n/ceksub telegram_id");
-
-    const targetId = await resolveTelegramId(env, raw);
-    if (!targetId) return badTarget();
-
-    const info = await getSubscriptionInfo(env, targetId);
-    if (!info.supported)
-      return (
-        await sendMessage(
-          env,
-          chatId,
-          "⚠️ Fitur cek subscription belum siap.\nKolom `subscription_status` dan `subscription_end_at` belum ada di tabel `profiles`."
-        ),
-        true
-      );
-
-    if (!info.found) return (await sendMessage(env, chatId, "Data partner tidak ditemukan."), true);
-
-    const label = await getPartnerLabelByTelegramId(env, targetId);
-    await sendMessage(
-      env,
-      chatId,
-      `📦 Subscription Partner ${label}\n\nStatus: ${info.subscription_status ?? "-"}\nBerakhir: ${info.subscription_end_at ?? "-"}`
-    );
-    return true;
-  }
-
-  // SUPERADMIN ONLY
-  if (command === "/listcategory") {
-    if (!isSuperadminRole(role)) return deny();
-
-    const rows = await listCategories(env);
-    if (!rows.length)
-      return (
-        await sendMessage(env, chatId, "Belum ada kategori. Tambah dengan:\n/addcategory <kode>"),
-        true
-      );
-
-    let msg = "📚 LIST CATEGORY:\n\n";
-    rows.forEach((r, i) => (msg += `${i + 1}. ${r.kode}\n`));
-    await sendMessage(env, chatId, msg);
-    return true;
-  }
-
-  // /addcategory + /delcategory
-  if (CATEGORY_CMDS[command]) {
-    if (!isSuperadminRole(role)) return deny();
-
-    const flow = CATEGORY_CMDS[command];
-    const kode = args.join(" ").trim();
-    if (!kode) return needArg(flow.fmt);
-
-    const res = await flow.action(env, kode);
-    if (!res.ok) return (await sendMessage(env, chatId, flow.errs(kode, res.reason)), true);
-
-    await sendMessage(env, chatId, flow.ok(res.kode));
     return true;
   }
 
