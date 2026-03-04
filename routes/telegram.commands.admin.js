@@ -3,7 +3,6 @@ import { sendMessage, sendPhoto, sendLongMessage } from "../services/telegramApi
 import { upsertSetting, getSetting } from "../repositories/settingsRepo.js";
 import {
   deleteProfileByTelegramId,
-  listProfilesByStatus,
   setProfileStatus,
   getSubscriptionInfo,
   getProfileFullByTelegramId,
@@ -28,16 +27,31 @@ const fmtKV = (label, value) => {
   return `• <b>${escapeHtml(label)}:</b> ${escapeHtml(v)}`;
 };
 
-const fmtHandle = (username) => {
-  const u = String(username || "").trim();
-  if (!u) return "-";
-  return u.startsWith("@") ? u : `@${u}`;
-};
-
 const cleanHandle = (username) => {
   const u = String(username || "").trim().replace(/^@/, "");
   return u ? `@${u}` : "-";
 };
+
+// Officer Home keyboard (Partner Database)
+function buildOfficerStartKeyboard() {
+  return {
+    inline_keyboard: [[{ text: "🗃️ Partner Database", callback_data: "pm:menu" }]],
+  };
+}
+
+// Partner Database keyboard (kept for /list alias)
+function buildPartnerDatabaseKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "👥 Partner", callback_data: "pm:list:all" }],
+      [{ text: "🕒 Partner Pending", callback_data: "pm:list:pending" }],
+      [{ text: "✅ Partner Approved", callback_data: "pm:list:approved" }],
+      [{ text: "⛔ Partner Suspended", callback_data: "pm:list:suspended" }],
+      [{ text: "🟢 Partner Active", callback_data: "pm:list:active" }],
+      [{ text: "⬅️ Kembali", callback_data: "officer:home" }],
+    ],
+  };
+}
 
 // @username => cari profiles.username, balikin telegram_id
 async function findTelegramIdByUsername(env, username) {
@@ -59,7 +73,6 @@ async function getPartnerLabelByTelegramId(env, telegramId) {
 }
 
 // Support target: @username atau telegram_id
-// ✅ Perbaikan: kalau bukan @... dan bukan digit => return null
 async function resolveTelegramId(env, rawTarget) {
   const target = String(rawTarget || "").trim();
   if (!target) return null;
@@ -78,14 +91,17 @@ function parseTarget(rawTarget) {
 
 function buildHelpMessage(role) {
   const isSuper = isSuperadminRole(role);
+
+  // ✅ /list DIHILANGKAN dari help (sudah tergantikan oleh tombol Partner Database)
   const adminCmds = [
-    ["`/list pending|approved|active|rejected|suspended`", "List partner per status"],
+    ["`/start`", "Menu Officer (tombol Partner Database)"],
     ["`/approve @username|telegram_id`", "Setujui partner (approved)"],
     ["`/activate @username|telegram_id`", "Aktifkan partner (active)"],
     ["`/suspend @username|telegram_id`", "Suspend partner (suspended)"],
     ["`/ceksub @username|telegram_id`", "Cek subscription partner"],
     ["`/viewpartner @username|telegram_id`", "Lihat data lengkap partner"],
   ];
+
   const superCmds = [
     ["`/setlink aturan <url>`", "Set link (aturan, dll)"],
     ["`/setwelcome <text>`", "Ubah welcome text user (pakai confirm button)"],
@@ -95,25 +111,13 @@ function buildHelpMessage(role) {
     ["`/delcategory <kode>`", "Hapus kategori"],
   ];
 
-  let msg = "📌 *Daftar Command (Admin Panel)*\n\n*Admin + Superadmin:*\n";
+  let msg = "📌 *Daftar Command (Officer Panel)*\n\n*Admin + Superadmin:*\n";
   for (const [cmd, desc] of adminCmds) msg += `• ${cmd} — ${desc}\n`;
   if (isSuper) {
     msg += "\n*Superadmin only:*\n";
     for (const [cmd, desc] of superCmds) msg += `• ${cmd} — ${desc}\n`;
   }
   return msg;
-}
-
-function buildListMessageHtml(status, rows) {
-  const lines = [`📋 <b>LIST ${escapeHtml(String(status).toUpperCase())}:</b>`, ""];
-  rows.forEach((r) => {
-    lines.push(`👤 <b>${escapeHtml(r?.nama_lengkap ? String(r.nama_lengkap) : "-")}</b>`);
-    lines.push(`ID: <code>${escapeHtml(r?.telegram_id ? String(r.telegram_id) : "-")}</code>`);
-    lines.push(`Username: <b>${escapeHtml(r?.username ? fmtHandle(r.username) : "-")}</b>`);
-    lines.push(`Nickname: <b>${escapeHtml(r?.nickname ? String(r.nickname) : "-")}</b>`);
-    lines.push("");
-  });
-  return lines.join("\n");
 }
 
 // =============================
@@ -189,9 +193,27 @@ export async function handleAdminCommand({ env, chatId, text, role, telegramId }
   const needTarget = async (msg) => (await sendMessage(env, chatId, msg), true);
   const badTarget = async () => (await sendMessage(env, chatId, "Target tidak ditemukan / format tidak valid."), true);
 
+  // /start (Officer)
+  if (command === "/start") {
+    const msg =
+      "Hallo Officer TeMan...\n" +
+      "Silahkan tekan tombol dibawah atau ketik /help untuk bantuan.";
+    await sendMessage(env, chatId, msg, { reply_markup: buildOfficerStartKeyboard() });
+    return true;
+  }
+
   // HELP
   if (command === "/help" || command === "/cmd") {
     await sendMessage(env, chatId, buildHelpMessage(role), { parse_mode: "Markdown" });
+    return true;
+  }
+
+  // /list => alias (tidak ditampilkan di help)
+  if (command === "/list") {
+    await sendMessage(env, chatId, "🗃️ <b>Partner Database</b>\nPilih menu di bawah:", {
+      parse_mode: "HTML",
+      reply_markup: buildPartnerDatabaseKeyboard(),
+    });
     return true;
   }
 
@@ -199,15 +221,11 @@ export async function handleAdminCommand({ env, chatId, text, role, telegramId }
   if (command === "/viewpartner") {
     const rawTarget = args[0];
     if (!rawTarget)
-      return needTarget(
-        "Format:\n<code>/viewpartner @username</code>\natau\n<code>/viewpartner telegram_id</code>"
-      );
+      return needTarget("Format:\n<code>/viewpartner @username</code>\natau\n<code>/viewpartner telegram_id</code>");
 
     const t = parseTarget(rawTarget);
     if (t.type === "invalid")
-      return needTarget(
-        "Target tidak valid.\nGunakan:\n<code>/viewpartner @username</code>\natau\n<code>/viewpartner telegram_id</code>"
-      );
+      return needTarget("Target tidak valid.\nGunakan:\n<code>/viewpartner @username</code>\natau\n<code>/viewpartner telegram_id</code>");
 
     const tid = t.type === "telegram_id" ? t.value : await findTelegramIdByUsername(env, t.value);
 
@@ -258,17 +276,13 @@ export async function handleAdminCommand({ env, chatId, text, role, telegramId }
   if (command === "/setwelcome") {
     if (!isSuperadminRole(role)) return deny();
 
-    // ✅ preserve newline dari input user (tanpa args.join)
     const newText = rawText.slice(command.length).trim();
     const current = (await getSetting(env, "welcome_partner")) || "-";
 
     if (!newText) {
-      await sendMessage(
-        env,
-        chatId,
-        "Format:\n`/setwelcome <text>`\n\n*Welcome saat ini:*\n" + current,
-        { parse_mode: "Markdown" }
-      );
+      await sendMessage(env, chatId, "Format:\n`/setwelcome <text>`\n\n*Welcome saat ini:*\n" + current, {
+        parse_mode: "Markdown",
+      });
       return true;
     }
 
@@ -288,12 +302,10 @@ export async function handleAdminCommand({ env, chatId, text, role, telegramId }
     await sendMessage(env, chatId, msg, {
       parse_mode: "Markdown",
       reply_markup: {
-        inline_keyboard: [
-          [
-            { text: "✅ Confirm", callback_data: `setwelcome_confirm:${adminId}` },
-            { text: "❌ Cancel", callback_data: `setwelcome_cancel:${adminId}` },
-          ],
-        ],
+        inline_keyboard: [[
+          { text: "✅ Confirm", callback_data: `setwelcome_confirm:${adminId}` },
+          { text: "❌ Cancel", callback_data: `setwelcome_cancel:${adminId}` },
+        ]],
       },
       disable_web_page_preview: true,
     });
@@ -301,24 +313,7 @@ export async function handleAdminCommand({ env, chatId, text, role, telegramId }
     return true;
   }
 
-  // /list
-  if (command === "/list") {
-    const status = String(args[0] || "").trim().toLowerCase();
-    const valid = ["pending", "approved", "active", "rejected", "suspended"];
-    if (!valid.includes(status))
-      return needArg("Format:\n/list pending\n/list approved\n/list active\n/list rejected\n/list suspended");
-
-    const rows = await listProfilesByStatus(env, status);
-    if (!rows.length) return (await sendMessage(env, chatId, `Tidak ada data ${status}`), true);
-
-    await sendLongMessage(env, chatId, buildListMessageHtml(status, rows), {
-      parse_mode: "HTML",
-      disable_web_page_preview: true,
-    });
-    return true;
-  }
-
-  // /approve /suspend /activate (1 handler)
+  // /approve /suspend /activate
   if (STATUS_CMDS[command]) {
     const flow = STATUS_CMDS[command];
     const raw = args[0];
