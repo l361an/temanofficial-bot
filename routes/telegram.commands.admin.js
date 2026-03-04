@@ -2,7 +2,6 @@
 import { sendMessage, sendPhoto, sendLongMessage } from "../services/telegramApi.js";
 import { upsertSetting, getSetting } from "../repositories/settingsRepo.js";
 import {
-  deleteProfileByTelegramId,
   setProfileStatus,
   getSubscriptionInfo,
   getProfileFullByTelegramId,
@@ -32,23 +31,12 @@ const cleanHandle = (username) => {
   return u ? `@${u}` : "-";
 };
 
-// Officer Home keyboard (Partner Database)
+// Officer Home keyboard (Partner Database + Partner Moderation)
 function buildOfficerStartKeyboard() {
   return {
-    inline_keyboard: [[{ text: "🗃️ Partner Database", callback_data: "pm:menu" }]],
-  };
-}
-
-// Partner Database keyboard (kept for /list alias)
-function buildPartnerDatabaseKeyboard() {
-  return {
     inline_keyboard: [
-      [{ text: "👥 Partner", callback_data: "pm:list:all" }],
-      [{ text: "🕒 Partner Pending", callback_data: "pm:list:pending" }],
-      [{ text: "✅ Partner Approved", callback_data: "pm:list:approved" }],
-      [{ text: "⛔ Partner Suspended", callback_data: "pm:list:suspended" }],
-      [{ text: "🟢 Partner Active", callback_data: "pm:list:active" }],
-      [{ text: "⬅️ Kembali", callback_data: "officer:home" }],
+      [{ text: "🗃️ Partner Database", callback_data: "pm:menu" }],
+      [{ text: "🛠️ Partner Moderation", callback_data: "mod:menu" }],
     ],
   };
 }
@@ -92,12 +80,10 @@ function parseTarget(rawTarget) {
 function buildHelpMessage(role) {
   const isSuper = isSuperadminRole(role);
 
-  // ✅ /list DIHILANGKAN dari help (sudah tergantikan oleh tombol Partner Database)
+  // ✅ inline-only: /list /activate /suspend /delpartner removed
   const adminCmds = [
-    ["`/start`", "Menu Officer (tombol Partner Database)"],
+    ["`/start`", "Menu Officer (inline: Partner Database + Partner Moderation)"],
     ["`/approve @username|telegram_id`", "Setujui partner (approved)"],
-    ["`/activate @username|telegram_id`", "Aktifkan partner (active)"],
-    ["`/suspend @username|telegram_id`", "Suspend partner (suspended)"],
     ["`/ceksub @username|telegram_id`", "Cek subscription partner"],
     ["`/viewpartner @username|telegram_id`", "Lihat data lengkap partner"],
   ];
@@ -105,18 +91,22 @@ function buildHelpMessage(role) {
   const superCmds = [
     ["`/setlink aturan <url>`", "Set link (aturan, dll)"],
     ["`/setwelcome <text>`", "Ubah welcome text user (pakai confirm button)"],
-    ["`/delpartner @username|telegram_id`", "Hapus partner"],
     ["`/listcategory`", "List kategori"],
     ["`/addcategory <kode>`", "Tambah kategori"],
     ["`/delcategory <kode>`", "Hapus kategori"],
   ];
 
-  let msg = "📌 *Daftar Command (Officer Panel)*\n\n*Admin + Superadmin:*\n";
-  for (const [cmd, desc] of adminCmds) msg += `• ${cmd} — ${desc}\n`;
+  let msg =
+    "📌 *Daftar Command (Officer Panel)*\n\n" +
+    "*Admin + Superadmin:*\n" +
+    adminCmds.map(([cmd, desc]) => `• ${cmd} — ${desc}`).join("\n") +
+    "\n\n" +
+    "ℹ️ *Catatan:* Partner Database & Partner Moderation sekarang *inline-only* lewat `/start`.\n";
+
   if (isSuper) {
-    msg += "\n*Superadmin only:*\n";
-    for (const [cmd, desc] of superCmds) msg += `• ${cmd} — ${desc}\n`;
+    msg += "\n*Superadmin only:*\n" + superCmds.map(([cmd, desc]) => `• ${cmd} — ${desc}`).join("\n") + "\n";
   }
+
   return msg;
 }
 
@@ -128,25 +118,11 @@ const STATUS_CMDS = {
     status: "approved",
     fmt: "Format:\n/approve @username\natau\n/approve telegram_id",
     ok: (label) => `✅ Partner ${label} berhasil di-approve (approved).`,
-    dm: "✅ Verifikasi kamu sudah *DISETUJUI* (APPROVED).\n\nAkun kamu belum tampil di grup.\nTunggu admin melakukan *ACTIVATE* untuk mengaktifkan tampilannya.",
+    dm:
+      "✅ Verifikasi kamu sudah *DISETUJUI* (APPROVED).\n\n" +
+      "Akun kamu belum tampil di grup.\n" +
+      "Tunggu officer melakukan *ACTIVATE* via menu Partner Moderation.",
     dmOpts: { parse_mode: "Markdown" },
-  },
-  "/suspend": {
-    status: "suspended",
-    fmt: "Format:\n/suspend @username\natau\n/suspend telegram_id",
-    ok: (label) => `✅ Partner ${label} berhasil di-suspend (suspended).`,
-    dm: "⛔ Akun kamu saat ini *SUSPENDED*.\nKamu tidak akan tampil di grup.\nSilakan hubungi admin.",
-    dmOpts: { parse_mode: "Markdown" },
-  },
-  "/activate": {
-    status: "active",
-    fmt: "Format:\n/activate @username\natau\n/activate telegram_id",
-    ok: (label) => `✅ Partner ${label} berhasil di-activate (active).`,
-    dm: async (env) => {
-      const link = (await getSetting(env, "link_aturan")) ?? "-";
-      return `✅ Status akun kamu sekarang *AKTIF* (ACTIVE).\n\nSilakan baca aturan dulu:\n${link}`;
-    },
-    dmOpts: { parse_mode: "Markdown", disable_web_page_preview: true },
   },
 };
 
@@ -174,6 +150,13 @@ const CATEGORY_CMDS = {
         : "⚠️ Gagal menghapus kategori.",
   },
 };
+
+function inlineOnlyNotice() {
+  return (
+    "ℹ️ Fitur ini sudah pindah ke <b>inline menu</b>.\n\n" +
+    "Gunakan <code>/start</code> → pilih <b>Partner Database</b> / <b>Partner Moderation</b>."
+  );
+}
 
 // =============================
 // Main
@@ -208,12 +191,9 @@ export async function handleAdminCommand({ env, chatId, text, role, telegramId }
     return true;
   }
 
-  // /list => alias (tidak ditampilkan di help)
-  if (command === "/list") {
-    await sendMessage(env, chatId, "🗃️ <b>Partner Database</b>\nPilih menu di bawah:", {
-      parse_mode: "HTML",
-      reply_markup: buildPartnerDatabaseKeyboard(),
-    });
+  // ✅ inline-only disabled commands
+  if (command === "/list" || command === "/activate" || command === "/suspend" || command === "/delpartner") {
+    await sendMessage(env, chatId, inlineOnlyNotice(), { parse_mode: "HTML", reply_markup: buildOfficerStartKeyboard() });
     return true;
   }
 
@@ -313,7 +293,7 @@ export async function handleAdminCommand({ env, chatId, text, role, telegramId }
     return true;
   }
 
-  // /approve /suspend /activate
+  // /approve (command-only tetap)
   if (STATUS_CMDS[command]) {
     const flow = STATUS_CMDS[command];
     const raw = args[0];
@@ -403,22 +383,6 @@ export async function handleAdminCommand({ env, chatId, text, role, telegramId }
     const url = String(args[1] || "").trim();
     await upsertSetting(env, `link_${keyName}`, url);
     await sendMessage(env, chatId, `✅ Link ${keyName} berhasil disimpan:\n${url}`);
-    return true;
-  }
-
-  // /delpartner
-  if (command === "/delpartner") {
-    if (!isSuperadminRole(role)) return deny();
-
-    const raw = args[0];
-    if (!raw) return needArg("Format:\n/delpartner @username\natau\n/delpartner telegram_id");
-
-    const targetId = await resolveTelegramId(env, raw);
-    if (!targetId) return badTarget();
-
-    const label = await getPartnerLabelByTelegramId(env, targetId);
-    await deleteProfileByTelegramId(env, targetId);
-    await sendMessage(env, chatId, `Partner ${label} berhasil dihapus ❌`);
     return true;
   }
 
