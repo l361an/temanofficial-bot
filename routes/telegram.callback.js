@@ -17,11 +17,21 @@ import {
 } from "../repositories/profilesRepo.js";
 import { json } from "../utils/response.js";
 
-import { getAdminRole, listActiveVerificators, getAdminByTelegramId } from "../repositories/adminsRepo.js";
+import {
+  getAdminRole,
+  listActiveVerificators,
+  getAdminByTelegramId,
+} from "../repositories/adminsRepo.js";
 import { isAdminRole, isSuperadminRole } from "../utils/roles.js";
 
 // user callback handler (teman:* + self:*)
-import { handleSelfInlineCallback, buildTeManMenuKeyboard } from "./telegram.commands.user.js";
+import {
+  handleSelfInlineCallback,
+  buildTeManMenuKeyboard,
+} from "./telegram.commands.user.js";
+
+// moderation session
+import { saveSession, clearSession } from "../utils/session.js";
 
 async function deleteSetting(env, key) {
   await env.DB.prepare("DELETE FROM settings WHERE key = ?").bind(key).run();
@@ -46,7 +56,10 @@ const fmtHandle = (username) => {
 
 function buildOfficerHomeKeyboard() {
   return {
-    inline_keyboard: [[{ text: "🗃️ Partner Database", callback_data: "pm:menu" }]],
+    inline_keyboard: [
+      [{ text: "🗃️ Partner Database", callback_data: "pm:menu" }],
+      [{ text: "🛠️ Partner Moderation", callback_data: "mod:menu" }],
+    ],
   };
 }
 
@@ -63,9 +76,36 @@ function buildPartnerDatabaseKeyboard() {
   };
 }
 
+// ✅ FIX: hasil list sekarang ada Officer Home juga
 function buildBackToPartnerDatabaseKeyboard() {
   return {
-    inline_keyboard: [[{ text: "⬅️ Kembali", callback_data: "pm:menu" }]],
+    inline_keyboard: [
+      [{ text: "⬅️ Kembali", callback_data: "pm:menu" }],
+      [{ text: "🏠 Officer Home", callback_data: "officer:home" }],
+    ],
+  };
+}
+
+// =========================
+// Partner Moderation helpers
+// =========================
+function buildPartnerModerationKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "✅ Activate Partner", callback_data: "mod:activate" }],
+      [{ text: "⛔ Suspend Partner", callback_data: "mod:suspend" }],
+      [{ text: "❌ Delete Partner", callback_data: "mod:delete" }],
+      [{ text: "⬅️ Kembali", callback_data: "officer:home" }],
+    ],
+  };
+}
+
+function buildBackToPartnerModerationKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "⬅️ Kembali", callback_data: "mod:menu" }],
+      [{ text: "⬅️ Officer Home", callback_data: "officer:home" }],
+    ],
   };
 }
 
@@ -73,7 +113,8 @@ function buildListMessageHtml(title, rows, { showStatus = false } = {}) {
   const lines = [`📋 <b>${escapeHtml(title)}:</b>`, ""];
   rows.forEach((r) => {
     lines.push(`👤 <b>${escapeHtml(r?.nama_lengkap ? String(r.nama_lengkap) : "-")}</b>`);
-    if (showStatus) lines.push(`Status: <b>${escapeHtml(r?.status ? String(r.status) : "-")}</b>`);
+    if (showStatus)
+      lines.push(`Status: <b>${escapeHtml(r?.status ? String(r.status) : "-")}</b>`);
     lines.push(`ID: <code>${escapeHtml(r?.telegram_id ? String(r.telegram_id) : "-")}</code>`);
     lines.push(`Username: <b>${escapeHtml(r?.username ? fmtHandle(r.username) : "-")}</b>`);
     lines.push(`Nickname: <b>${escapeHtml(r?.nickname ? String(r.nickname) : "-")}</b>`);
@@ -87,7 +128,9 @@ function buildListMessageHtml(title, rows, { showStatus = false } = {}) {
 // =========================
 function buildMainKeyboard(telegramId) {
   return {
-    inline_keyboard: [[{ text: "👤 Pilih Verificator", callback_data: `pickver:${telegramId}` }]],
+    inline_keyboard: [
+      [{ text: "👤 Pilih Verificator", callback_data: `pickver:${telegramId}` }],
+    ],
   };
 }
 
@@ -257,6 +300,54 @@ export async function handleCallback(update, env) {
   }
 
   // =========================
+  // PARTNER MODERATION (admin + superadmin) - inline-only
+  // =========================
+  if (data.startsWith("mod:")) {
+    if (!isAdminRole(role)) return json({ ok: true });
+
+    // mod:menu
+    if (data === "mod:menu") {
+      // stop any pending moderation session
+      await clearSession(env, `state:${adminId}`).catch(() => {});
+      if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+      await sendMessage(env, adminId, "🛠️ <b>Partner Moderation</b>\nPilih aksi di bawah:", {
+        parse_mode: "HTML",
+        reply_markup: buildPartnerModerationKeyboard(),
+      });
+      return json({ ok: true });
+    }
+
+    const action = data.split(":")[1]; // activate|suspend|delete
+    if (["activate", "suspend", "delete"].includes(action)) {
+      // set session for next text input
+      await saveSession(env, `state:${adminId}`, {
+        mode: "partner_moderation",
+        action,
+        step: "await_target",
+      });
+
+      if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+
+      const nice =
+        action === "activate"
+          ? "ACTIVATE (active)"
+          : action === "suspend"
+          ? "SUSPEND (suspended)"
+          : "DELETE (hapus partner)";
+
+      await sendMessage(
+        env,
+        adminId,
+        `🛠️ <b>Partner Moderation</b>\nAksi: <b>${nice}</b>\n\nKirim <b>@username</b> atau <b>telegram_id</b> target.\n\nKetik <b>batal</b> untuk keluar.`,
+        { parse_mode: "HTML", reply_markup: buildBackToPartnerModerationKeyboard() }
+      );
+      return json({ ok: true });
+    }
+
+    return json({ ok: true });
+  }
+
+  // =========================
   // SUPERADMIN ONLY (existing behavior)
   // =========================
   if (!isSuperadminRole(role)) return json({ ok: true });
@@ -332,8 +423,7 @@ export async function handleCallback(update, env) {
     }
 
     if (action === "backver") {
-      if (msgChatId && msgId)
-        await editMessageReplyMarkup(env, msgChatId, msgId, buildMainKeyboard(telegramId)).catch(() => {});
+      if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, buildMainKeyboard(telegramId)).catch(() => {});
       return json({ ok: true });
     }
 
