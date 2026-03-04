@@ -8,7 +8,7 @@ export async function listProfilesByStatus(env, status) {
   if (!clean) return [];
   const { results } = await env.DB.prepare(
     `
-    SELECT telegram_id, nama_lengkap, username, nickname
+    SELECT telegram_id, nama_lengkap, username, nickname, verificator_admin_id
     FROM profiles
     WHERE status = ?
     ORDER BY diupdate_pada DESC, dibuat_pada DESC, nama_lengkap ASC
@@ -23,7 +23,7 @@ export async function listProfilesByStatus(env, status) {
 export async function listProfilesAll(env) {
   const { results } = await env.DB.prepare(
     `
-    SELECT telegram_id, nama_lengkap, username, nickname, status
+    SELECT telegram_id, nama_lengkap, username, nickname, status, verificator_admin_id
     FROM profiles
     ORDER BY diupdate_pada DESC, dibuat_pada DESC, nama_lengkap ASC
   `
