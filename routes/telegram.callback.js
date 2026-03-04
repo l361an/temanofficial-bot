@@ -8,17 +8,78 @@ import {
 
 import { uploadKtpToR2OnApprove } from "../services/ktpR2.js";
 import { getSetting, upsertSetting } from "../repositories/settingsRepo.js";
-import { getProfileStatus, approveProfile, rejectProfile } from "../repositories/profilesRepo.js";
+import {
+  getProfileStatus,
+  approveProfile,
+  rejectProfile,
+  listProfilesByStatus,
+  listProfilesAll,
+} from "../repositories/profilesRepo.js";
 import { json } from "../utils/response.js";
 
 import { getAdminRole, listActiveVerificators, getAdminByTelegramId } from "../repositories/adminsRepo.js";
-import { isSuperadminRole } from "../utils/roles.js";
+import { isAdminRole, isSuperadminRole } from "../utils/roles.js";
 
-// ✅ user callback handler (teman:* + self:*)
+// user callback handler (teman:* + self:*)
 import { handleSelfInlineCallback, buildTeManMenuKeyboard } from "./telegram.commands.user.js";
 
 async function deleteSetting(env, key) {
   await env.DB.prepare("DELETE FROM settings WHERE key = ?").bind(key).run();
+}
+
+// =========================
+// Officer / Partner Database helpers
+// =========================
+const escapeHtml = (s) =>
+  String(s ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+
+const fmtHandle = (username) => {
+  const u = String(username || "").trim();
+  if (!u) return "-";
+  return u.startsWith("@") ? u : `@${u}`;
+};
+
+function buildOfficerHomeKeyboard() {
+  return {
+    inline_keyboard: [[{ text: "🗃️ Partner Database", callback_data: "pm:menu" }]],
+  };
+}
+
+function buildPartnerDatabaseKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "👥 Partner", callback_data: "pm:list:all" }],
+      [{ text: "🕒 Partner Pending", callback_data: "pm:list:pending" }],
+      [{ text: "✅ Partner Approved", callback_data: "pm:list:approved" }],
+      [{ text: "⛔ Partner Suspended", callback_data: "pm:list:suspended" }],
+      [{ text: "🟢 Partner Active", callback_data: "pm:list:active" }],
+      [{ text: "⬅️ Kembali", callback_data: "officer:home" }],
+    ],
+  };
+}
+
+function buildBackToPartnerDatabaseKeyboard() {
+  return {
+    inline_keyboard: [[{ text: "⬅️ Kembali", callback_data: "pm:menu" }]],
+  };
+}
+
+function buildListMessageHtml(title, rows, { showStatus = false } = {}) {
+  const lines = [`📋 <b>${escapeHtml(title)}:</b>`, ""];
+  rows.forEach((r) => {
+    lines.push(`👤 <b>${escapeHtml(r?.nama_lengkap ? String(r.nama_lengkap) : "-")}</b>`);
+    if (showStatus) lines.push(`Status: <b>${escapeHtml(r?.status ? String(r.status) : "-")}</b>`);
+    lines.push(`ID: <code>${escapeHtml(r?.telegram_id ? String(r.telegram_id) : "-")}</code>`);
+    lines.push(`Username: <b>${escapeHtml(r?.username ? fmtHandle(r.username) : "-")}</b>`);
+    lines.push(`Nickname: <b>${escapeHtml(r?.nickname ? String(r.nickname) : "-")}</b>`);
+    lines.push("");
+  });
+  return lines.join("\n");
 }
 
 // =========================
@@ -99,10 +160,9 @@ export async function handleCallback(update, env) {
 
   if (!data || !adminId) return json({ ok: true });
 
-  // stop loading tombol
   await answerCallbackQuery(env, callbackQueryId).catch(() => {});
 
-  // ✅ USER callback first: self:* / teman:* (non-admin)
+  // USER callback first: self:* / teman:*
   try {
     const handled = await handleSelfInlineCallback(update, env);
     if (handled) return json({ ok: true });
@@ -110,19 +170,100 @@ export async function handleCallback(update, env) {
     console.error("USER CALLBACK ERROR:", e);
   }
 
-  // ✅ only superadmin for sensitive admin callbacks
-  const role = await getAdminRole(env, adminId);
-  if (!isSuperadminRole(role)) return json({ ok: true });
-
   const msg = update?.callback_query?.message;
   const msgChatId = msg?.chat?.id;
   const msgId = msg?.message_id;
 
+  const role = await getAdminRole(env, adminId);
+
   // =========================
+  // OFFICER HOME (admin + superadmin)
+  // =========================
+  if (data === "officer:home") {
+    if (!isAdminRole(role)) return json({ ok: true });
+
+    if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+
+    const text =
+      "Hallo Officer TeMan...\n" +
+      "Silahkan tekan tombol dibawah atau ketik /help untuk bantuan.";
+
+    await sendMessage(env, adminId, text, { reply_markup: buildOfficerHomeKeyboard() });
+    return json({ ok: true });
+  }
+
+  // =========================
+  // PARTNER DATABASE (admin + superadmin)
+  // =========================
+  if (data.startsWith("pm:")) {
+    if (!isAdminRole(role)) return json({ ok: true });
+
+    // pm:menu
+    if (data === "pm:menu") {
+      if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+
+      await sendMessage(env, adminId, "🗃️ <b>Partner Database</b>\nPilih menu di bawah:", {
+        parse_mode: "HTML",
+        reply_markup: buildPartnerDatabaseKeyboard(),
+      });
+
+      return json({ ok: true });
+    }
+
+    // pm:list:<key>
+    if (data.startsWith("pm:list:")) {
+      const key = String(data.split(":")[2] || "").trim();
+
+      let rows = [];
+      let title = "";
+      let showStatus = false;
+
+      if (key === "all") {
+        rows = await listProfilesAll(env);
+        title = "PARTNER (ALL)";
+        showStatus = true;
+      } else if (key === "pending" || key === "approved" || key === "suspended" || key === "active") {
+        rows = await listProfilesByStatus(env, key);
+        title = `PARTNER ${key.toUpperCase()}`;
+      } else {
+        if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+        await sendMessage(env, adminId, "Menu tidak dikenal. Balik ke Partner Database.", {
+          reply_markup: buildPartnerDatabaseKeyboard(),
+        });
+        return json({ ok: true });
+      }
+
+      if (!rows.length) {
+        if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+        await sendMessage(env, adminId, `Tidak ada data untuk: ${title}`, {
+          reply_markup: buildBackToPartnerDatabaseKeyboard(),
+        });
+        return json({ ok: true });
+      }
+
+      if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+
+      const text = buildListMessageHtml(title, rows, { showStatus });
+      await sendMessage(env, adminId, text, {
+        parse_mode: "HTML",
+        disable_web_page_preview: true,
+        reply_markup: buildBackToPartnerDatabaseKeyboard(),
+      });
+
+      return json({ ok: true });
+    }
+
+    return json({ ok: true });
+  }
+
+  // =========================
+  // SUPERADMIN ONLY (existing behavior)
+  // =========================
+  if (!isSuperadminRole(role)) return json({ ok: true });
+
   // SETWELCOME CONFIRM/CANCEL
-  // =========================
   if (data.startsWith("setwelcome_confirm:") || data.startsWith("setwelcome_cancel:")) {
-    const [action, ownerId] = data.split(":" );
+    const [action, ownerId] = data.split(":");
 
     if (String(ownerId) !== String(adminId)) {
       await sendMessage(env, adminId, "⚠️ Aksi ini bukan untuk akunmu.");
@@ -156,11 +297,9 @@ export async function handleCallback(update, env) {
     return json({ ok: true });
   }
 
-  // =========================
   // PICK / SET VERIFICATOR
-  // =========================
   if (data.startsWith("pickver:") || data.startsWith("setver:") || data.startsWith("backver:")) {
-    const parts = data.split(":" );
+    const parts = data.split(":");
     const action = parts[0];
     const telegramId = parts[1];
     if (!telegramId) return json({ ok: true });
@@ -193,7 +332,8 @@ export async function handleCallback(update, env) {
     }
 
     if (action === "backver") {
-      if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, buildMainKeyboard(telegramId)).catch(() => {});
+      if (msgChatId && msgId)
+        await editMessageReplyMarkup(env, msgChatId, msgId, buildMainKeyboard(telegramId)).catch(() => {});
       return json({ ok: true });
     }
 
@@ -231,10 +371,8 @@ export async function handleCallback(update, env) {
     return json({ ok: true });
   }
 
-  // =========================
   // APPROVE / REJECT PARTNER
-  // =========================
-  const [action, telegramId] = data.split(":" );
+  const [action, telegramId] = data.split(":");
   if (action !== "approve" && action !== "reject") return json({ ok: true });
 
   const status = await getProfileStatus(env, telegramId);
@@ -259,7 +397,6 @@ export async function handleCallback(update, env) {
 
     await approveProfile(env, telegramId, verificatorId);
 
-    // backup to R2 (non-blocking)
     try {
       const up = await uploadKtpToR2OnApprove(env, telegramId);
       await sendMessage(env, adminId, `☁️ Backup KTP ke R2: ${up.skipped ? "SKIP" : "OK"}\nKey: ${up.key}`);
@@ -268,12 +405,9 @@ export async function handleCallback(update, env) {
     }
 
     const link = (await getSetting(env, "link_aturan")) ?? "-";
-
-    // ambil data verificator untuk ditampilkan ke user
     const vRow = await getAdminByTelegramId(env, verificatorId);
     const vLabel = vRow?.label || "-";
 
-    // ✅ notif ke user (include Menu TeMan)
     await sendMessage(
       env,
       telegramId,
@@ -289,13 +423,11 @@ ${link}`,
       }
     );
 
-    // notif ke owner
     await sendMessage(env, adminId, `✅ APPROVED
 Telegram ID: ${telegramId}
 Link aturan: ${link}
 Verificator: ${vLabel}`);
 
-    // update caption if context is photo
     if (msgChatId && msgId) {
       await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
       const oldCaption = msg?.caption || "";
@@ -308,12 +440,10 @@ Verificator: ${vLabel}`);
   if (action === "reject") {
     await rejectProfile(env, telegramId);
 
-    // ✅ notif ke user (include Menu TeMan)
     await sendMessage(env, telegramId, "❌ Permintaan Bergabung Ditolak.\nSilakan hubungi admin.", {
       reply_markup: buildTeManMenuKeyboard(),
     });
 
-    // notif ke owner
     await sendMessage(env, adminId, `❌ REJECTED\nTelegram ID: ${telegramId}`);
 
     if (msgChatId && msgId) {
