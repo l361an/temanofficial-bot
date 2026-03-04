@@ -69,23 +69,14 @@ async function resolveTelegramId(env, rawTarget) {
   return null;
 }
 
-function parseTarget(rawTarget) {
-  const raw = String(rawTarget || "").trim();
-  if (!raw) return { type: "empty" };
-  if (raw.startsWith("@")) return { type: "username", value: raw.replace(/^@/, "").trim() };
-  if (/^\d+$/.test(raw)) return { type: "telegram_id", value: raw };
-  return { type: "invalid", value: raw };
-}
-
 function buildHelpMessage(role) {
   const isSuper = isSuperadminRole(role);
 
-  // ✅ inline-only: /list /activate /suspend /delpartner removed
+  // ✅ inline-only: /list /activate /suspend /delpartner /viewpartner removed
   const adminCmds = [
     ["`/start`", "Menu Officer (inline: Partner Database + Partner Moderation)"],
     ["`/approve @username|telegram_id`", "Setujui partner (approved)"],
     ["`/ceksub @username|telegram_id`", "Cek subscription partner"],
-    ["`/viewpartner @username|telegram_id`", "Lihat data lengkap partner"],
   ];
 
   const superCmds = [
@@ -173,7 +164,6 @@ export async function handleAdminCommand({ env, chatId, text, role, telegramId }
 
   const deny = async () => (await sendMessage(env, chatId, "⛔ Command ini hanya untuk Superadmin."), true);
   const needArg = async (msg) => (await sendMessage(env, chatId, msg), true);
-  const needTarget = async (msg) => (await sendMessage(env, chatId, msg), true);
   const badTarget = async () => (await sendMessage(env, chatId, "Target tidak ditemukan / format tidak valid."), true);
 
   // /start (Officer)
@@ -191,64 +181,18 @@ export async function handleAdminCommand({ env, chatId, text, role, telegramId }
     return true;
   }
 
-  // ✅ inline-only disabled commands
-  if (command === "/list" || command === "/activate" || command === "/suspend" || command === "/delpartner") {
-    await sendMessage(env, chatId, inlineOnlyNotice(), { parse_mode: "HTML", reply_markup: buildOfficerStartKeyboard() });
-    return true;
-  }
-
-  // /viewpartner
-  if (command === "/viewpartner") {
-    const rawTarget = args[0];
-    if (!rawTarget)
-      return needTarget("Format:\n<code>/viewpartner @username</code>\natau\n<code>/viewpartner telegram_id</code>");
-
-    const t = parseTarget(rawTarget);
-    if (t.type === "invalid")
-      return needTarget("Target tidak valid.\nGunakan:\n<code>/viewpartner @username</code>\natau\n<code>/viewpartner telegram_id</code>");
-
-    const tid = t.type === "telegram_id" ? t.value : await findTelegramIdByUsername(env, t.value);
-
-    const profile = tid ? await getProfileFullByTelegramId(env, tid) : null;
-    if (!profile) {
-      await sendMessage(env, chatId, "Data partner tidak ditemukan.", { parse_mode: "HTML" });
-      return true;
-    }
-
-    const categories = profile.id ? await listCategoryKodesByProfileId(env, profile.id) : [];
-    const kategoriText = categories.length ? categories.join(", ") : "-";
-
-    const textSummary =
-      "🧾 <b>PARTNER</b>\n" +
-      fmtKV("Telegram ID", profile.telegram_id) +
-      "\n" +
-      fmtKV("Username", cleanHandle(profile.username)) +
-      "\n" +
-      fmtKV("Nama Lengkap", profile.nama_lengkap) +
-      "\n" +
-      fmtKV("Nickname", profile.nickname) +
-      "\n" +
-      fmtKV("NIK", profile.nik) +
-      "\n" +
-      fmtKV("Kategori", kategoriText) +
-      "\n" +
-      fmtKV("No. Whatsapp", profile.no_whatsapp) +
-      "\n" +
-      fmtKV("Kecamatan", profile.kecamatan) +
-      "\n" +
-      fmtKV("Kota", profile.kota) +
-      "\n" +
-      fmtKV("Verificator", profile.verificator_admin_id);
-
-    await sendLongMessage(env, chatId, textSummary, { parse_mode: "HTML", disable_web_page_preview: true });
-
-    for (const [fileId, cap] of [
-      [profile.foto_closeup_file_id, "📸 <b>Foto Closeup</b>"],
-      [profile.foto_fullbody_file_id, "📸 <b>Foto Fullbody</b>"],
-      [profile.foto_ktp_file_id, "🪪 <b>Foto KTP</b>"],
-    ]) {
-      if (fileId) await sendPhoto(env, chatId, fileId, cap, { parse_mode: "HTML" });
-    }
+  // ✅ inline-only disabled commands (including /viewpartner)
+  if (
+    command === "/list" ||
+    command === "/activate" ||
+    command === "/suspend" ||
+    command === "/delpartner" ||
+    command === "/viewpartner"
+  ) {
+    await sendMessage(env, chatId, inlineOnlyNotice(), {
+      parse_mode: "HTML",
+      reply_markup: buildOfficerStartKeyboard(),
+    });
     return true;
   }
 
