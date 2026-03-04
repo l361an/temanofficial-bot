@@ -3,9 +3,9 @@
 import { json } from "../utils/response.js";
 import { parseMessage } from "../utils/parseTelegram.js";
 import { loadSession, clearSession } from "../utils/session.js";
-import { sendMessage } from "../services/telegramApi.js";
+import { sendMessage, sendPhoto, sendLongMessage } from "../services/telegramApi.js";
 
-import { getAdminRole } from "../repositories/adminsRepo.js";
+import { getAdminRole, getAdminByTelegramId } from "../repositories/adminsRepo.js";
 import { isAdminRole, isSuperadminRole } from "../utils/roles.js";
 
 import { handleCallback } from "./telegram.callback.js";
@@ -24,6 +24,7 @@ import {
   syncProfileUsernameFromTelegram,
   setProfileStatus,
   deleteProfileByTelegramId,
+  listCategoryKodesByProfileId,
 } from "../repositories/profilesRepo.js";
 import { getSetting } from "../repositories/settingsRepo.js";
 
@@ -35,8 +36,7 @@ function buildHelp(role) {
       "<b>Admin + Superadmin:</b>\n" +
       "• <code>/start</code> — Buka <b>Officer Home</b> (inline menu)\n" +
       "• <code>/approve @username|telegram_id</code> — Setujui partner (approved)\n" +
-      "• <code>/ceksub @username|telegram_id</code> — Cek subscription partner\n" +
-      "• <code>/viewpartner @username|telegram_id</code> — Lihat data lengkap partner\n\n" +
+      "• <code>/ceksub @username|telegram_id</code> — Cek subscription partner\n\n" +
       "<b>Superadmin only:</b>\n" +
       "• <code>/setlink aturan &lt;url&gt;</code> — Set link (aturan, dll)\n" +
       "• <code>/setwelcome &lt;text&gt;</code> — Ubah welcome text user\n" +
@@ -55,8 +55,7 @@ function buildHelp(role) {
       "<b>Admin + Superadmin:</b>\n" +
       "• <code>/start</code> — Buka <b>Officer Home</b> (inline menu)\n" +
       "• <code>/approve @username|telegram_id</code> — Setujui partner (approved)\n" +
-      "• <code>/ceksub @username|telegram_id</code> — Cek subscription partner\n" +
-      "• <code>/viewpartner @username|telegram_id</code> — Lihat data lengkap partner\n\n" +
+      "• <code>/ceksub @username|telegram_id</code> — Cek subscription partner\n\n" +
       "ℹ️ <b>Catatan:</b>\n" +
       "Fitur <b>Partner Database</b> & <b>Partner Moderation</b> sekarang <b>inline-only</b>.\n" +
       "Gunakan <code>/start</code> lalu pilih menu."
@@ -71,8 +70,26 @@ function buildHelp(role) {
 }
 
 // =========================
-// Partner Moderation: text input handler (inline-only)
+// Helpers (Partner Moderation + View Partner)
 // =========================
+const escapeHtml = (s) =>
+  String(s ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+
+const fmtKV = (label, value) => {
+  const v = value === null || value === undefined || value === "" ? "-" : String(value);
+  return `• <b>${escapeHtml(label)}:</b> ${escapeHtml(v)}`;
+};
+
+const cleanHandle = (username) => {
+  const u = String(username || "").trim().replace(/^@/, "");
+  return u ? `@${u}` : "-";
+};
+
 async function findTelegramIdByUsername(env, username) {
   const clean = String(username || "").trim().replace(/^@/, "");
   if (!clean) return null;
@@ -99,11 +116,22 @@ function buildBackToPartnerModerationKeyboard() {
   };
 }
 
-async function handlePartnerModerationInput({ env, chatId, adminId, text, session, STATE_KEY }) {
+function buildBackToPartnerDatabaseViewKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "⬅️ Kembali ke Partner Database", callback_data: "pm:menu" }],
+      [{ text: "🏠 Officer Home", callback_data: "officer:home" }],
+    ],
+  };
+}
+
+// =========================
+// Partner Moderation: text input handler (inline-only)
+// =========================
+async function handlePartnerModerationInput({ env, chatId, text, session, STATE_KEY }) {
   const action = String(session?.action || "").toLowerCase();
   const raw = String(text || "").trim();
 
-  // allow quick cancel by typing
   if (/^(batal|cancel|keluar)$/i.test(raw)) {
     await clearSession(env, STATE_KEY);
     await sendMessage(env, chatId, "✅ Oke, sesi Partner Moderation dibatalkan.", {
@@ -146,7 +174,6 @@ async function handlePartnerModerationInput({ env, chatId, adminId, text, sessio
     await setProfileStatus(env, targetId, "suspended");
     await clearSession(env, STATE_KEY);
 
-    // DM partner (best-effort)
     await sendMessage(
       env,
       targetId,
@@ -164,7 +191,6 @@ async function handlePartnerModerationInput({ env, chatId, adminId, text, sessio
     await setProfileStatus(env, targetId, "active");
     await clearSession(env, STATE_KEY);
 
-    // DM partner (best-effort)
     const link = (await getSetting(env, "link_aturan")) ?? "-";
     await sendMessage(
       env,
@@ -182,34 +208,110 @@ async function handlePartnerModerationInput({ env, chatId, adminId, text, sessio
   return false;
 }
 
+// =========================
+// Partner Database: view partner (inline-only)
+// =========================
+async function handlePartnerViewInput({ env, chatId, text, STATE_KEY }) {
+  const raw = String(text || "").trim();
+
+  if (/^(batal|cancel|keluar)$/i.test(raw)) {
+    await clearSession(env, STATE_KEY);
+    await sendMessage(env, chatId, "✅ Oke, sesi View Partner dibatalkan.", {
+      reply_markup: buildBackToPartnerDatabaseViewKeyboard(),
+    });
+    return true;
+  }
+
+  const targetId = await resolveTelegramId(env, raw);
+  if (!targetId) {
+    await sendMessage(
+      env,
+      chatId,
+      "⚠️ Target tidak valid / tidak ditemukan.\nKirim <b>@username</b> atau <b>telegram_id</b> ya.\n\nKetik <b>batal</b> untuk keluar.",
+      { parse_mode: "HTML", reply_markup: buildBackToPartnerDatabaseViewKeyboard() }
+    );
+    return true;
+  }
+
+  const profile = await getProfileFullByTelegramId(env, targetId);
+  if (!profile) {
+    await sendMessage(env, chatId, "Data partner tidak ditemukan.", {
+      parse_mode: "HTML",
+      reply_markup: buildBackToPartnerDatabaseViewKeyboard(),
+    });
+    return true;
+  }
+
+  const categories = profile.id ? await listCategoryKodesByProfileId(env, profile.id) : [];
+  const kategoriText = categories.length ? categories.join(", ") : "-";
+
+  // ✅ Verificator: id - @username
+  let verificatorDisplay = "-";
+  if (profile.verificator_admin_id) {
+    const vid = String(profile.verificator_admin_id);
+    const vRow = await getAdminByTelegramId(env, vid).catch(() => null);
+    const vUser = vRow?.username ? cleanHandle(vRow.username) : (vRow?.label ? String(vRow.label) : "-");
+    verificatorDisplay = `${vid} - ${vUser || "-"}`;
+  }
+
+  const textSummary =
+    "🧾 <b>PARTNER</b>\n" +
+    fmtKV("Telegram ID", profile.telegram_id) +
+    "\n" +
+    fmtKV("Username", cleanHandle(profile.username)) +
+    "\n" +
+    fmtKV("Nama Lengkap", profile.nama_lengkap) +
+    "\n" +
+    fmtKV("Nickname", profile.nickname) +
+    "\n" +
+    fmtKV("NIK", profile.nik) +
+    "\n" +
+    fmtKV("Kategori", kategoriText) +
+    "\n" +
+    fmtKV("No. Whatsapp", profile.no_whatsapp) +
+    "\n" +
+    fmtKV("Kecamatan", profile.kecamatan) +
+    "\n" +
+    fmtKV("Kota", profile.kota) +
+    "\n" +
+    fmtKV("Verificator", verificatorDisplay);
+
+  await sendLongMessage(env, chatId, textSummary, { parse_mode: "HTML", disable_web_page_preview: true });
+
+  for (const [fileId, cap] of [
+    [profile.foto_closeup_file_id, "📸 <b>Foto Closeup</b>"],
+    [profile.foto_fullbody_file_id, "📸 <b>Foto Fullbody</b>"],
+    [profile.foto_ktp_file_id, "🪪 <b>Foto KTP</b>"],
+  ]) {
+    if (fileId) await sendPhoto(env, chatId, fileId, cap, { parse_mode: "HTML" });
+  }
+
+  await clearSession(env, STATE_KEY);
+  await sendMessage(env, chatId, "✅ Selesai.", { reply_markup: buildBackToPartnerDatabaseViewKeyboard() });
+  return true;
+}
+
 export async function handleTelegramWebhook(request, env) {
   try {
     const update = await request.json();
 
-    // 1) CALLBACK BUTTON
     if (update.callback_query) {
       return handleCallback(update, env);
     }
 
-    // 2) Only process message
     if (!update.message) return json({ ok: true });
 
     const { chatId, telegramId, username, text } = parseMessage(update.message);
     const STATE_KEY = `state:${telegramId}`;
 
-    console.log("INCOMING:", { telegramId, text });
-
-    // 3) Get role once
     const role = await getAdminRole(env, telegramId);
 
-    // ✅ auto sync username Telegram -> profiles (kalau profile ada)
     await syncProfileUsernameFromTelegram(env, telegramId, username).catch(() => {});
 
-    // 4) COMMANDS FIRST
+    // COMMANDS
     if (text && text.startsWith("/")) {
       const raw = String(text || "").trim();
-      const cmdToken = raw.split(/\s+/)[0];
-      const baseCmd = cmdToken.split("@")[0];
+      const baseCmd = raw.split(/\s+/)[0].split("@")[0];
 
       if (baseCmd === "/help" || baseCmd === "/cmd") {
         await sendMessage(env, chatId, buildHelp(role), { parse_mode: "HTML" });
@@ -217,24 +319,11 @@ export async function handleTelegramWebhook(request, env) {
       }
 
       if (isAdminRole(role)) {
-        const handled = await handleAdminCommand({
-          env,
-          chatId,
-          text: raw,
-          telegramId,
-          role,
-        });
+        const handled = await handleAdminCommand({ env, chatId, text: raw, telegramId, role });
         if (handled) return json({ ok: true });
       }
 
-      const handledUser = await handleUserCommand({
-        env,
-        chatId,
-        telegramId,
-        role,
-        text: raw,
-        STATE_KEY,
-      });
+      const handledUser = await handleUserCommand({ env, chatId, telegramId, role, text: raw, STATE_KEY });
       if (handledUser) return json({ ok: true });
 
       await sendMessage(env, chatId, "Command tidak dikenali. Ketik /help ya.", {
@@ -243,31 +332,26 @@ export async function handleTelegramWebhook(request, env) {
       return json({ ok: true });
     }
 
-    // 5) NON-COMMAND TEXT (FLOW)
+    // TEXT FLOW
     const session = await loadSession(env, STATE_KEY);
 
-    // 5a) Admin/Superadmin: allow moderation input session
     if (isAdminRole(role)) {
       if (session?.mode === "partner_moderation") {
-        await handlePartnerModerationInput({
-          env,
-          chatId,
-          adminId: telegramId,
-          text,
-          session,
-          STATE_KEY,
-        });
+        await handlePartnerModerationInput({ env, chatId, text, session, STATE_KEY });
         return json({ ok: true });
       }
 
-      // no active session: don't force registration
+      if (session?.mode === "partner_view") {
+        await handlePartnerViewInput({ env, chatId, text, STATE_KEY });
+        return json({ ok: true });
+      }
+
       if (!session) {
         await sendMessage(env, chatId, "Halo Officer TeMan. Ketik /start untuk menu, atau /help untuk daftar command.");
         return json({ ok: true });
       }
     }
 
-    // ✅ User (bukan admin) dan sudah ada profile -> langsung menu self
     if (!session && !isAdminRole(role)) {
       const profile = await getProfileFullByTelegramId(env, telegramId);
       if (profile) {
@@ -278,7 +362,6 @@ export async function handleTelegramWebhook(request, env) {
         return json({ ok: true });
       }
 
-      // ✅ belum mulai registrasi -> arahkan ke Menu TeMan (tanpa /mulai)
       await sendMessage(env, chatId, "Klik <b>Menu TeMan</b> untuk mulai ya.", {
         parse_mode: "HTML",
         reply_markup: buildTeManMenuKeyboard(),
@@ -286,33 +369,12 @@ export async function handleTelegramWebhook(request, env) {
       return json({ ok: true });
     }
 
-    // ✅ mode edit profile ditangani di user file
     if (session?.mode === "edit_profile") {
-      await handleUserEditFlow({
-        env,
-        chatId,
-        telegramId,
-        username,
-        text,
-        session,
-        STATE_KEY,
-        update,
-      });
+      await handleUserEditFlow({ env, chatId, telegramId, username, text, session, STATE_KEY, update });
       return json({ ok: true });
     }
 
-    // 6) Continue registration flow
-    await handleRegistrationFlow({
-      update,
-      env,
-      chatId,
-      telegramId,
-      username,
-      text,
-      session,
-      STATE_KEY,
-    });
-
+    await handleRegistrationFlow({ update, env, chatId, telegramId, username, text, session, STATE_KEY });
     return json({ ok: true });
   } catch (err) {
     console.error("ERROR TELEGRAM WEBHOOK:", err);
