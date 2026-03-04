@@ -19,6 +19,18 @@ export async function listProfilesByStatus(env, status) {
   return results ?? [];
 }
 
+// list all partners (no status filter)
+export async function listProfilesAll(env) {
+  const { results } = await env.DB.prepare(
+    `
+    SELECT telegram_id, nama_lengkap, username, nickname, status
+    FROM profiles
+    ORDER BY diupdate_pada DESC, dibuat_pada DESC, nama_lengkap ASC
+  `
+  ).all();
+  return results ?? [];
+}
+
 export async function getProfileStatus(env, telegramId) {
   const { results } = await env.DB.prepare("SELECT status FROM profiles WHERE telegram_id = ? LIMIT 1")
     .bind(String(telegramId))
@@ -249,21 +261,17 @@ export async function updateCloseupPhoto(env, telegramId, fotoCloseupFileId) {
 }
 
 /**
- * NEW: shared setter for profile categories (by IDs)
+ * shared setter for profile categories (by IDs)
  * - replace all existing categories with provided categoryIds
+ * - wajib minimal 1 kalau function ini dipakai
  */
 export async function setProfileCategoriesByProfileId(env, profileId, categoryIds) {
   const pid = String(profileId || "").trim();
   if (!pid) return { ok: false, reason: "empty_profile_id" };
 
-  const ids = Array.isArray(categoryIds)
-    ? categoryIds.map((x) => String(x).trim()).filter(Boolean)
-    : [];
-
-  // wajib minimal 1 kalau function ini dipakai
+  const ids = Array.isArray(categoryIds) ? categoryIds.map((x) => String(x).trim()).filter(Boolean) : [];
   if (!ids.length) return { ok: false, reason: "empty_category_ids" };
 
-  // validate category ids exist (avoid inserting junk)
   const placeholders = ids.map(() => "?").join(",");
   const check = await env.DB.prepare(
     `
@@ -286,15 +294,12 @@ export async function setProfileCategoriesByProfileId(env, profileId, categoryId
       .run();
   }
 
-  await env.DB.prepare("UPDATE profiles SET diupdate_pada = datetime('now') WHERE id = ?")
-    .bind(pid)
-    .run();
+  await env.DB.prepare("UPDATE profiles SET diupdate_pada = datetime('now') WHERE id = ?").bind(pid).run();
 
   return { ok: true, count: existingIds.length };
 }
 
-// (legacy) keep existing code-based updater for backwards compatibility,
-// but update flow will no longer use it.
+// legacy keep for backward compatibility
 export async function setProfileCategoriesByCodes(env, telegramId, kodeList) {
   const tid = String(telegramId || "").trim();
   if (!tid) return { ok: false, reason: "empty_tid" };
