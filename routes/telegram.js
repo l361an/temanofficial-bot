@@ -35,7 +35,6 @@ function buildHelp(role) {
       "📌 <b>Daftar Command (Officer Panel)</b>\n\n" +
       "<b>Admin + Superadmin:</b>\n" +
       "• <code>/start</code> — Buka <b>Officer Home</b> (inline menu)\n" +
-      "• <code>/approve @username|telegram_id</code> — Setujui partner (approved)\n" +
       "• <code>/ceksub @username|telegram_id</code> — Cek subscription partner\n\n" +
       "<b>Superadmin only:</b>\n" +
       "• <code>/setlink aturan &lt;url&gt;</code> — Set link (aturan, dll)\n" +
@@ -54,7 +53,6 @@ function buildHelp(role) {
       "📌 <b>Daftar Command (Officer Panel)</b>\n\n" +
       "<b>Admin + Superadmin:</b>\n" +
       "• <code>/start</code> — Buka <b>Officer Home</b> (inline menu)\n" +
-      "• <code>/approve @username|telegram_id</code> — Setujui partner (approved)\n" +
       "• <code>/ceksub @username|telegram_id</code> — Cek subscription partner\n\n" +
       "ℹ️ <b>Catatan:</b>\n" +
       "Fitur <b>Partner Database</b> & <b>Partner Moderation</b> sekarang <b>inline-only</b>.\n" +
