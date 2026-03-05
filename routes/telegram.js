@@ -26,7 +26,8 @@ import {
   deleteProfileByTelegramId,
   listCategoryKodesByProfileId,
 } from "../repositories/profilesRepo.js";
-import { getSetting } from "../repositories/settingsRepo.js";
+import { getSetting, upsertSetting } from "../repositories/settingsRepo.js";
+import { addCategory, delCategoryByKode } from "../repositories/categoriesRepo.js";
 
 // HELP pakai HTML biar gak kena error Markdown entities
 function buildHelp(role) {
@@ -37,11 +38,7 @@ function buildHelp(role) {
       "• <code>/start</code> — Buka <b>Officer Home</b> (inline menu)\n" +
       "• <code>/ceksub @username|telegram_id</code> — Cek subscription partner\n\n" +
       "<b>Superadmin only:</b>\n" +
-      "• <code>/setlink aturan &lt;url&gt;</code> — Set link (aturan, dll)\n" +
-      "• <code>/setwelcome &lt;text&gt;</code> — Ubah welcome text user\n" +
-      "• <code>/listcategory</code> — List kategori\n" +
-      "• <code>/addcategory &lt;kode&gt;</code> — Tambah kategori\n" +
-      "• <code>/delcategory &lt;kode&gt;</code> — Hapus kategori\n\n" +
+      "• Buka <b>⚙️ Superadmin Tools</b> dari Officer Home untuk Config/Settings/Finance\n\n" +
       "ℹ️ <b>Catatan:</b>\n" +
       "Fitur <b>Partner Database</b> & <b>Partner Moderation</b> sekarang <b>inline-only</b>.\n" +
       "Gunakan <code>/start</code> lalu pilih menu."
@@ -289,6 +286,179 @@ async function handlePartnerViewInput({ env, chatId, text, STATE_KEY }) {
   return true;
 }
 
+// =========================
+// Superadmin Config: text input handler (welcome/link aturan)
+// =========================
+async function handleSuperadminConfigInput({ env, chatId, telegramId, text, session, STATE_KEY }) {
+  const raw = String(text || "").trim();
+
+  if (/^(batal|cancel|keluar)$/i.test(raw)) {
+    await clearSession(env, STATE_KEY);
+    await sendMessage(env, chatId, "✅ Oke, edit dibatalkan.\nBalik ke menu:", {
+      reply_markup: { inline_keyboard: [[{ text: "🧩 Config", callback_data: "sa:cfg:menu" }]] },
+    });
+    return true;
+  }
+
+  const area = String(session?.area || "");
+  const adminId = String(telegramId || "");
+
+  if (area === "welcome") {
+    const current = (await getSetting(env, "welcome_partner")) || "-";
+    const draft = raw;
+
+    await upsertSetting(env, `draft_welcome:${adminId}`, draft);
+    await clearSession(env, STATE_KEY);
+
+    const msg =
+      "🧾 *Preview Welcome Partner*\n\n" +
+      "*Current:*\n" +
+      current +
+      "\n\n" +
+      "*New (draft):*\n" +
+      draft +
+      "\n\n" +
+      "Klik tombol di bawah untuk *Confirm* atau *Cancel*.";
+
+    await sendMessage(env, chatId, msg, {
+      parse_mode: "Markdown",
+      disable_web_page_preview: true,
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: "✅ Confirm", callback_data: `setwelcome_confirm:${adminId}` },
+            { text: "❌ Cancel", callback_data: `setwelcome_cancel:${adminId}` },
+          ],
+          [{ text: "⬅️ Back", callback_data: "sa:cfg:welcome" }],
+        ],
+      },
+    });
+
+    return true;
+  }
+
+  if (area === "aturan") {
+    const current = (await getSetting(env, "link_aturan")) || "-";
+    const draftUrl = raw;
+
+    if (!/^https?:\/\/\S+/i.test(draftUrl)) {
+      await sendMessage(
+        env,
+        chatId,
+        "⚠️ URL tidak valid.\nContoh format: https://domain.com/aturan\n\nKirim ulang URL, atau ketik <b>batal</b> untuk keluar.",
+        { parse_mode: "HTML" }
+      );
+      return true;
+    }
+
+    await upsertSetting(env, `draft_link_aturan:${adminId}`, draftUrl);
+    await clearSession(env, STATE_KEY);
+
+    const msg =
+      "🧾 *Preview Link Aturan*\n\n" +
+      "*Current (link_aturan):*\n" +
+      current +
+      "\n\n" +
+      "*New (draft):*\n" +
+      draftUrl +
+      "\n\n" +
+      "Klik tombol di bawah untuk *Confirm* atau *Cancel*.";
+
+    await sendMessage(env, chatId, msg, {
+      parse_mode: "Markdown",
+      disable_web_page_preview: true,
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: "✅ Confirm", callback_data: `setlink_confirm:${adminId}` },
+            { text: "❌ Cancel", callback_data: `setlink_cancel:${adminId}` },
+          ],
+          [{ text: "⬅️ Back", callback_data: "sa:cfg:aturan" }],
+        ],
+      },
+    });
+
+    return true;
+  }
+
+  await clearSession(env, STATE_KEY);
+  await sendMessage(env, chatId, "⚠️ Mode Config tidak dikenal. Balik ke menu.", {
+    reply_markup: { inline_keyboard: [[{ text: "🧩 Config", callback_data: "sa:cfg:menu" }]] },
+  });
+  return true;
+}
+
+// =========================
+// Superadmin Category: text input handler (add/del)
+// =========================
+async function handleSuperadminCategoryInput({ env, chatId, text, session, STATE_KEY }) {
+  const raw = String(text || "").trim();
+
+  if (/^(batal|cancel|keluar)$/i.test(raw)) {
+    await clearSession(env, STATE_KEY);
+    await sendMessage(env, chatId, "✅ Oke, dibatalkan.\nBalik ke Category menu.", {
+      reply_markup: { inline_keyboard: [[{ text: "🗂️ Category", callback_data: "sa:cat:menu" }]] },
+    });
+    return true;
+  }
+
+  const action = String(session?.action || "");
+  const kode = raw;
+
+  if (!kode) {
+    await sendMessage(env, chatId, "⚠️ Kode kategori kosong. Kirim ulang, atau ketik <b>batal</b>.", { parse_mode: "HTML" });
+    return true;
+  }
+
+  if (action === "add") {
+    const res = await addCategory(env, kode);
+    await clearSession(env, STATE_KEY);
+
+    if (!res.ok) {
+      const msg =
+        res.reason === "exists"
+          ? `⚠️ Kategori "${kode}" sudah ada.`
+          : res.reason === "empty"
+          ? "⚠️ Kode kategori kosong."
+          : "⚠️ Gagal menambah kategori.";
+      await sendMessage(env, chatId, msg, { reply_markup: { inline_keyboard: [[{ text: "🗂️ Category", callback_data: "sa:cat:menu" }]] } });
+      return true;
+    }
+
+    await sendMessage(env, chatId, `✅ Kategori ditambahkan: ${res.kode}`, {
+      reply_markup: { inline_keyboard: [[{ text: "🗂️ Category", callback_data: "sa:cat:menu" }]] },
+    });
+    return true;
+  }
+
+  if (action === "del") {
+    const res = await delCategoryByKode(env, kode);
+    await clearSession(env, STATE_KEY);
+
+    if (!res.ok) {
+      const msg =
+        res.reason === "not_found"
+          ? `⚠️ Kategori "${kode}" tidak ditemukan.`
+          : res.reason === "empty"
+          ? "⚠️ Kode kategori kosong."
+          : "⚠️ Gagal menghapus kategori.";
+      await sendMessage(env, chatId, msg, { reply_markup: { inline_keyboard: [[{ text: "🗂️ Category", callback_data: "sa:cat:menu" }]] } });
+      return true;
+    }
+
+    await sendMessage(env, chatId, `✅ Kategori dihapus: ${res.kode}`, {
+      reply_markup: { inline_keyboard: [[{ text: "🗂️ Category", callback_data: "sa:cat:menu" }]] },
+    });
+    return true;
+  }
+
+  await clearSession(env, STATE_KEY);
+  await sendMessage(env, chatId, "⚠️ Aksi Category tidak dikenal. Balik ke menu.", {
+    reply_markup: { inline_keyboard: [[{ text: "🗂️ Category", callback_data: "sa:cat:menu" }]] },
+  });
+  return true;
+}
+
 export async function handleTelegramWebhook(request, env) {
   try {
     const update = await request.json();
@@ -341,6 +511,26 @@ export async function handleTelegramWebhook(request, env) {
 
       if (session?.mode === "partner_view") {
         await handlePartnerViewInput({ env, chatId, text, STATE_KEY });
+        return json({ ok: true });
+      }
+
+      if (session?.mode === "sa_config") {
+        if (!isSuperadminRole(role)) {
+          await clearSession(env, STATE_KEY);
+          await sendMessage(env, chatId, "⛔ Aksi ini hanya untuk Superadmin.");
+          return json({ ok: true });
+        }
+        await handleSuperadminConfigInput({ env, chatId, telegramId, text, session, STATE_KEY });
+        return json({ ok: true });
+      }
+
+      if (session?.mode === "sa_category") {
+        if (!isSuperadminRole(role)) {
+          await clearSession(env, STATE_KEY);
+          await sendMessage(env, chatId, "⛔ Aksi ini hanya untuk Superadmin.");
+          return json({ ok: true });
+        }
+        await handleSuperadminCategoryInput({ env, chatId, text, session, STATE_KEY });
         return json({ ok: true });
       }
 
