@@ -172,7 +172,7 @@ async function handlePartnerModerationInput({ env, chatId, text, session, STATE_
     await sendMessage(
       env,
       targetId,
-      "⛔ Akun kamu saat ini *SUSPENDED*.\nKamu tidak akan tampil di grup.\nSilakan hubungi admin.",
+      "⛔ Akun kamu telah di *SUSPENDED*.\n\nSemua *FITUR PROMOSI* dihentikan!\n\nSilakan hubungi admin.",
       { parse_mode: "Markdown", reply_markup: buildTeManMenuKeyboard() }
     ).catch(() => {});
 
@@ -190,7 +190,7 @@ async function handlePartnerModerationInput({ env, chatId, text, session, STATE_
     await sendMessage(
       env,
       targetId,
-      `✅ Status akun kamu sekarang *AKTIF* (ACTIVE).\n\nSilakan baca aturan dulu:\n${link}`,
+      `✅ Akun kamu telah *AKTIF*.\n\nSemua *FITUR PROMOSI* siap digunakan.\n\nIkuti seluruh arahan Admin dan\nBaca *ATURAN MAIN* TeMan:\n${link}`,
       { parse_mode: "Markdown", disable_web_page_preview: true, reply_markup: buildTeManMenuKeyboard() }
     ).catch(() => {});
 
