@@ -30,14 +30,15 @@ const cleanHandle = (username) => {
   return u ? `@${u}` : "-";
 };
 
-// Officer Home keyboard (Partner Database + Partner Moderation)
-function buildOfficerStartKeyboard() {
-  return {
-    inline_keyboard: [
-      [{ text: "🗃️ Partner Database", callback_data: "pm:menu" }],
-      [{ text: "🛠️ Partner Moderation", callback_data: "mod:menu" }],
-    ],
-  };
+// Officer Home keyboard (Partner Database + Partner Moderation + Superadmin Tools)
+function buildOfficerStartKeyboard(role) {
+  const isSuper = isSuperadminRole(role);
+  const rows = [
+    [{ text: "🗃️ Partner Database", callback_data: "pm:menu" }],
+    [{ text: "🛠️ Partner Moderation", callback_data: "mod:menu" }],
+  ];
+  if (isSuper) rows.push([{ text: "⚙️ Superadmin Tools", callback_data: "sa:tools:menu" }]);
+  return { inline_keyboard: rows };
 }
 
 // @username => cari profiles.username, balikin telegram_id
@@ -71,18 +72,9 @@ async function resolveTelegramId(env, rawTarget) {
 function buildHelpMessage(role) {
   const isSuper = isSuperadminRole(role);
 
-  // /approve removed (inline-only)
   const adminCmds = [
-    ["`/start`", "Menu Officer (inline: Partner Database + Partner Moderation)"],
+    ["`/start`", "Menu Officer (inline)"],
     ["`/ceksub @username|telegram_id`", "Cek subscription partner"],
-  ];
-
-  const superCmds = [
-    ["`/setlink aturan <url>`", "Set link (aturan, dll)"],
-    ["`/setwelcome <text>`", "Ubah welcome text user (pakai confirm button)"],
-    ["`/listcategory`", "List kategori"],
-    ["`/addcategory <kode>`", "Tambah kategori"],
-    ["`/delcategory <kode>`", "Hapus kategori"],
   ];
 
   let msg =
@@ -93,14 +85,14 @@ function buildHelpMessage(role) {
     "ℹ️ *Catatan:* Partner Database & Partner Moderation lewat `/start` (inline menu).\n";
 
   if (isSuper) {
-    msg += "\n*Superadmin only:*\n" + superCmds.map(([cmd, desc]) => `• ${cmd} — ${desc}`).join("\n") + "\n";
+    msg += "\n*Superadmin only:*\n• Buka *⚙️ Superadmin Tools* dari Officer Home untuk Config/Settings/Finance.\n";
   }
 
   return msg;
 }
 
 // =============================
-// Category command configs
+// Category command configs (tetap ada utk backward, tapi disembunyikan dari /help)
 // =============================
 const CATEGORY_CMDS = {
   "/addcategory": {
@@ -109,7 +101,7 @@ const CATEGORY_CMDS = {
     ok: (kode) => `✅ Kategori ditambahkan: ${kode}`,
     errs: (kode, reason) =>
       reason === "exists"
-        ? `⚠️ Kategori \"${kode}\" sudah ada.`
+        ? `⚠️ Kategori "${kode}" sudah ada.`
         : reason === "empty"
         ? "⚠️ Kode kategori kosong."
         : "⚠️ Gagal menambah kategori.",
@@ -120,7 +112,7 @@ const CATEGORY_CMDS = {
     ok: (kode) => `✅ Kategori dihapus: ${kode}`,
     errs: (kode, reason) =>
       reason === "not_found"
-        ? `⚠️ Kategori \"${kode}\" tidak ditemukan.`
+        ? `⚠️ Kategori "${kode}" tidak ditemukan.`
         : reason === "empty"
         ? "⚠️ Kode kategori kosong."
         : "⚠️ Gagal menghapus kategori.",
@@ -150,14 +142,14 @@ export async function handleAdminCommand({ env, chatId, text, role, telegramId }
   // ✅ Legacy commands: jangan nyasar ke UX user — redirect ke Officer Home
   if (DEAD_CMDS.has(command)) {
     const msg = "Hallo Officer TeMan...\nSilahkan tekan tombol dibawah atau ketik /help untuk bantuan.";
-    await sendMessage(env, chatId, msg, { reply_markup: buildOfficerStartKeyboard() });
+    await sendMessage(env, chatId, msg, { reply_markup: buildOfficerStartKeyboard(role) });
     return true;
   }
 
   // /start (Officer)
   if (command === "/start") {
     const msg = "Hallo Officer TeMan...\nSilahkan tekan tombol dibawah atau ketik /help untuk bantuan.";
-    await sendMessage(env, chatId, msg, { reply_markup: buildOfficerStartKeyboard() });
+    await sendMessage(env, chatId, msg, { reply_markup: buildOfficerStartKeyboard(role) });
     return true;
   }
 
@@ -199,13 +191,27 @@ export async function handleAdminCommand({ env, chatId, text, role, telegramId }
     return true;
   }
 
-  // SUPERADMIN ONLY
+  // =============================
+  // Superadmin commands dipindah ke inline Superadmin Tools
+  // =============================
+  if (command === "/setwelcome" || command === "/setlink") {
+    if (!isSuperadminRole(role)) return deny();
+    await sendMessage(
+      env,
+      chatId,
+      "ℹ️ Command ini sudah dipindah ke inline menu.\n\nBuka:\n/start → ⚙️ Superadmin Tools → 🧩 Config",
+      { reply_markup: buildOfficerStartKeyboard(role) }
+    );
+    return true;
+  }
+
+  // Category manager legacy (masih ada utk backward, tapi sebaiknya pakai inline)
   if (command === "/listcategory") {
     if (!isSuperadminRole(role)) return deny();
 
     const rows = await listCategories(env);
     if (!rows.length) {
-      await sendMessage(env, chatId, "Belum ada kategori. Tambah dengan:\n/addcategory <kode>");
+      await sendMessage(env, chatId, "Belum ada kategori. (Disarankan pakai inline)\n/start → ⚙️ Superadmin Tools → ⚙️ Settings → 🗂️ Category");
       return true;
     }
 
@@ -215,7 +221,6 @@ export async function handleAdminCommand({ env, chatId, text, role, telegramId }
     return true;
   }
 
-  // /addcategory + /delcategory
   if (CATEGORY_CMDS[command]) {
     if (!isSuperadminRole(role)) return deny();
 
@@ -230,61 +235,6 @@ export async function handleAdminCommand({ env, chatId, text, role, telegramId }
     }
 
     await sendMessage(env, chatId, flow.ok(res.kode));
-    return true;
-  }
-
-  // SUPERADMIN: /setwelcome
-  if (command === "/setwelcome") {
-    if (!isSuperadminRole(role)) return deny();
-
-    const newText = rawText.slice(command.length).trim();
-    const current = (await getSetting(env, "welcome_partner")) || "-";
-
-    if (!newText) {
-      await sendMessage(env, chatId, "Format:\n`/setwelcome <text>`\n\n*Welcome saat ini:*\n" + current, {
-        parse_mode: "Markdown",
-      });
-      return true;
-    }
-
-    const adminId = String(telegramId || "");
-    await upsertSetting(env, `draft_welcome:${adminId}`, newText);
-
-    const msg =
-      "🧾 *Preview Welcome Partner*\n\n" +
-      "*Current:*\n" +
-      current +
-      "\n\n" +
-      "*New (draft):*\n" +
-      newText +
-      "\n\n" +
-      "Klik tombol di bawah untuk *Confirm* atau *Cancel*.";
-
-    await sendMessage(env, chatId, msg, {
-      parse_mode: "Markdown",
-      reply_markup: {
-        inline_keyboard: [
-          [
-            { text: "✅ Confirm", callback_data: `setwelcome_confirm:${adminId}` },
-            { text: "❌ Cancel", callback_data: `setwelcome_cancel:${adminId}` },
-          ],
-        ],
-      },
-      disable_web_page_preview: true,
-    });
-
-    return true;
-  }
-
-  // SUPERADMIN: /setlink
-  if (command === "/setlink") {
-    if (!isSuperadminRole(role)) return deny();
-    if (args.length < 2) return needArg("Format:\n/setlink aturan https://domain.com/aturan");
-
-    const keyName = String(args[0] || "").toLowerCase();
-    const url = String(args[1] || "").trim();
-    await upsertSetting(env, `link_${keyName}`, url);
-    await sendMessage(env, chatId, `✅ Link ${keyName} berhasil disimpan:\n${url}`);
     return true;
   }
 
