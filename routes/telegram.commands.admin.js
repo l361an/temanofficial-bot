@@ -2,7 +2,6 @@
 import { sendMessage, sendPhoto, sendLongMessage } from "../services/telegramApi.js";
 import { upsertSetting, getSetting } from "../repositories/settingsRepo.js";
 import {
-  setProfileStatus,
   getSubscriptionInfo,
   getProfileFullByTelegramId,
   listCategoryKodesByProfileId,
@@ -72,9 +71,9 @@ async function resolveTelegramId(env, rawTarget) {
 function buildHelpMessage(role) {
   const isSuper = isSuperadminRole(role);
 
+  // /approve removed (inline-only)
   const adminCmds = [
     ["`/start`", "Menu Officer (inline: Partner Database + Partner Moderation)"],
-    ["`/approve @username|telegram_id`", "Setujui partner (approved)"],
     ["`/ceksub @username|telegram_id`", "Cek subscription partner"],
   ];
 
@@ -101,21 +100,8 @@ function buildHelpMessage(role) {
 }
 
 // =============================
-// Command configs
+// Category command configs
 // =============================
-const STATUS_CMDS = {
-  "/approve": {
-    status: "approved",
-    fmt: "Format:\n/approve @username\natau\n/approve telegram_id",
-    ok: (label) => `✅ Partner ${label} berhasil di-approve (approved).`,
-    dm:
-      "✅ Verifikasi kamu sudah *DISETUJUI* (APPROVED).\n\n" +
-      "Akun kamu belum tampil di grup.\n" +
-      "Tunggu officer melakukan *ACTIVATE* via menu Partner Moderation.",
-    dmOpts: { parse_mode: "Markdown" },
-  },
-};
-
 const CATEGORY_CMDS = {
   "/addcategory": {
     fmt: "Format:\n/addcategory <kode>\nContoh:\n/addcategory Cuci Sofa",
@@ -181,25 +167,6 @@ export async function handleAdminCommand({ env, chatId, text, role, telegramId }
     return true;
   }
 
-  // /approve
-  if (STATUS_CMDS[command]) {
-    const flow = STATUS_CMDS[command];
-    const raw = args[0];
-    if (!raw) return needArg(flow.fmt);
-
-    const targetId = await resolveTelegramId(env, raw);
-    if (!targetId) return badTarget();
-
-    await setProfileStatus(env, targetId, flow.status);
-
-    const label = await getPartnerLabelByTelegramId(env, targetId);
-    await sendMessage(env, chatId, flow.ok(label));
-
-    const dmText = typeof flow.dm === "function" ? await flow.dm(env) : flow.dm;
-    await sendMessage(env, targetId, dmText, flow.dmOpts).catch(() => {});
-    return true;
-  }
-
   // /ceksub
   if (command === "/ceksub") {
     const raw = args[0];
@@ -248,6 +215,7 @@ export async function handleAdminCommand({ env, chatId, text, role, telegramId }
     return true;
   }
 
+  // /addcategory + /delcategory
   if (CATEGORY_CMDS[command]) {
     if (!isSuperadminRole(role)) return deny();
 
@@ -265,7 +233,7 @@ export async function handleAdminCommand({ env, chatId, text, role, telegramId }
     return true;
   }
 
-  // /setwelcome
+  // SUPERADMIN: /setwelcome
   if (command === "/setwelcome") {
     if (!isSuperadminRole(role)) return deny();
 
@@ -308,7 +276,7 @@ export async function handleAdminCommand({ env, chatId, text, role, telegramId }
     return true;
   }
 
-  // /setlink
+  // SUPERADMIN: /setlink
   if (command === "/setlink") {
     if (!isSuperadminRole(role)) return deny();
     if (args.length < 2) return needArg("Format:\n/setlink aturan https://domain.com/aturan");
