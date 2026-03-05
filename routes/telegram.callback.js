@@ -22,6 +22,7 @@ import {
   listActiveVerificators,
   getAdminByTelegramId,
 } from "../repositories/adminsRepo.js";
+import { listCategories, addCategory, delCategoryByKode } from "../repositories/categoriesRepo.js";
 import { isAdminRole, isSuperadminRole } from "../utils/roles.js";
 
 // user callback handler (teman:* + self:*)
@@ -54,13 +55,14 @@ const fmtHandle = (username) => {
   return u.startsWith("@") ? u : `@${u}`;
 };
 
-function buildOfficerHomeKeyboard() {
-  return {
-    inline_keyboard: [
-      [{ text: "🗃️ Partner Database", callback_data: "pm:menu" }],
-      [{ text: "🛠️ Partner Moderation", callback_data: "mod:menu" }],
-    ],
-  };
+function buildOfficerHomeKeyboard(role) {
+  const isSuper = isSuperadminRole(role);
+  const rows = [
+    [{ text: "🗃️ Partner Database", callback_data: "pm:menu" }],
+    [{ text: "🛠️ Partner Moderation", callback_data: "mod:menu" }],
+  ];
+  if (isSuper) rows.push([{ text: "⚙️ Superadmin Tools", callback_data: "sa:tools:menu" }]);
+  return { inline_keyboard: rows };
 }
 
 function buildPartnerDatabaseKeyboard() {
@@ -154,7 +156,6 @@ async function buildVerificatorMap(env, rows) {
   const map = new Map();
   if (!ids.length) return map;
 
-  // Batch query admins for usernames
   const placeholders = ids.map(() => "?").join(",");
   const q = `SELECT telegram_id, username FROM admins WHERE telegram_id IN (${placeholders})`;
   const stmt = env.DB.prepare(q).bind(...ids);
@@ -166,12 +167,91 @@ async function buildVerificatorMap(env, rows) {
     map.set(tid, u ? `@${u}` : "-");
   });
 
-  // Ensure all ids exist in map even if missing admin row
   ids.forEach((id) => {
     if (!map.has(id)) map.set(id, "-");
   });
 
   return map;
+}
+
+// =========================
+// Superadmin Tools (Option A)
+// =========================
+function buildSuperadminToolsKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "🧩 Config", callback_data: "sa:cfg:menu" }],
+      [{ text: "⚙️ Settings", callback_data: "sa:settings:menu" }],
+      [{ text: "💰 Finance", callback_data: "sa:fin:menu" }],
+      [{ text: "⬅️ Officer Home", callback_data: "officer:home" }],
+    ],
+  };
+}
+
+// Config
+function buildConfigKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "👋 Update Welcome Message", callback_data: "sa:cfg:welcome" }],
+      [{ text: "🔗 Update Link Aturan", callback_data: "sa:cfg:aturan" }],
+      [{ text: "⬅️ Back", callback_data: "sa:tools:menu" }],
+    ],
+  };
+}
+
+function buildConfigWelcomeKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "✏️ Edit", callback_data: "sa:cfg:welcome_edit" }],
+      [{ text: "⬅️ Back", callback_data: "sa:cfg:menu" }],
+    ],
+  };
+}
+
+function buildConfigAturanKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "✏️ Edit", callback_data: "sa:cfg:aturan_edit" }],
+      [{ text: "⬅️ Back", callback_data: "sa:cfg:menu" }],
+    ],
+  };
+}
+
+// Settings → Category
+function buildSettingsKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "🗂️ Category", callback_data: "sa:cat:menu" }],
+      [{ text: "⬅️ Back", callback_data: "sa:tools:menu" }],
+    ],
+  };
+}
+
+function buildCategoryKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "📚 Category List", callback_data: "sa:cat:list" }],
+      [{ text: "➕ Add Category", callback_data: "sa:cat:add" }],
+      [{ text: "➖ Delete Category", callback_data: "sa:cat:del" }],
+      [{ text: "⬅️ Back", callback_data: "sa:settings:menu" }],
+    ],
+  };
+}
+
+// Finance placeholder
+function buildFinanceKeyboard(manualOn) {
+  return {
+    inline_keyboard: [
+      [
+        {
+          // tombol = aksi (bukan status)
+          text: manualOn ? "🛑 Set Manual Payment: OFF" : "✅ Set Manual Payment: ON",
+          callback_data: "sa:fin:manual_toggle",
+        },
+      ],
+      [{ text: "⬅️ Back", callback_data: "sa:tools:menu" }],
+    ],
+  };
 }
 
 // =========================
@@ -280,11 +360,207 @@ export async function handleCallback(update, env) {
       "Hallo Officer TeMan...\n" +
       "Silahkan tekan tombol dibawah atau ketik /help untuk bantuan.";
 
-    await sendMessage(env, adminId, text, { reply_markup: buildOfficerHomeKeyboard() });
+    await sendMessage(env, adminId, text, { reply_markup: buildOfficerHomeKeyboard(role) });
     return json({ ok: true });
   }
 
+  // =========================
+  // SUPERADMIN TOOLS (Option A)
+  // =========================
+  if (data.startsWith("sa:")) {
+    if (!isSuperadminRole(role)) return json({ ok: true });
+
+    // Root
+    if (data === "sa:tools:menu") {
+      await clearSession(env, `state:${adminId}`).catch(() => {});
+      if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+      await sendMessage(env, adminId, "⚙️ <b>Superadmin Tools</b>\nPilih menu:", {
+        parse_mode: "HTML",
+        reply_markup: buildSuperadminToolsKeyboard(),
+      });
+      return json({ ok: true });
+    }
+
+    // Config menu
+    if (data === "sa:cfg:menu") {
+      await clearSession(env, `state:${adminId}`).catch(() => {});
+      if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+      await sendMessage(env, adminId, "🧩 <b>Config</b>\nPilih yang mau diupdate:", {
+        parse_mode: "HTML",
+        reply_markup: buildConfigKeyboard(),
+      });
+      return json({ ok: true });
+    }
+
+    // Config: Welcome preview
+    if (data === "sa:cfg:welcome") {
+      await clearSession(env, `state:${adminId}`).catch(() => {});
+      if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+      const current = (await getSetting(env, "welcome_partner")) || "-";
+      await sendMessage(
+        env,
+        adminId,
+        "👋 <b>Welcome Message</b>\n\n<b>Current:</b>\n<pre>" + escapeHtml(current) + "</pre>",
+        { parse_mode: "HTML", reply_markup: buildConfigWelcomeKeyboard() }
+      );
+      return json({ ok: true });
+    }
+
+    // Config: Welcome edit (input via telegram.js)
+    if (data === "sa:cfg:welcome_edit") {
+      await saveSession(env, `state:${adminId}`, { mode: "sa_config", area: "welcome", step: "await_text" });
+      if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+      await sendMessage(
+        env,
+        adminId,
+        "✏️ <b>Edit Welcome Message</b>\n\nKirim teks welcome baru.\n\nKetik <b>batal</b> untuk keluar.",
+        {
+          parse_mode: "HTML",
+          reply_markup: { inline_keyboard: [[{ text: "⬅️ Back", callback_data: "sa:cfg:welcome" }]] },
+        }
+      );
+      return json({ ok: true });
+    }
+
+    // Config: Link aturan preview
+    if (data === "sa:cfg:aturan") {
+      await clearSession(env, `state:${adminId}`).catch(() => {});
+      if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+      const current = (await getSetting(env, "link_aturan")) || "-";
+      await sendMessage(
+        env,
+        adminId,
+        "🔗 <b>Link Aturan</b>\n\n<b>Current:</b>\n<pre>" + escapeHtml(current) + "</pre>",
+        { parse_mode: "HTML", disable_web_page_preview: true, reply_markup: buildConfigAturanKeyboard() }
+      );
+      return json({ ok: true });
+    }
+
+    // Config: Link aturan edit (input via telegram.js)
+    if (data === "sa:cfg:aturan_edit") {
+      await saveSession(env, `state:${adminId}`, { mode: "sa_config", area: "aturan", step: "await_text" });
+      if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+      await sendMessage(
+        env,
+        adminId,
+        "✏️ <b>Edit Link Aturan</b>\n\nKirim URL aturan baru (contoh: https://domain.com/aturan).\n\nKetik <b>batal</b> untuk keluar.",
+        {
+          parse_mode: "HTML",
+          reply_markup: { inline_keyboard: [[{ text: "⬅️ Back", callback_data: "sa:cfg:aturan" }]] },
+        }
+      );
+      return json({ ok: true });
+    }
+
+    // Settings menu
+    if (data === "sa:settings:menu") {
+      await clearSession(env, `state:${adminId}`).catch(() => {});
+      if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+      await sendMessage(env, adminId, "⚙️ <b>Settings</b>\nPilih menu:", {
+        parse_mode: "HTML",
+        reply_markup: buildSettingsKeyboard(),
+      });
+      return json({ ok: true });
+    }
+
+    // Category menu
+    if (data === "sa:cat:menu") {
+      await clearSession(env, `state:${adminId}`).catch(() => {});
+      if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+      await sendMessage(env, adminId, "🗂️ <b>Category</b>\nPilih aksi:", {
+        parse_mode: "HTML",
+        reply_markup: buildCategoryKeyboard(),
+      });
+      return json({ ok: true });
+    }
+
+    // Category list
+    if (data === "sa:cat:list") {
+      if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+      const rows = await listCategories(env);
+      if (!rows.length) {
+        await sendMessage(env, adminId, "📚 <b>Category List</b>\n\nBelum ada kategori.", {
+          parse_mode: "HTML",
+          reply_markup: buildCategoryKeyboard(),
+        });
+        return json({ ok: true });
+      }
+
+      const lines = ["📚 <b>Category List</b>", ""];
+      rows.forEach((r, i) => lines.push(`${i + 1}. ${escapeHtml(r.kode)}`));
+
+      await sendMessage(env, adminId, lines.join("\n"), {
+        parse_mode: "HTML",
+        reply_markup: buildCategoryKeyboard(),
+      });
+      return json({ ok: true });
+    }
+
+    // Category add (input)
+    if (data === "sa:cat:add") {
+      await saveSession(env, `state:${adminId}`, { mode: "sa_category", action: "add", step: "await_text" });
+      if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+      await sendMessage(
+        env,
+        adminId,
+        "➕ <b>Add Category</b>\n\nKirim <b>kode kategori</b> (contoh: Cuci Sofa).\n\nKetik <b>batal</b> untuk keluar.",
+        { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "⬅️ Back", callback_data: "sa:cat:menu" }]] } }
+      );
+      return json({ ok: true });
+    }
+
+    // Category delete (input)
+    if (data === "sa:cat:del") {
+      await saveSession(env, `state:${adminId}`, { mode: "sa_category", action: "del", step: "await_text" });
+      if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+      await sendMessage(
+        env,
+        adminId,
+        "➖ <b>Delete Category</b>\n\nKirim <b>kode kategori</b> yang mau dihapus.\n\nKetik <b>batal</b> untuk keluar.",
+        { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "⬅️ Back", callback_data: "sa:cat:menu" }]] } }
+      );
+      return json({ ok: true });
+    }
+
+    // Finance menu
+    if (data === "sa:fin:menu") {
+      await clearSession(env, `state:${adminId}`).catch(() => {});
+      if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+      const raw = (await getSetting(env, "payment_manual_enabled")) ?? "1";
+      const manualOn = String(raw) !== "0";
+
+      const text =
+        "💰 <b>Finance</b>\n\n" +
+        `Manual payment: <b>${manualOn ? "ON" : "OFF"}</b>\n` +
+        "Provider: <i>placeholder</i> (Xendit/Midtrans nanti)\n";
+
+      await sendMessage(env, adminId, text, {
+        parse_mode: "HTML",
+        reply_markup: buildFinanceKeyboard(manualOn),
+      });
+      return json({ ok: true });
+    }
+
+    // Finance toggle
+    if (data === "sa:fin:manual_toggle") {
+      const raw = (await getSetting(env, "payment_manual_enabled")) ?? "1";
+      const manualOn = String(raw) !== "0";
+      const next = manualOn ? "0" : "1";
+      await upsertSetting(env, "payment_manual_enabled", next);
+
+      const nowOn = next !== "0";
+      await sendMessage(env, adminId, `✅ Manual payment sekarang: ${nowOn ? "ON" : "OFF"}`, {
+        reply_markup: buildFinanceKeyboard(nowOn),
+      });
+      return json({ ok: true });
+    }
+
+    return json({ ok: true });
+  }
+
+  // =========================
   // PARTNER DATABASE
+  // =========================
   if (data.startsWith("pm:")) {
     if (!isAdminRole(role)) return json({ ok: true });
 
@@ -362,7 +638,9 @@ export async function handleCallback(update, env) {
     return json({ ok: true });
   }
 
+  // =========================
   // PARTNER MODERATION
+  // =========================
   if (data.startsWith("mod:")) {
     if (!isAdminRole(role)) return json({ ok: true });
 
@@ -399,7 +677,9 @@ export async function handleCallback(update, env) {
     return json({ ok: true });
   }
 
-  // SUPERADMIN ONLY (existing behavior)
+  // =========================
+  // SUPERADMIN ONLY (confirm/cancel)
+  // =========================
   if (!isSuperadminRole(role)) return json({ ok: true });
 
   // SETWELCOME CONFIRM/CANCEL
@@ -423,7 +703,9 @@ export async function handleCallback(update, env) {
 
     if (action === "setwelcome_cancel") {
       await deleteSetting(env, draftKey);
-      await sendMessage(env, adminId, "❌ Draft welcome dibatalkan.");
+      await sendMessage(env, adminId, "❌ Draft welcome dibatalkan.", {
+        reply_markup: buildSuperadminToolsKeyboard(),
+      });
       return json({ ok: true });
     }
 
@@ -433,12 +715,53 @@ export async function handleCallback(update, env) {
     await sendMessage(env, adminId, "✅ Welcome message berhasil diupdate.\n\n*Welcome baru:*\n" + draftText, {
       parse_mode: "Markdown",
       disable_web_page_preview: true,
+      reply_markup: buildSuperadminToolsKeyboard(),
     });
 
     return json({ ok: true });
   }
 
+  // SETLINK CONFIRM/CANCEL (aturan)
+  if (data.startsWith("setlink_confirm:") || data.startsWith("setlink_cancel:")) {
+    const [action, ownerId] = data.split(":");
+
+    if (String(ownerId) !== String(adminId)) {
+      await sendMessage(env, adminId, "⚠️ Aksi ini bukan untuk akunmu.");
+      return json({ ok: true });
+    }
+
+    const draftKey = `draft_link_aturan:${adminId}`;
+    const draftUrl = await getSetting(env, draftKey);
+
+    if (!draftUrl) {
+      await sendMessage(env, adminId, "⚠️ Draft link aturan tidak ditemukan / sudah dibatalkan.");
+      return json({ ok: true });
+    }
+
+    if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+
+    if (action === "setlink_cancel") {
+      await deleteSetting(env, draftKey);
+      await sendMessage(env, adminId, "❌ Draft link aturan dibatalkan.", {
+        reply_markup: buildSuperadminToolsKeyboard(),
+      });
+      return json({ ok: true });
+    }
+
+    await upsertSetting(env, "link_aturan", draftUrl);
+    await deleteSetting(env, draftKey);
+
+    await sendMessage(env, adminId, `✅ Link aturan berhasil diupdate:\n${draftUrl}`, {
+      disable_web_page_preview: true,
+      reply_markup: buildSuperadminToolsKeyboard(),
+    });
+
+    return json({ ok: true });
+  }
+
+  // =========================
   // PICK / SET VERIFICATOR
+  // =========================
   if (data.startsWith("pickver:") || data.startsWith("setver:") || data.startsWith("backver:")) {
     const parts = data.split(":");
     const action = parts[0];
@@ -512,7 +835,9 @@ export async function handleCallback(update, env) {
     return json({ ok: true });
   }
 
+  // =========================
   // APPROVE / REJECT PARTNER
+  // =========================
   const [action, telegramId] = data.split(":");
   if (action !== "approve" && action !== "reject") return json({ ok: true });
 
