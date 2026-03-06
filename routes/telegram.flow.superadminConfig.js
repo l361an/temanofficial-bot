@@ -3,6 +3,10 @@
 import { clearSession } from "../utils/session.js";
 import { sendMessage } from "../services/telegramApi.js";
 import { getSetting, upsertSetting } from "../repositories/settingsRepo.js";
+import {
+  buildLinkAturanPreviewText,
+  buildWelcomePreviewText,
+} from "./telegram.messages.js";
 
 export async function handleSuperadminConfigInput({ env, chatId, telegramId, text, session, STATE_KEY }) {
   const raw = String(text || "").trim();
@@ -25,17 +29,7 @@ export async function handleSuperadminConfigInput({ env, chatId, telegramId, tex
     await upsertSetting(env, `draft_welcome:${adminId}`, draft);
     await clearSession(env, STATE_KEY);
 
-    const msg =
-      "🧾 *Preview Welcome Partner*\n\n" +
-      "*Current:*\n" +
-      current +
-      "\n\n" +
-      "*New (draft):*\n" +
-      draft +
-      "\n\n" +
-      "Klik tombol di bawah untuk *Confirm* atau *Cancel*.";
-
-    await sendMessage(env, chatId, msg, {
+    await sendMessage(env, chatId, buildWelcomePreviewText(current, draft), {
       parse_mode: "Markdown",
       disable_web_page_preview: true,
       reply_markup: {
@@ -69,17 +63,7 @@ export async function handleSuperadminConfigInput({ env, chatId, telegramId, tex
     await upsertSetting(env, `draft_link_aturan:${adminId}`, draftUrl);
     await clearSession(env, STATE_KEY);
 
-    const msg =
-      "🧾 *Preview Link Aturan*\n\n" +
-      "*Current (link_aturan):*\n" +
-      current +
-      "\n\n" +
-      "*New (draft):*\n" +
-      draftUrl +
-      "\n\n" +
-      "Klik tombol di bawah untuk *Confirm* atau *Cancel*.";
-
-    await sendMessage(env, chatId, msg, {
+    await sendMessage(env, chatId, buildLinkAturanPreviewText(current, draftUrl), {
       parse_mode: "Markdown",
       disable_web_page_preview: true,
       reply_markup: {
