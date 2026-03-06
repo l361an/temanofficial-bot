@@ -27,41 +27,10 @@ import {
   getProfileFullByTelegramId,
   syncProfileUsernameFromTelegram,
 } from "../repositories/profilesRepo.js";
-
-// HELP pakai HTML biar gak kena error Markdown entities
-function buildHelp(role) {
-  if (isSuperadminRole(role)) {
-    return (
-      "📌 <b>Daftar Command (Officer Panel)</b>\n\n" +
-      "<b>Admin + Superadmin:</b>\n" +
-      "• <code>/start</code> — Buka <b>Officer Home</b> (inline menu)\n" +
-      "• <code>/ceksub @username|telegram_id</code> — Cek subscription partner\n\n" +
-      "<b>Superadmin only:</b>\n" +
-      "• Buka <b>⚙️ Superadmin Tools</b> dari Officer Home untuk Config/Settings/Finance\n\n" +
-      "ℹ️ <b>Catatan:</b>\n" +
-      "Fitur <b>Partner Database</b> & <b>Partner Moderation</b> sekarang <b>inline-only</b>.\n" +
-      "Gunakan <code>/start</code> lalu pilih menu."
-    );
-  }
-
-  if (isAdminRole(role)) {
-    return (
-      "📌 <b>Daftar Command (Officer Panel)</b>\n\n" +
-      "<b>Admin + Superadmin:</b>\n" +
-      "• <code>/start</code> — Buka <b>Officer Home</b> (inline menu)\n" +
-      "• <code>/ceksub @username|telegram_id</code> — Cek subscription partner\n\n" +
-      "ℹ️ <b>Catatan:</b>\n" +
-      "Fitur <b>Partner Database</b> & <b>Partner Moderation</b> sekarang <b>inline-only</b>.\n" +
-      "Gunakan <code>/start</code> lalu pilih menu."
-    );
-  }
-
-  return (
-    "ℹ️ <b>Bantuan</b>\n\n" +
-    "• <code>/start</code> — Tampilkan Menu TeMan\n" +
-    "• <code>/me</code> — Cek role (debug)"
-  );
-}
+import {
+  buildHelpText,
+  buildOfficerIdleText,
+} from "./telegram.messages.js";
 
 export async function handleTelegramWebhook(request, env) {
   try {
@@ -86,7 +55,7 @@ export async function handleTelegramWebhook(request, env) {
       const baseCmd = raw.split(/\s+/)[0].split("@")[0];
 
       if (baseCmd === "/help" || baseCmd === "/cmd") {
-        await sendMessage(env, chatId, buildHelp(role), { parse_mode: "HTML" });
+        await sendMessage(env, chatId, buildHelpText(role), { parse_mode: "HTML" });
         return json({ ok: true });
       }
 
@@ -139,7 +108,7 @@ export async function handleTelegramWebhook(request, env) {
       }
 
       if (!session) {
-        await sendMessage(env, chatId, "Halo Officer TeMan. Ketik /start untuk menu, atau /help untuk daftar command.");
+        await sendMessage(env, chatId, buildOfficerIdleText());
         return json({ ok: true });
       }
     }
