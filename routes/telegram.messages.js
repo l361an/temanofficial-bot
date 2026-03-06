@@ -7,45 +7,38 @@ export function buildOfficerHomeText() {
 }
 
 export function buildOfficerIdleText() {
-  return "Halo Officer TeMan. Ketik /start untuk menu, atau /help untuk daftar command.";
+  return "Halo Officer TeMan. Ketik /start untuk buka menu.";
 }
 
 export function buildHelpText(role) {
   if (isSuperadminRole(role)) {
     return (
-      "📌 <b>Daftar Command (Officer Panel)</b>\n\n" +
-      "<b>Admin + Superadmin:</b>\n" +
-      "• <code>/start</code> — Buka <b>Officer Home</b> (inline menu)\n" +
-      "• <code>/ceksub @username|telegram_id</code> — Cek subscription partner\n\n" +
-      "<b>Superadmin only:</b>\n" +
-      "• Buka <b>⚙️ Superadmin Tools</b> dari Officer Home untuk Config/Settings/Finance\n\n" +
-      "ℹ️ <b>Catatan:</b>\n" +
-      "Fitur <b>Partner Database</b> & <b>Partner Moderation</b> sekarang <b>inline-only</b>.\n" +
-      "Gunakan <code>/start</code> lalu pilih menu."
+      "📌 <b>Officer Panel</b>\n\n" +
+      "Perintah utama:\n" +
+      "• <code>/start</code> — buka menu officer\n" +
+      "• <code>/ceksub @username|telegram_id</code> — cek subscription partner\n\n" +
+      "Akses lain:\n" +
+      "• <b>Partner Tools</b> — Partner Database & Partner Moderation\n" +
+      "• <b>Superadmin Tools</b> — Config, Settings, Finance"
     );
   }
 
   if (isAdminRole(role)) {
     return (
-      "📌 <b>Daftar Command (Officer Panel)</b>\n\n" +
-      "<b>Admin + Superadmin:</b>\n" +
-      "• <code>/start</code> — Buka <b>Officer Home</b> (inline menu)\n" +
-      "• <code>/ceksub @username|telegram_id</code> — Cek subscription partner\n\n" +
-      "ℹ️ <b>Catatan:</b>\n" +
-      "Fitur <b>Partner Database</b> & <b>Partner Moderation</b> sekarang <b>inline-only</b>.\n" +
-      "Gunakan <code>/start</code> lalu pilih menu."
+      "📌 <b>Officer Panel</b>\n\n" +
+      "Perintah utama:\n" +
+      "• <code>/start</code> — buka menu officer\n" +
+      "• <code>/ceksub @username|telegram_id</code> — cek subscription partner\n\n" +
+      "Akses lain:\n" +
+      "• <b>Partner Tools</b> — Partner Database & Partner Moderation"
     );
   }
 
   return (
     "ℹ️ <b>Bantuan</b>\n\n" +
-    "• <code>/start</code> — Tampilkan Menu TeMan\n" +
-    "• <code>/me</code> — Cek role (debug)"
+    "• <code>/start</code> — tampilkan Menu TeMan\n" +
+    "• <code>/me</code> — cek role"
   );
-}
-
-export function buildLegacyInlineRedirectText() {
-  return "ℹ️ Command ini sudah dipindah ke inline menu.\n\nBuka:\n/start → ⚙️ Superadmin Tools → 🧩 Config";
 }
 
 export function buildWelcomePreviewText(current, draft) {
