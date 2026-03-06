@@ -10,7 +10,7 @@ export async function handleProfile(request, env, url) {
     const status = url.searchParams.get("status");
 
     let query = `
-      SELECT id, telegram_id, nama_lengkap, nickname, kota, status
+      SELECT id, telegram_id, nama_lengkap, nickname, kota, status, class_id
       FROM profiles
     `;
 
@@ -25,7 +25,7 @@ export async function handleProfile(request, env, url) {
   }
 
   // =========================
-  // CREATE PROFILE (BOT)
+  // CREATE PROFILE (BOT/API)
   // =========================
   if (request.method === "POST" && url.pathname === "/profiles") {
     try {
@@ -46,7 +46,6 @@ export async function handleProfile(request, env, url) {
         class_id,
       } = body;
 
-      // Validasi wajib
       if (
         !telegram_id ||
         !nama_lengkap ||
@@ -62,7 +61,6 @@ export async function handleProfile(request, env, url) {
         return error("Data tidak lengkap", 400);
       }
 
-      // Cek duplicate
       const { results: existing } = await env.DB
         .prepare("SELECT id FROM profiles WHERE telegram_id = ?")
         .bind(telegram_id)
@@ -73,6 +71,7 @@ export async function handleProfile(request, env, url) {
       }
 
       const id = crypto.randomUUID();
+      const classId = String(class_id || "bronze").trim().toLowerCase() || "bronze";
 
       await env.DB.prepare(`
         INSERT INTO profiles (
@@ -106,7 +105,7 @@ export async function handleProfile(request, env, url) {
           kota,
           foto_closeup_file_id,
           foto_fullbody_file_id,
-          class_id || null
+          classId
         )
         .run();
 
@@ -114,6 +113,7 @@ export async function handleProfile(request, env, url) {
         message: "Profile berhasil dibuat",
         profile_id: id,
         status: "pending",
+        class_id: classId,
       });
     } catch (err) {
       return error("Invalid JSON body", 400);
