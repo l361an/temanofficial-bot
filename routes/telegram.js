@@ -28,6 +28,7 @@ import {
 } from "../repositories/profilesRepo.js";
 import { getSetting, upsertSetting } from "../repositories/settingsRepo.js";
 import { addCategory, delCategoryByKode } from "../repositories/categoriesRepo.js";
+import { buildPartnerDetailActionsKeyboard } from "./callbacks/keyboards.js";
 
 // HELP pakai HTML biar gak kena error Markdown entities
 function buildHelp(role) {
@@ -216,7 +217,7 @@ async function handlePartnerModerationInput({ env, chatId, text, session, STATE_
 // =========================
 // Partner Database: view partner (inline-only)
 // =========================
-async function handlePartnerViewInput({ env, chatId, text, STATE_KEY }) {
+async function handlePartnerViewInput({ env, chatId, text, STATE_KEY, role }) {
   const raw = String(text || "").trim();
 
   if (/^(batal|cancel|keluar)$/i.test(raw)) {
@@ -293,6 +294,15 @@ async function handlePartnerViewInput({ env, chatId, text, STATE_KEY }) {
   }
 
   await clearSession(env, STATE_KEY);
+
+  if (isSuperadminRole(role)) {
+    await sendMessage(env, chatId, "⚙️ <b>Aksi Partner</b>", {
+      parse_mode: "HTML",
+      reply_markup: buildPartnerDetailActionsKeyboard(profile.telegram_id, role),
+    });
+    return true;
+  }
+
   await sendMessage(env, chatId, "✅ Selesai.", { reply_markup: buildBackToPartnerDatabaseViewKeyboard() });
   return true;
 }
@@ -430,8 +440,8 @@ async function handleSuperadminCategoryInput({ env, chatId, text, session, STATE
         res.reason === "exists"
           ? `⚠️ Kategori "${kode}" sudah ada.`
           : res.reason === "empty"
-          ? "⚠️ Kode kategori kosong."
-          : "⚠️ Gagal menambah kategori.";
+            ? "⚠️ Kode kategori kosong."
+            : "⚠️ Gagal menambah kategori.";
       await sendMessage(env, chatId, msg, { reply_markup: { inline_keyboard: [[{ text: "🗂️ Category", callback_data: "sa:cat:menu" }]] } });
       return true;
     }
@@ -451,8 +461,8 @@ async function handleSuperadminCategoryInput({ env, chatId, text, session, STATE
         res.reason === "not_found"
           ? `⚠️ Kategori "${kode}" tidak ditemukan.`
           : res.reason === "empty"
-          ? "⚠️ Kode kategori kosong."
-          : "⚠️ Gagal menghapus kategori.";
+            ? "⚠️ Kode kategori kosong."
+            : "⚠️ Gagal menghapus kategori.";
       await sendMessage(env, chatId, msg, { reply_markup: { inline_keyboard: [[{ text: "🗂️ Category", callback_data: "sa:cat:menu" }]] } });
       return true;
     }
@@ -521,7 +531,7 @@ export async function handleTelegramWebhook(request, env) {
       }
 
       if (session?.mode === "partner_view") {
-        await handlePartnerViewInput({ env, chatId, text, STATE_KEY });
+        await handlePartnerViewInput({ env, chatId, text, STATE_KEY, role });
         return json({ ok: true });
       }
 
