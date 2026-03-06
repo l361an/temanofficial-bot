@@ -28,7 +28,11 @@ import {
 } from "../repositories/profilesRepo.js";
 import { getSetting, upsertSetting } from "../repositories/settingsRepo.js";
 import { addCategory, delCategoryByKode } from "../repositories/categoriesRepo.js";
-import { buildPartnerDetailActionsKeyboard } from "./callbacks/keyboards.js";
+import {
+  buildPartnerDetailActionsKeyboard,
+  buildBackToPartnerModerationKeyboard,
+  buildBackToPartnerDatabaseViewKeyboard,
+} from "./callbacks/keyboards.js";
 
 // HELP pakai HTML biar gak kena error Markdown entities
 function buildHelp(role) {
@@ -109,24 +113,6 @@ async function resolveTelegramId(env, rawTarget) {
   if (target.startsWith("@")) return (await findTelegramIdByUsername(env, target)) || null;
   if (/^\d+$/.test(target)) return target;
   return null;
-}
-
-function buildBackToPartnerModerationKeyboard() {
-  return {
-    inline_keyboard: [
-      [{ text: "🛠️ Kembali ke Partner Moderation", callback_data: "mod:menu" }],
-      [{ text: "⬅️ Officer Home", callback_data: "officer:home" }],
-    ],
-  };
-}
-
-function buildBackToPartnerDatabaseViewKeyboard() {
-  return {
-    inline_keyboard: [
-      [{ text: "⬅️ Kembali ke Partner Database", callback_data: "pm:menu" }],
-      [{ text: "🏠 Officer Home", callback_data: "officer:home" }],
-    ],
-  };
 }
 
 // =========================
