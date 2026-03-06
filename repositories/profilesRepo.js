@@ -128,6 +128,40 @@ export async function setProfileStatus(env, telegramId, status) {
     .run();
 }
 
+export async function updateProfileClassByTelegramId(env, telegramId, classId) {
+  const tid = String(telegramId || "").trim();
+  if (!tid) return { ok: false, reason: "empty_tid" };
+
+  const cleanClassId = String(classId || "").trim().toLowerCase();
+  const valid = ["bronze", "gold", "platinum"];
+  if (!valid.includes(cleanClassId)) return { ok: false, reason: "invalid_class_id" };
+
+  const existing = await env.DB.prepare(
+    `
+    SELECT id, telegram_id, class_id
+    FROM profiles
+    WHERE telegram_id = ?
+    LIMIT 1
+  `
+  )
+    .bind(tid)
+    .first();
+
+  if (!existing?.telegram_id) return { ok: false, reason: "not_found" };
+
+  await env.DB.prepare(
+    `
+    UPDATE profiles
+    SET class_id = ?, diupdate_pada = datetime('now')
+    WHERE telegram_id = ?
+  `
+  )
+    .bind(cleanClassId, tid)
+    .run();
+
+  return { ok: true, class_id: cleanClassId };
+}
+
 export async function getSubscriptionInfo(env, telegramId) {
   try {
     const { results } = await env.DB.prepare(
