@@ -7,6 +7,7 @@ import {
   buildLinkAturanPreviewText,
   buildWelcomePreviewText,
 } from "./telegram.messages.js";
+import { CALLBACKS } from "./telegram.constants.js";
 
 export async function handleSuperadminConfigInput({ env, chatId, telegramId, text, session, STATE_KEY }) {
   const raw = String(text || "").trim();
@@ -14,7 +15,7 @@ export async function handleSuperadminConfigInput({ env, chatId, telegramId, tex
   if (/^(batal|cancel|keluar)$/i.test(raw)) {
     await clearSession(env, STATE_KEY);
     await sendMessage(env, chatId, "✅ Oke, edit dibatalkan.\nBalik ke menu:", {
-      reply_markup: { inline_keyboard: [[{ text: "🧩 Config", callback_data: "sa:cfg:menu" }]] },
+      reply_markup: { inline_keyboard: [[{ text: "🧩 Config", callback_data: CALLBACKS.SUPERADMIN_CONFIG_MENU }]] },
     });
     return true;
   }
@@ -38,7 +39,7 @@ export async function handleSuperadminConfigInput({ env, chatId, telegramId, tex
             { text: "✅ Confirm", callback_data: `setwelcome_confirm:${adminId}` },
             { text: "❌ Cancel", callback_data: `setwelcome_cancel:${adminId}` },
           ],
-          [{ text: "⬅️ Back", callback_data: "sa:cfg:welcome" }],
+          [{ text: "⬅️ Back", callback_data: CALLBACKS.SUPERADMIN_CONFIG_WELCOME }],
         ],
       },
     });
@@ -72,7 +73,7 @@ export async function handleSuperadminConfigInput({ env, chatId, telegramId, tex
             { text: "✅ Confirm", callback_data: `setlink_confirm:${adminId}` },
             { text: "❌ Cancel", callback_data: `setlink_cancel:${adminId}` },
           ],
-          [{ text: "⬅️ Back", callback_data: "sa:cfg:aturan" }],
+          [{ text: "⬅️ Back", callback_data: CALLBACKS.SUPERADMIN_CONFIG_ATURAN }],
         ],
       },
     });
@@ -82,7 +83,7 @@ export async function handleSuperadminConfigInput({ env, chatId, telegramId, tex
 
   await clearSession(env, STATE_KEY);
   await sendMessage(env, chatId, "⚠️ Mode Config tidak dikenal. Balik ke menu.", {
-    reply_markup: { inline_keyboard: [[{ text: "🧩 Config", callback_data: "sa:cfg:menu" }]] },
+    reply_markup: { inline_keyboard: [[{ text: "🧩 Config", callback_data: CALLBACKS.SUPERADMIN_CONFIG_MENU }]] },
   });
   return true;
 }
