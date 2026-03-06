@@ -31,6 +31,7 @@ import {
   buildHelpText,
   buildOfficerIdleText,
 } from "./telegram.messages.js";
+import { SESSION_MODES } from "./telegram.constants.js";
 
 export async function handleTelegramWebhook(request, env) {
   try {
@@ -49,7 +50,6 @@ export async function handleTelegramWebhook(request, env) {
 
     await syncProfileUsernameFromTelegram(env, telegramId, username).catch(() => {});
 
-    // COMMANDS
     if (text && text.startsWith("/")) {
       const raw = String(text || "").trim();
       const baseCmd = raw.split(/\s+/)[0].split("@")[0];
@@ -73,21 +73,20 @@ export async function handleTelegramWebhook(request, env) {
       return json({ ok: true });
     }
 
-    // TEXT FLOW
     const session = await loadSession(env, STATE_KEY);
 
     if (isAdminRole(role)) {
-      if (session?.mode === "partner_moderation") {
+      if (session?.mode === SESSION_MODES.PARTNER_MODERATION) {
         await handlePartnerModerationInput({ env, chatId, text, session, STATE_KEY });
         return json({ ok: true });
       }
 
-      if (session?.mode === "partner_view") {
+      if (session?.mode === SESSION_MODES.PARTNER_VIEW) {
         await handlePartnerViewInput({ env, chatId, text, STATE_KEY, role });
         return json({ ok: true });
       }
 
-      if (session?.mode === "sa_config") {
+      if (session?.mode === SESSION_MODES.SA_CONFIG) {
         if (!isSuperadminRole(role)) {
           await clearSession(env, STATE_KEY);
           await sendMessage(env, chatId, "⛔ Aksi ini hanya untuk Superadmin.");
@@ -97,7 +96,7 @@ export async function handleTelegramWebhook(request, env) {
         return json({ ok: true });
       }
 
-      if (session?.mode === "sa_category") {
+      if (session?.mode === SESSION_MODES.SA_CATEGORY) {
         if (!isSuperadminRole(role)) {
           await clearSession(env, STATE_KEY);
           await sendMessage(env, chatId, "⛔ Aksi ini hanya untuk Superadmin.");
@@ -130,7 +129,7 @@ export async function handleTelegramWebhook(request, env) {
       return json({ ok: true });
     }
 
-    if (session?.mode === "edit_profile") {
+    if (session?.mode === SESSION_MODES.EDIT_PROFILE) {
       await handleUserEditFlow({ env, chatId, telegramId, username, text, session, STATE_KEY, update });
       return json({ ok: true });
     }
