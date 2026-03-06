@@ -17,6 +17,14 @@ export const fmtHandle = (username) => {
   return u.startsWith("@") ? u : `@${u}`;
 };
 
+export const fmtClassId = (classId) => {
+  const v = String(classId || "").trim().toLowerCase();
+  if (v === "bronze") return "Bronze";
+  if (v === "gold") return "Gold";
+  if (v === "platinum") return "Platinum";
+  return "-";
+};
+
 // PM list rendering helper
 export function buildVerificatorLine(row, verificatorMap) {
   const vid = row?.verificator_admin_id ? String(row.verificator_admin_id) : "";
@@ -30,6 +38,7 @@ export function buildListMessageHtml(title, rows, verificatorMap, { showStatus =
   rows.forEach((r) => {
     lines.push(`👤 <b>${escapeHtml(r?.nama_lengkap ? String(r.nama_lengkap) : "-")}</b>`);
     if (showStatus) lines.push(`Status: <b>${escapeHtml(r?.status ? String(r.status) : "-")}</b>`);
+    lines.push(`Class ID: <b>${escapeHtml(fmtClassId(r?.class_id))}</b>`);
     lines.push(`ID: <code>${escapeHtml(r?.telegram_id ? String(r.telegram_id) : "-")}</code>`);
     lines.push(`Username: <b>${escapeHtml(r?.username ? fmtHandle(r.username) : "-")}</b>`);
     lines.push(`Nickname: <b>${escapeHtml(r?.nickname ? String(r.nickname) : "-")}</b>`);
