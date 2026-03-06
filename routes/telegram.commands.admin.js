@@ -8,6 +8,11 @@ import { listCategories, addCategory, delCategoryByKode } from "../repositories/
 import { isAdminRole, isSuperadminRole } from "../utils/roles.js";
 import { buildOfficerHomeKeyboard } from "./callbacks/keyboards.js";
 import { resolveTelegramId } from "../utils/partnerHelpers.js";
+import {
+  buildHelpText,
+  buildLegacyInlineRedirectText,
+  buildOfficerHomeText,
+} from "./telegram.messages.js";
 
 // =============================
 // Helpers
@@ -19,28 +24,6 @@ async function getPartnerLabelByTelegramId(env, telegramId) {
   const profile = await getProfileFullByTelegramId(env, tid);
   const u = String(profile?.username || "").trim().replace(/^@/, "");
   return u ? `@${u}` : tid;
-}
-
-function buildHelpMessage(role) {
-  const isSuper = isSuperadminRole(role);
-
-  const adminCmds = [
-    ["`/start`", "Menu Officer (inline)"],
-    ["`/ceksub @username|telegram_id`", "Cek subscription partner"],
-  ];
-
-  let msg =
-    "📌 *Daftar Command (Officer Panel)*\n\n" +
-    "*Admin + Superadmin:*\n" +
-    adminCmds.map(([cmd, desc]) => `• ${cmd} — ${desc}`).join("\n") +
-    "\n\n" +
-    "ℹ️ *Catatan:* Partner Database & Partner Moderation lewat `/start` (inline menu).\n";
-
-  if (isSuper) {
-    msg += "\n*Superadmin only:*\n• Buka *⚙️ Superadmin Tools* dari Officer Home untuk Config/Settings/Finance.\n";
-  }
-
-  return msg;
 }
 
 // =============================
@@ -91,19 +74,21 @@ export async function handleAdminCommand({ env, chatId, text, role }) {
   const badTarget = async () => (await sendMessage(env, chatId, "Target tidak ditemukan / format tidak valid."), true);
 
   if (DEAD_CMDS.has(command)) {
-    const msg = "Hallo Officer TeMan...\nSilahkan tekan tombol dibawah atau ketik /help untuk bantuan.";
-    await sendMessage(env, chatId, msg, { reply_markup: buildOfficerHomeKeyboard(role) });
+    await sendMessage(env, chatId, buildOfficerHomeText(), {
+      reply_markup: buildOfficerHomeKeyboard(role),
+    });
     return true;
   }
 
   if (command === "/start") {
-    const msg = "Hallo Officer TeMan...\nSilahkan tekan tombol dibawah atau ketik /help untuk bantuan.";
-    await sendMessage(env, chatId, msg, { reply_markup: buildOfficerHomeKeyboard(role) });
+    await sendMessage(env, chatId, buildOfficerHomeText(), {
+      reply_markup: buildOfficerHomeKeyboard(role),
+    });
     return true;
   }
 
   if (command === "/help" || command === "/cmd") {
-    await sendMessage(env, chatId, buildHelpMessage(role), { parse_mode: "Markdown" });
+    await sendMessage(env, chatId, buildHelpText(role), { parse_mode: "HTML" });
     return true;
   }
 
@@ -141,12 +126,9 @@ export async function handleAdminCommand({ env, chatId, text, role }) {
   if (command === "/setwelcome" || command === "/setlink") {
     if (!isSuperadminRole(role)) return deny();
 
-    await sendMessage(
-      env,
-      chatId,
-      "ℹ️ Command ini sudah dipindah ke inline menu.\n\nBuka:\n/start → ⚙️ Superadmin Tools → 🧩 Config",
-      { reply_markup: buildOfficerHomeKeyboard(role) }
-    );
+    await sendMessage(env, chatId, buildLegacyInlineRedirectText(), {
+      reply_markup: buildOfficerHomeKeyboard(role),
+    });
     return true;
   }
 
