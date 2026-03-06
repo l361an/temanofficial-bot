@@ -10,9 +10,9 @@ import { buildOfficerHomeKeyboard } from "./callbacks/keyboards.js";
 import { resolveTelegramId } from "../utils/partnerHelpers.js";
 import {
   buildHelpText,
-  buildLegacyInlineRedirectText,
   buildOfficerHomeText,
 } from "./telegram.messages.js";
+import { OBSOLETE_ADMIN_COMMANDS } from "./telegram.constants.js";
 
 // =============================
 // Helpers
@@ -54,8 +54,6 @@ const CATEGORY_CMDS = {
   },
 };
 
-const DEAD_CMDS = new Set(["/list", "/activate", "/suspend", "/delpartner", "/viewpartner"]);
-
 // =============================
 // Main
 // =============================
@@ -73,10 +71,13 @@ export async function handleAdminCommand({ env, chatId, text, role }) {
   const needArg = async (msg) => (await sendMessage(env, chatId, msg), true);
   const badTarget = async () => (await sendMessage(env, chatId, "Target tidak ditemukan / format tidak valid."), true);
 
-  if (DEAD_CMDS.has(command)) {
-    await sendMessage(env, chatId, buildOfficerHomeText(), {
-      reply_markup: buildOfficerHomeKeyboard(role),
-    });
+  if (OBSOLETE_ADMIN_COMMANDS.has(command)) {
+    await sendMessage(
+      env,
+      chatId,
+      "⚠️ Command ini sudah tidak dipakai.\nGunakan /start untuk buka menu officer.",
+      { reply_markup: buildOfficerHomeKeyboard(role) }
+    );
     return true;
   }
 
@@ -123,15 +124,6 @@ export async function handleAdminCommand({ env, chatId, text, role }) {
     return true;
   }
 
-  if (command === "/setwelcome" || command === "/setlink") {
-    if (!isSuperadminRole(role)) return deny();
-
-    await sendMessage(env, chatId, buildLegacyInlineRedirectText(), {
-      reply_markup: buildOfficerHomeKeyboard(role),
-    });
-    return true;
-  }
-
   if (command === "/listcategory") {
     if (!isSuperadminRole(role)) return deny();
 
@@ -140,7 +132,7 @@ export async function handleAdminCommand({ env, chatId, text, role }) {
       await sendMessage(
         env,
         chatId,
-        "Belum ada kategori. (Disarankan pakai inline)\n/start → ⚙️ Superadmin Tools → ⚙️ Settings → 🗂️ Category"
+        "Belum ada kategori. Gunakan menu:\n/start → Superadmin Tools → Settings → Category"
       );
       return true;
     }
