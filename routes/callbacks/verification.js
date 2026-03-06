@@ -7,8 +7,6 @@ import { getProfileStatus, approveProfile, rejectProfile } from "../../repositor
 import { listActiveVerificators, getAdminByTelegramId } from "../../repositories/adminsRepo.js";
 
 import { buildMainKeyboard, buildVerificatorKeyboard, buildApproveRejectKeyboard } from "./keyboards.js";
-
-// ini memang ada di file callback kamu sebelumnya :contentReference[oaicite:1]{index=1}
 import { buildTeManMenuKeyboard } from "../telegram.commands.user.js";
 
 function upsertVerificatorLine(caption, label) {
@@ -18,6 +16,12 @@ function upsertVerificatorLine(caption, label) {
   if (replaced !== raw) return replaced;
   if (!raw.trim()) return line;
   return `${raw}\n\n${line}`;
+}
+
+function buildOfficerHomeOnlyKeyboard() {
+  return {
+    inline_keyboard: [[{ text: "🏠 Officer Home", callback_data: "officer:home" }]],
+  };
 }
 
 async function setProfileVerificator(env, telegramId, verificatorAdminId) {
@@ -46,7 +50,6 @@ async function getProfileVerificatorId(env, telegramId) {
 export function buildVerificationHandlers() {
   const PREFIX = [];
 
-  // pickver/setver/backver
   PREFIX.push({
     match: (d) => d.startsWith("pickver:") || d.startsWith("setver:") || d.startsWith("backver:"),
     run: async (ctx) => {
@@ -75,8 +78,11 @@ export function buildVerificationHandlers() {
           return true;
         }
         const reply_markup = buildVerificatorKeyboard(telegramId, list);
-        if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, reply_markup).catch(() => {});
-        else await sendMessage(env, adminId, `Pilih verificator untuk Telegram ID: ${telegramId}`, { reply_markup });
+        if (msgChatId && msgId) {
+          await editMessageReplyMarkup(env, msgChatId, msgId, reply_markup).catch(() => {});
+        } else {
+          await sendMessage(env, adminId, `Pilih verificator untuk Telegram ID: ${telegramId}`, { reply_markup });
+        }
         return true;
       }
 
@@ -120,7 +126,6 @@ export function buildVerificationHandlers() {
     },
   });
 
-  // approve/reject
   PREFIX.push({
     match: (d) => d.startsWith("approve:") || d.startsWith("reject:"),
     run: async (ctx) => {
@@ -167,7 +172,9 @@ export function buildVerificationHandlers() {
           { reply_markup: buildTeManMenuKeyboard(), disable_web_page_preview: true }
         );
 
-        await sendMessage(env, adminId, `✅ APPROVED\nTelegram ID: ${telegramId}\nLink aturan: ${link}\nVerificator: ${vLabel}`);
+        await sendMessage(env, adminId, `✅ APPROVED\nTelegram ID: ${telegramId}\nLink aturan: ${link}\nVerificator: ${vLabel}`, {
+          reply_markup: buildOfficerHomeOnlyKeyboard(),
+        });
 
         if (msgChatId && msgId) {
           await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
