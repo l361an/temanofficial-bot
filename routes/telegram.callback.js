@@ -56,20 +56,14 @@ const fmtHandle = (username) => {
 // Keyboards (grouped)
 // =========================
 
-// ✅ Officer Home sekarang cuma 2 bucket: Partner Tools + Superadmin Tools (superadmin only)
+// Officer Home: Partner Tools + Superadmin Tools (superadmin only)
 function buildOfficerHomeKeyboard(role) {
-  const isSuper = isSuperadminRole(role);
-
-  const rows = [
-    [{ text: "🧰 Partner Tools", callback_data: "pt:menu" }],
-  ];
-
-  if (isSuper) rows.push([{ text: "⚙️ Superadmin Tools", callback_data: "sa:tools:menu" }]);
-
+  const rows = [[{ text: "🧰 Partner Tools", callback_data: "pt:menu" }]];
+  if (isSuperadminRole(role)) rows.push([{ text: "⚙️ Superadmin Tools", callback_data: "sa:tools:menu" }]);
   return { inline_keyboard: rows };
 }
 
-// ✅ Partner Tools menu
+// Partner Tools menu
 function buildPartnerToolsKeyboard() {
   return {
     inline_keyboard: [
@@ -90,11 +84,11 @@ function buildPartnerDatabaseKeyboard() {
       [{ text: "✅ Partner Approved", callback_data: "pm:list:approved" }],
       [{ text: "⛔ Partner Suspended", callback_data: "pm:list:suspended" }],
       [{ text: "🟢 Partner Active", callback_data: "pm:list:active" }],
-      // ✅ balik ke Partner Tools (biar konsisten)
       [{ text: "⬅️ Kembali", callback_data: "pt:menu" }],
     ],
   };
 }
+
 function buildBackToPartnerDatabaseKeyboard() {
   return {
     inline_keyboard: [
@@ -104,6 +98,7 @@ function buildBackToPartnerDatabaseKeyboard() {
     ],
   };
 }
+
 function buildBackToPartnerDatabaseViewKeyboard() {
   return {
     inline_keyboard: [
@@ -114,18 +109,22 @@ function buildBackToPartnerDatabaseViewKeyboard() {
   };
 }
 
-// Partner Moderation
-function buildPartnerModerationKeyboard() {
-  return {
-    inline_keyboard: [
-      [{ text: "✅ Activate Partner", callback_data: "mod:activate" }],
-      [{ text: "⛔ Suspend Partner", callback_data: "mod:suspend" }],
-      [{ text: "❌ Delete Partner", callback_data: "mod:delete" }],
-      // ✅ balik ke Partner Tools (biar konsisten)
-      [{ text: "⬅️ Kembali", callback_data: "pt:menu" }],
-    ],
-  };
+// Partner Moderation (✅ Delete = superadmin only)
+function buildPartnerModerationKeyboard(role) {
+  const rows = [
+    [{ text: "✅ Activate Partner", callback_data: "mod:activate" }],
+    [{ text: "⛔ Suspend Partner", callback_data: "mod:suspend" }],
+  ];
+
+  if (isSuperadminRole(role)) {
+    rows.push([{ text: "❌ Delete Partner", callback_data: "mod:delete" }]);
+  }
+
+  rows.push([{ text: "⬅️ Kembali", callback_data: "pt:menu" }]);
+
+  return { inline_keyboard: rows };
 }
+
 function buildBackToPartnerModerationKeyboard() {
   return {
     inline_keyboard: [
@@ -147,6 +146,7 @@ function buildSuperadminToolsKeyboard() {
     ],
   };
 }
+
 function buildConfigKeyboard() {
   return {
     inline_keyboard: [
@@ -156,6 +156,7 @@ function buildConfigKeyboard() {
     ],
   };
 }
+
 function buildConfigWelcomeKeyboard() {
   return {
     inline_keyboard: [
@@ -164,6 +165,7 @@ function buildConfigWelcomeKeyboard() {
     ],
   };
 }
+
 function buildConfigAturanKeyboard() {
   return {
     inline_keyboard: [
@@ -172,6 +174,7 @@ function buildConfigAturanKeyboard() {
     ],
   };
 }
+
 function buildSettingsKeyboard() {
   return {
     inline_keyboard: [
@@ -180,6 +183,7 @@ function buildSettingsKeyboard() {
     ],
   };
 }
+
 function buildCategoryKeyboard() {
   return {
     inline_keyboard: [
@@ -190,7 +194,8 @@ function buildCategoryKeyboard() {
     ],
   };
 }
-// Finance placeholder (✅ tombol = aksi)
+
+// Finance placeholder (tombol = aksi)
 function buildFinanceKeyboard(manualOn) {
   return {
     inline_keyboard: [
@@ -209,6 +214,7 @@ function buildFinanceKeyboard(manualOn) {
 function buildMainKeyboard(telegramId) {
   return { inline_keyboard: [[{ text: "👤 Pilih Verificator", callback_data: `pickver:${telegramId}` }]] };
 }
+
 function buildApproveRejectKeyboard(telegramId) {
   return {
     inline_keyboard: [[
@@ -217,6 +223,7 @@ function buildApproveRejectKeyboard(telegramId) {
     ]],
   };
 }
+
 function buildVerificatorKeyboard(telegramId, verificators) {
   const rows = [];
   const max = Math.min(verificators.length, 20);
@@ -231,6 +238,7 @@ function buildVerificatorKeyboard(telegramId, verificators) {
   rows.push([{ text: "⬅️ Kembali", callback_data: `backver:${telegramId}` }]);
   return { inline_keyboard: rows };
 }
+
 function upsertVerificatorLine(caption, label) {
   const raw = String(caption || "");
   const line = `Verificator: ${label}`;
@@ -239,6 +247,7 @@ function upsertVerificatorLine(caption, label) {
   if (!raw.trim()) return line;
   return `${raw}\n\n${line}`;
 }
+
 async function setProfileVerificator(env, telegramId, verificatorAdminId) {
   await env.DB.prepare(`
     UPDATE profiles
@@ -248,6 +257,7 @@ async function setProfileVerificator(env, telegramId, verificatorAdminId) {
     .bind(String(verificatorAdminId), String(telegramId))
     .run();
 }
+
 async function getProfileVerificatorId(env, telegramId) {
   const row = await env.DB.prepare(`
     SELECT verificator_admin_id
@@ -268,6 +278,7 @@ function buildVerificatorLine(row, verificatorMap) {
   const uname = verificatorMap?.get(vid) || "-";
   return `Verificator: <code>${escapeHtml(vid)}</code> - <b>${escapeHtml(uname)}</b>`;
 }
+
 function buildListMessageHtml(title, rows, verificatorMap, { showStatus = false } = {}) {
   const lines = [`📋 <b>${escapeHtml(title)}:</b>`, ""];
   rows.forEach((r) => {
@@ -281,6 +292,7 @@ function buildListMessageHtml(title, rows, verificatorMap, { showStatus = false 
   });
   return lines.join("\n");
 }
+
 async function buildVerificatorMap(env, rows) {
   const ids = [
     ...new Set((rows || []).map((r) => r?.verificator_admin_id).filter(Boolean).map((x) => String(x))),
@@ -323,7 +335,7 @@ function createHandlers() {
     return true;
   };
 
-  // ✅ Partner Tools menu
+  // Partner Tools menu
   EXACT["pt:menu"] = async (ctx) => {
     const { env, adminId, msgChatId, msgId } = ctx;
     await clearSession(env, `state:${adminId}`).catch(() => {});
@@ -335,7 +347,7 @@ function createHandlers() {
     return true;
   };
 
-  // sa root/menus
+  // superadmin menus
   EXACT["sa:tools:menu"] = async (ctx) => {
     const { env, adminId, msgChatId, msgId } = ctx;
     await clearSession(env, `state:${adminId}`).catch(() => {});
@@ -513,7 +525,7 @@ function createHandlers() {
     return true;
   };
 
-  // pm
+  // Partner Database menu
   EXACT["pm:menu"] = async (ctx) => {
     const { env, adminId, msgChatId, msgId } = ctx;
     await clearSession(env, `state:${adminId}`).catch(() => {});
@@ -538,14 +550,14 @@ function createHandlers() {
     return true;
   };
 
-  // mod
+  // Partner Moderation menu (✅ role-aware keyboard)
   EXACT["mod:menu"] = async (ctx) => {
-    const { env, adminId, msgChatId, msgId } = ctx;
+    const { env, adminId, msgChatId, msgId, role } = ctx;
     await clearSession(env, `state:${adminId}`).catch(() => {});
     if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
     await sendMessage(env, adminId, "🛠️ <b>Partner Moderation</b>\nPilih aksi di bawah:", {
       parse_mode: "HTML",
-      reply_markup: buildPartnerModerationKeyboard(),
+      reply_markup: buildPartnerModerationKeyboard(role),
     });
     return true;
   };
@@ -615,6 +627,7 @@ function createHandlers() {
 
   // prefix handlers (data startsWith ...)
   const PREFIX = [
+    // pm:list:*
     {
       match: (d) => d.startsWith("pm:list:"),
       run: async (ctx) => {
@@ -660,17 +673,29 @@ function createHandlers() {
         return true;
       },
     },
+
+    // mod:activate|suspend|delete (✅ delete superadmin-only)
     {
       match: (d) => d.startsWith("mod:") && ["mod:activate", "mod:suspend", "mod:delete"].includes(d),
       run: async (ctx) => {
-        const { env, data, adminId, msgChatId, msgId } = ctx;
+        const { env, data, adminId, msgChatId, msgId, role } = ctx;
         const action = data.split(":")[1];
+
+        // ✅ hard-block delete for non-superadmin
+        if (action === "delete" && !isSuperadminRole(role)) {
+          await sendMessage(env, adminId, "⛔ Akses ditolak. Delete Partner hanya untuk Superadmin.");
+          return true;
+        }
+
         await saveSession(env, `state:${adminId}`, { mode: "partner_moderation", action, step: "await_target" });
+
         if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+
         const nice =
           action === "activate" ? "ACTIVATE (active)" :
           action === "suspend" ? "SUSPEND (suspended)" :
           "DELETE (hapus partner)";
+
         await sendMessage(
           env,
           adminId,
@@ -680,10 +705,14 @@ function createHandlers() {
         return true;
       },
     },
+
+    // confirm/cancel
     {
       match: (d) => CONFIRM_PREFIX.some((p) => d.startsWith(p)),
       run: handleConfirm,
     },
+
+    // pickver/setver/backver
     {
       match: (d) => d.startsWith("pickver:") || d.startsWith("setver:") || d.startsWith("backver:"),
       run: async (ctx) => {
@@ -756,6 +785,8 @@ function createHandlers() {
         return true;
       },
     },
+
+    // approve/reject
     {
       match: (d) => d.startsWith("approve:") || d.startsWith("reject:"),
       run: async (ctx) => {
@@ -886,17 +917,18 @@ export async function handleCallback(update, env) {
   if (isOfficerAction && !isAdminRole(role)) return json({ ok: true });
   if (isSAAction && !isSuperadminRole(role)) return json({ ok: true });
 
+  // ✅ extra hard gate: mod:delete only superadmin
+  if (data === "mod:delete" && !isSuperadminRole(role)) return json({ ok: true });
+
   const ctx = { env, update, data, adminId, role, msg, msgChatId, msgId };
 
   try {
-    // exact first
     const fn = EXACT_HANDLERS[data];
     if (fn) {
       await fn(ctx);
       return json({ ok: true });
     }
 
-    // prefix handlers
     for (const h of PREFIX_HANDLERS) {
       if (h.match(data)) {
         await h.run(ctx);
