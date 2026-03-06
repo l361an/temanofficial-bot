@@ -1,62 +1,24 @@
 // routes/telegram.commands.admin.js
-import { sendMessage, sendPhoto, sendLongMessage } from "../services/telegramApi.js";
-import { upsertSetting, getSetting } from "../repositories/settingsRepo.js";
+import { sendMessage } from "../services/telegramApi.js";
 import {
   getSubscriptionInfo,
   getProfileFullByTelegramId,
-  listCategoryKodesByProfileId,
 } from "../repositories/profilesRepo.js";
 import { listCategories, addCategory, delCategoryByKode } from "../repositories/categoriesRepo.js";
 import { isAdminRole, isSuperadminRole } from "../utils/roles.js";
 import { buildOfficerHomeKeyboard } from "./callbacks/keyboards.js";
+import { resolveTelegramId } from "../utils/partnerHelpers.js";
 
 // =============================
 // Helpers
 // =============================
-const escapeHtml = (s) =>
-  String(s ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-
-const fmtKV = (label, value) => {
-  const v = value === null || value === undefined || value === "" ? "-" : String(value);
-  return `• <b>${escapeHtml(label)}:</b> ${escapeHtml(v)}`;
-};
-
-const cleanHandle = (username) => {
-  const u = String(username || "").trim().replace(/^@/, "");
-  return u ? `@${u}` : "-";
-};
-
-// @username => cari profiles.username, balikin telegram_id
-async function findTelegramIdByUsername(env, username) {
-  const clean = String(username || "").trim().replace(/^@/, "");
-  if (!clean) return null;
-  const row = await env.DB.prepare(`SELECT telegram_id FROM profiles WHERE username = ? LIMIT 1`)
-    .bind(clean)
-    .first();
-  return row?.telegram_id ?? null;
-}
-
-// Digunakan untuk output yang enak dibaca
 async function getPartnerLabelByTelegramId(env, telegramId) {
   const tid = String(telegramId || "").trim();
   if (!tid) return "-";
+
   const profile = await getProfileFullByTelegramId(env, tid);
   const u = String(profile?.username || "").trim().replace(/^@/, "");
   return u ? `@${u}` : tid;
-}
-
-// Support target: @username atau telegram_id
-async function resolveTelegramId(env, rawTarget) {
-  const target = String(rawTarget || "").trim();
-  if (!target) return null;
-  if (target.startsWith("@")) return (await findTelegramIdByUsername(env, target)) || null;
-  if (/^\d+$/.test(target)) return target;
-  return null;
 }
 
 function buildHelpMessage(role) {
@@ -82,7 +44,7 @@ function buildHelpMessage(role) {
 }
 
 // =============================
-// Category command configs (tetap ada utk backward, tapi disembunyikan dari /help)
+// Category command configs
 // =============================
 const CATEGORY_CMDS = {
   "/addcategory": {
@@ -109,13 +71,12 @@ const CATEGORY_CMDS = {
   },
 };
 
-// Command legacy yang udah dibuang: redirect balik ke Officer Home
 const DEAD_CMDS = new Set(["/list", "/activate", "/suspend", "/delpartner", "/viewpartner"]);
 
 // =============================
 // Main
 // =============================
-export async function handleAdminCommand({ env, chatId, text, role, telegramId }) {
+export async function handleAdminCommand({ env, chatId, text, role }) {
   if (!isAdminRole(role)) return false;
 
   const rawText = String(text || "").trim();
@@ -129,27 +90,23 @@ export async function handleAdminCommand({ env, chatId, text, role, telegramId }
   const needArg = async (msg) => (await sendMessage(env, chatId, msg), true);
   const badTarget = async () => (await sendMessage(env, chatId, "Target tidak ditemukan / format tidak valid."), true);
 
-  // Legacy commands: redirect ke Officer Home yang sama (single source of truth)
   if (DEAD_CMDS.has(command)) {
     const msg = "Hallo Officer TeMan...\nSilahkan tekan tombol dibawah atau ketik /help untuk bantuan.";
     await sendMessage(env, chatId, msg, { reply_markup: buildOfficerHomeKeyboard(role) });
     return true;
   }
 
-  // /start (Officer)
   if (command === "/start") {
     const msg = "Hallo Officer TeMan...\nSilahkan tekan tombol dibawah atau ketik /help untuk bantuan.";
     await sendMessage(env, chatId, msg, { reply_markup: buildOfficerHomeKeyboard(role) });
     return true;
   }
 
-  // HELP
   if (command === "/help" || command === "/cmd") {
     await sendMessage(env, chatId, buildHelpMessage(role), { parse_mode: "Markdown" });
     return true;
   }
 
-  // /ceksub
   if (command === "/ceksub") {
     const raw = args[0];
     if (!raw) return needArg("Format:\n/ceksub @username\natau\n/ceksub telegram_id");
@@ -181,11 +138,9 @@ export async function handleAdminCommand({ env, chatId, text, role, telegramId }
     return true;
   }
 
-  // =============================
-  // Superadmin commands dipindah ke inline Superadmin Tools
-  // =============================
   if (command === "/setwelcome" || command === "/setlink") {
     if (!isSuperadminRole(role)) return deny();
+
     await sendMessage(
       env,
       chatId,
@@ -195,13 +150,16 @@ export async function handleAdminCommand({ env, chatId, text, role, telegramId }
     return true;
   }
 
-  // Category manager legacy (masih ada utk backward, tapi sebaiknya pakai inline)
   if (command === "/listcategory") {
     if (!isSuperadminRole(role)) return deny();
 
     const rows = await listCategories(env);
     if (!rows.length) {
-      await sendMessage(env, chatId, "Belum ada kategori. (Disarankan pakai inline)\n/start → ⚙️ Superadmin Tools → ⚙️ Settings → 🗂️ Category");
+      await sendMessage(
+        env,
+        chatId,
+        "Belum ada kategori. (Disarankan pakai inline)\n/start → ⚙️ Superadmin Tools → ⚙️ Settings → 🗂️ Category"
+      );
       return true;
     }
 
@@ -209,6 +167,7 @@ export async function handleAdminCommand({ env, chatId, text, role, telegramId }
     rows.forEach((r, i) => {
       msg += `${i + 1}. ${r.kode}\n`;
     });
+
     await sendMessage(env, chatId, msg);
     return true;
   }
