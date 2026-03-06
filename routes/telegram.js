@@ -85,6 +85,14 @@ const cleanHandle = (username) => {
   return u ? `@${u}` : "-";
 };
 
+const fmtClassId = (classId) => {
+  const v = String(classId || "").trim().toLowerCase();
+  if (v === "bronze") return "Bronze";
+  if (v === "gold") return "Gold";
+  if (v === "platinum") return "Platinum";
+  return "-";
+};
+
 async function findTelegramIdByUsername(env, username) {
   const clean = String(username || "").trim().replace(/^@/, "");
   if (!clean) return null;
@@ -146,6 +154,8 @@ async function handlePartnerModerationInput({ env, chatId, text, session, STATE_
     return true;
   }
 
+  const profile = await getProfileFullByTelegramId(env, targetId);
+  const classId = fmtClassId(profile?.class_id);
   const label = raw.startsWith("@") ? raw : targetId;
 
   if (!["activate", "suspend", "delete"].includes(action)) {
@@ -159,7 +169,7 @@ async function handlePartnerModerationInput({ env, chatId, text, session, STATE_
   if (action === "delete") {
     await deleteProfileByTelegramId(env, targetId);
     await clearSession(env, STATE_KEY);
-    await sendMessage(env, chatId, `❌ Partner ${label} berhasil dihapus.`, {
+    await sendMessage(env, chatId, `❌ Partner ${label} berhasil dihapus.\nClass ID: ${classId}`, {
       reply_markup: buildBackToPartnerModerationKeyboard(),
     });
     return true;
@@ -176,7 +186,7 @@ async function handlePartnerModerationInput({ env, chatId, text, session, STATE_
       { parse_mode: "Markdown", reply_markup: buildTeManMenuKeyboard() }
     ).catch(() => {});
 
-    await sendMessage(env, chatId, `✅ Partner ${label} berhasil di-suspend (suspended).`, {
+    await sendMessage(env, chatId, `✅ Partner ${label} berhasil di-suspend (suspended).\nClass ID: ${classId}`, {
       reply_markup: buildBackToPartnerModerationKeyboard(),
     });
     return true;
@@ -194,7 +204,7 @@ async function handlePartnerModerationInput({ env, chatId, text, session, STATE_
       { parse_mode: "Markdown", disable_web_page_preview: true, reply_markup: buildTeManMenuKeyboard() }
     ).catch(() => {});
 
-    await sendMessage(env, chatId, `✅ Partner ${label} berhasil di-activate (active).`, {
+    await sendMessage(env, chatId, `✅ Partner ${label} berhasil di-activate (active).\nClass ID: ${classId}`, {
       reply_markup: buildBackToPartnerModerationKeyboard(),
     });
     return true;
@@ -240,12 +250,11 @@ async function handlePartnerViewInput({ env, chatId, text, STATE_KEY }) {
   const categories = profile.id ? await listCategoryKodesByProfileId(env, profile.id) : [];
   const kategoriText = categories.length ? categories.join(", ") : "-";
 
-  // ✅ Verificator: id - @username
   let verificatorDisplay = "-";
   if (profile.verificator_admin_id) {
     const vid = String(profile.verificator_admin_id);
     const vRow = await getAdminByTelegramId(env, vid).catch(() => null);
-    const vUser = vRow?.username ? cleanHandle(vRow.username) : (vRow?.label ? String(vRow.label) : "-");
+    const vUser = vRow?.username ? cleanHandle(vRow.username) : vRow?.label ? String(vRow.label) : "-";
     verificatorDisplay = `${vid} - ${vUser || "-"}`;
   }
 
@@ -254,6 +263,8 @@ async function handlePartnerViewInput({ env, chatId, text, STATE_KEY }) {
     fmtKV("Telegram ID", profile.telegram_id) +
     "\n" +
     fmtKV("Username", cleanHandle(profile.username)) +
+    "\n" +
+    fmtKV("Class ID", fmtClassId(profile.class_id)) +
     "\n" +
     fmtKV("Nama Lengkap", profile.nama_lengkap) +
     "\n" +
