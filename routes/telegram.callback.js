@@ -50,6 +50,7 @@ export async function handleCallback(update, env) {
 
   const isSAAction =
     data.startsWith("sa:") ||
+    data.startsWith("pmclass:") ||
     data.startsWith("setwelcome_confirm:") ||
     data.startsWith("setwelcome_cancel:") ||
     data.startsWith("setlink_confirm:") ||
