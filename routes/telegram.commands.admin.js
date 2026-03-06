@@ -96,7 +96,7 @@ function buildHelpMessage(role) {
 // =============================
 const CATEGORY_CMDS = {
   "/addcategory": {
-    fmt: "Format:\n/addcategory <kode>\nContoh:\n/addcategory Cuci Sofa",
+    fmt: "Format:\n/addcategory <kode>\nContoh:\n/addcategory TeManMakan",
     action: addCategory,
     ok: (kode) => `✅ Kategori ditambahkan: ${kode}`,
     errs: (kode, reason) =>
@@ -107,7 +107,7 @@ const CATEGORY_CMDS = {
         : "⚠️ Gagal menambah kategori.",
   },
   "/delcategory": {
-    fmt: "Format:\n/delcategory <kode>\nContoh:\n/delcategory Cuci Sofa",
+    fmt: "Format:\n/delcategory <kode>\nContoh:\n/delcategory TeManMakan",
     action: delCategoryByKode,
     ok: (kode) => `✅ Kategori dihapus: ${kode}`,
     errs: (kode, reason) =>
