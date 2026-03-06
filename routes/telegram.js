@@ -33,6 +33,12 @@ import {
   buildBackToPartnerModerationKeyboard,
   buildBackToPartnerDatabaseViewKeyboard,
 } from "./callbacks/keyboards.js";
+import {
+  cleanHandle,
+  fmtClassId,
+  fmtKV,
+  resolveTelegramId,
+} from "../utils/partnerHelpers.js";
 
 // HELP pakai HTML biar gak kena error Markdown entities
 function buildHelp(role) {
@@ -67,52 +73,6 @@ function buildHelp(role) {
     "• <code>/start</code> — Tampilkan Menu TeMan\n" +
     "• <code>/me</code> — Cek role (debug)"
   );
-}
-
-// =========================
-// Helpers (Partner Moderation + View Partner)
-// =========================
-const escapeHtml = (s) =>
-  String(s ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-
-const fmtKV = (label, value) => {
-  const v = value === null || value === undefined || value === "" ? "-" : String(value);
-  return `• <b>${escapeHtml(label)}:</b> ${escapeHtml(v)}`;
-};
-
-const cleanHandle = (username) => {
-  const u = String(username || "").trim().replace(/^@/, "");
-  return u ? `@${u}` : "-";
-};
-
-const fmtClassId = (classId) => {
-  const v = String(classId || "").trim().toLowerCase();
-  if (v === "bronze") return "Bronze";
-  if (v === "gold") return "Gold";
-  if (v === "platinum") return "Platinum";
-  return "-";
-};
-
-async function findTelegramIdByUsername(env, username) {
-  const clean = String(username || "").trim().replace(/^@/, "");
-  if (!clean) return null;
-  const row = await env.DB.prepare(`SELECT telegram_id FROM profiles WHERE username = ? LIMIT 1`)
-    .bind(clean)
-    .first();
-  return row?.telegram_id ?? null;
-}
-
-async function resolveTelegramId(env, rawTarget) {
-  const target = String(rawTarget || "").trim();
-  if (!target) return null;
-  if (target.startsWith("@")) return (await findTelegramIdByUsername(env, target)) || null;
-  if (/^\d+$/.test(target)) return target;
-  return null;
 }
 
 // =========================
@@ -413,7 +373,9 @@ async function handleSuperadminCategoryInput({ env, chatId, text, session, STATE
   const kode = raw;
 
   if (!kode) {
-    await sendMessage(env, chatId, "⚠️ Kode kategori kosong. Kirim ulang, atau ketik <b>batal</b>.", { parse_mode: "HTML" });
+    await sendMessage(env, chatId, "⚠️ Kode kategori kosong. Kirim ulang, atau ketik <b>batal</b>.", {
+      parse_mode: "HTML",
+    });
     return true;
   }
 
@@ -428,7 +390,9 @@ async function handleSuperadminCategoryInput({ env, chatId, text, session, STATE
           : res.reason === "empty"
             ? "⚠️ Kode kategori kosong."
             : "⚠️ Gagal menambah kategori.";
-      await sendMessage(env, chatId, msg, { reply_markup: { inline_keyboard: [[{ text: "🗂️ Category", callback_data: "sa:cat:menu" }]] } });
+      await sendMessage(env, chatId, msg, {
+        reply_markup: { inline_keyboard: [[{ text: "🗂️ Category", callback_data: "sa:cat:menu" }]] },
+      });
       return true;
     }
 
@@ -449,7 +413,9 @@ async function handleSuperadminCategoryInput({ env, chatId, text, session, STATE
           : res.reason === "empty"
             ? "⚠️ Kode kategori kosong."
             : "⚠️ Gagal menghapus kategori.";
-      await sendMessage(env, chatId, msg, { reply_markup: { inline_keyboard: [[{ text: "🗂️ Category", callback_data: "sa:cat:menu" }]] } });
+      await sendMessage(env, chatId, msg, {
+        reply_markup: { inline_keyboard: [[{ text: "🗂️ Category", callback_data: "sa:cat:menu" }]] },
+      });
       return true;
     }
 
@@ -483,7 +449,6 @@ export async function handleTelegramWebhook(request, env) {
 
     await syncProfileUsernameFromTelegram(env, telegramId, username).catch(() => {});
 
-    // COMMANDS
     if (text && text.startsWith("/")) {
       const raw = String(text || "").trim();
       const baseCmd = raw.split(/\s+/)[0].split("@")[0];
@@ -507,7 +472,6 @@ export async function handleTelegramWebhook(request, env) {
       return json({ ok: true });
     }
 
-    // TEXT FLOW
     const session = await loadSession(env, STATE_KEY);
 
     if (isAdminRole(role)) {
