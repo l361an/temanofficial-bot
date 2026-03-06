@@ -3,6 +3,7 @@ import { buildOfficerExact } from "./officer.js";
 import { buildPartnerToolsExact } from "./partnerTools.js";
 import { buildPartnerDatabaseHandlers } from "./partnerDatabase.js";
 import { buildPartnerModerationHandlers } from "./partnerModeration.js";
+import { buildPartnerClassHandlers } from "./partnerClass.js";
 import { buildSuperadminHandlers } from "./superadmin.js";
 import { buildVerificationHandlers } from "./verification.js";
 
@@ -22,6 +23,7 @@ export function createHandlers() {
     buildPartnerToolsExact(),
     buildPartnerDatabaseHandlers(),
     buildPartnerModerationHandlers(),
+    buildPartnerClassHandlers(),
     buildSuperadminHandlers(),
     buildVerificationHandlers()
   );
