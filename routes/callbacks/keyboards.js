@@ -76,6 +76,7 @@ export function buildPartnerClassPickerKeyboard(telegramId) {
       [{ text: "Platinum", callback_data: `pmclass:set:${telegramId}:platinum` }],
       [{ text: "⬅️ Kembali ke Detail Partner", callback_data: `pmclass:back:${telegramId}` }],
       [{ text: "🗃️ Partner Database", callback_data: "pm:menu" }],
+      [{ text: "🧰 Partner Tools", callback_data: "pt:menu" }],
     ],
   };
 }
