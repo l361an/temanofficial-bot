@@ -41,7 +41,7 @@ export async function getProfileStatus(env, telegramId) {
 export async function getProfileByTelegramId(env, telegramId) {
   const row = await env.DB.prepare(
     `
-    SELECT id, telegram_id, status, nama_lengkap, username, nickname
+    SELECT id, telegram_id, status, nama_lengkap, username, nickname, class_id
     FROM profiles
     WHERE telegram_id = ?
     LIMIT 1
@@ -81,6 +81,8 @@ export async function rejectProfile(env, telegramId) {
 }
 
 export async function insertPendingProfile(env, payload) {
+  const classId = String(payload?.class_id || "bronze").trim().toLowerCase() || "bronze";
+
   await env.DB.prepare(
     `
     INSERT INTO profiles (
@@ -96,9 +98,10 @@ export async function insertPendingProfile(env, payload) {
       kota,
       foto_closeup_file_id,
       foto_fullbody_file_id,
+      class_id,
       status
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
   `
   )
     .bind(
@@ -113,7 +116,8 @@ export async function insertPendingProfile(env, payload) {
       payload.kecamatan,
       payload.kota,
       payload.foto_closeup_file_id,
-      payload.foto_fullbody_file_id
+      payload.foto_fullbody_file_id,
+      classId
     )
     .run();
 }
