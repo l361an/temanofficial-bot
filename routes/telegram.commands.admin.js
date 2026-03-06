@@ -8,6 +8,7 @@ import {
 } from "../repositories/profilesRepo.js";
 import { listCategories, addCategory, delCategoryByKode } from "../repositories/categoriesRepo.js";
 import { isAdminRole, isSuperadminRole } from "../utils/roles.js";
+import { buildOfficerHomeKeyboard } from "./callbacks/keyboards.js";
 
 // =============================
 // Helpers
@@ -29,17 +30,6 @@ const cleanHandle = (username) => {
   const u = String(username || "").trim().replace(/^@/, "");
   return u ? `@${u}` : "-";
 };
-
-// Officer Home keyboard (Partner Database + Partner Moderation + Superadmin Tools)
-function buildOfficerStartKeyboard(role) {
-  const isSuper = isSuperadminRole(role);
-  const rows = [
-    [{ text: "🗃️ Partner Database", callback_data: "pm:menu" }],
-    [{ text: "🛠️ Partner Moderation", callback_data: "mod:menu" }],
-  ];
-  if (isSuper) rows.push([{ text: "⚙️ Superadmin Tools", callback_data: "sa:tools:menu" }]);
-  return { inline_keyboard: rows };
-}
 
 // @username => cari profiles.username, balikin telegram_id
 async function findTelegramIdByUsername(env, username) {
@@ -103,8 +93,8 @@ const CATEGORY_CMDS = {
       reason === "exists"
         ? `⚠️ Kategori "${kode}" sudah ada.`
         : reason === "empty"
-        ? "⚠️ Kode kategori kosong."
-        : "⚠️ Gagal menambah kategori.",
+          ? "⚠️ Kode kategori kosong."
+          : "⚠️ Gagal menambah kategori.",
   },
   "/delcategory": {
     fmt: "Format:\n/delcategory <kode>\nContoh:\n/delcategory TeManMakan",
@@ -114,8 +104,8 @@ const CATEGORY_CMDS = {
       reason === "not_found"
         ? `⚠️ Kategori "${kode}" tidak ditemukan.`
         : reason === "empty"
-        ? "⚠️ Kode kategori kosong."
-        : "⚠️ Gagal menghapus kategori.",
+          ? "⚠️ Kode kategori kosong."
+          : "⚠️ Gagal menghapus kategori.",
   },
 };
 
@@ -139,17 +129,17 @@ export async function handleAdminCommand({ env, chatId, text, role, telegramId }
   const needArg = async (msg) => (await sendMessage(env, chatId, msg), true);
   const badTarget = async () => (await sendMessage(env, chatId, "Target tidak ditemukan / format tidak valid."), true);
 
-  // ✅ Legacy commands: jangan nyasar ke UX user — redirect ke Officer Home
+  // Legacy commands: redirect ke Officer Home yang sama (single source of truth)
   if (DEAD_CMDS.has(command)) {
     const msg = "Hallo Officer TeMan...\nSilahkan tekan tombol dibawah atau ketik /help untuk bantuan.";
-    await sendMessage(env, chatId, msg, { reply_markup: buildOfficerStartKeyboard(role) });
+    await sendMessage(env, chatId, msg, { reply_markup: buildOfficerHomeKeyboard(role) });
     return true;
   }
 
   // /start (Officer)
   if (command === "/start") {
     const msg = "Hallo Officer TeMan...\nSilahkan tekan tombol dibawah atau ketik /help untuk bantuan.";
-    await sendMessage(env, chatId, msg, { reply_markup: buildOfficerStartKeyboard(role) });
+    await sendMessage(env, chatId, msg, { reply_markup: buildOfficerHomeKeyboard(role) });
     return true;
   }
 
@@ -200,7 +190,7 @@ export async function handleAdminCommand({ env, chatId, text, role, telegramId }
       env,
       chatId,
       "ℹ️ Command ini sudah dipindah ke inline menu.\n\nBuka:\n/start → ⚙️ Superadmin Tools → 🧩 Config",
-      { reply_markup: buildOfficerStartKeyboard(role) }
+      { reply_markup: buildOfficerHomeKeyboard(role) }
     );
     return true;
   }
@@ -216,7 +206,9 @@ export async function handleAdminCommand({ env, chatId, text, role, telegramId }
     }
 
     let msg = "📚 LIST CATEGORY:\n\n";
-    rows.forEach((r, i) => (msg += `${i + 1}. ${r.kode}\n`));
+    rows.forEach((r, i) => {
+      msg += `${i + 1}. ${r.kode}\n`;
+    });
     await sendMessage(env, chatId, msg);
     return true;
   }
