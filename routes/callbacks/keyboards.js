@@ -54,6 +54,32 @@ export function buildBackToPartnerDatabaseViewKeyboard() {
   };
 }
 
+export function buildPartnerDetailActionsKeyboard(telegramId, role) {
+  const rows = [];
+
+  if (isSuperadminRole(role)) {
+    rows.push([{ text: "🏷️ Ubah Class", callback_data: `pmclass:start:${telegramId}` }]);
+  }
+
+  rows.push([{ text: "⬅️ Kembali ke Partner Database", callback_data: "pm:menu" }]);
+  rows.push([{ text: "🧰 Partner Tools", callback_data: "pt:menu" }]);
+  rows.push([{ text: "🏠 Officer Home", callback_data: "officer:home" }]);
+
+  return { inline_keyboard: rows };
+}
+
+export function buildPartnerClassPickerKeyboard(telegramId) {
+  return {
+    inline_keyboard: [
+      [{ text: "Bronze", callback_data: `pmclass:set:${telegramId}:bronze` }],
+      [{ text: "Gold", callback_data: `pmclass:set:${telegramId}:gold` }],
+      [{ text: "Platinum", callback_data: `pmclass:set:${telegramId}:platinum` }],
+      [{ text: "⬅️ Kembali ke Detail Partner", callback_data: `pmclass:back:${telegramId}` }],
+      [{ text: "🗃️ Partner Database", callback_data: "pm:menu" }],
+    ],
+  };
+}
+
 // Partner Moderation (✅ Delete = superadmin only)
 export function buildPartnerModerationKeyboard(role) {
   const rows = [
