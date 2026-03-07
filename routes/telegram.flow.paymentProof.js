@@ -1,18 +1,40 @@
 // routes/telegram.flow.paymentProof.js
 
-import { sendMessage } from "../services/telegramApi.js";
+import { sendMessage, sendPhoto } from "../services/telegramApi.js";
 import {
   getOpenPaymentTicketByPartnerId,
   markPaymentProofUploaded,
+  getPaymentTicketById,
 } from "../repositories/paymentTicketsRepo.js";
+import * as paymentReviewMessageService from "../services/paymentReviewMessage.js";
 
-import { buildPaymentReviewMessage } from "../services/paymentReviewMessage.js";
+async function buildReviewPayload(env, ticketId) {
+  const candidates = [
+    paymentReviewMessageService.buildPaymentReviewMessage,
+    paymentReviewMessageService.createPaymentReviewMessage,
+    paymentReviewMessageService.makePaymentReviewMessage,
+    paymentReviewMessageService.getPaymentReviewMessage,
+    paymentReviewMessageService.default,
+  ].filter((fn) => typeof fn === "function");
+
+  for (const fn of candidates) {
+    try {
+      const res = await fn(env, ticketId);
+      if (res) return res;
+    } catch (err) {
+      console.error("PAYMENT REVIEW BUILDER ERROR:", err);
+    }
+  }
+
+  return null;
+}
 
 export async function handlePaymentProofUpload({ env, chatId, telegramId, update }) {
-  const photo = update?.message?.photo;
-  if (!photo || !photo.length) return false;
+  const photos = update?.message?.photo || [];
+  if (!photos.length) return false;
 
-  const fileId = photo[photo.length - 1]?.file_id;
+  const best = photos[photos.length - 1];
+  const fileId = best?.file_id ? String(best.file_id) : "";
   if (!fileId) return false;
 
   const ticket = await getOpenPaymentTicketByPartnerId(env, telegramId);
@@ -29,19 +51,27 @@ export async function handlePaymentProofUpload({ env, chatId, telegramId, update
 
   await markPaymentProofUploaded(env, ticket.id, fileId);
 
-  const review = await buildPaymentReviewMessage(env, ticket.id);
+  const freshTicket = await getPaymentTicketById(env, ticket.id);
+  const review = await buildReviewPayload(env, freshTicket?.id || ticket.id);
 
-  const superadmins = Array.isArray(review?.superadmin_ids)
+  const superadminIds = Array.isArray(review?.superadmin_ids)
     ? review.superadmin_ids
-    : [];
+    : Array.isArray(review?.superadminIds)
+      ? review.superadminIds
+      : [];
 
-  for (const adminId of superadmins) {
+  for (const adminId of superadminIds) {
     try {
-      await env.TELEGRAM_BOT.sendPhoto(adminId, fileId, {
-        caption: review.caption,
-        reply_markup: review.keyboard,
-        parse_mode: "HTML",
-      });
+      await sendPhoto(
+        env,
+        adminId,
+        fileId,
+        review?.caption || "🧾 Review pembayaran baru",
+        {
+          parse_mode: "HTML",
+          reply_markup: review?.keyboard || review?.reply_markup || undefined,
+        }
+      );
     } catch (err) {
       console.error("SEND PAYMENT REVIEW ERROR:", err);
     }
