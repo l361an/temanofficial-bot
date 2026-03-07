@@ -63,6 +63,9 @@ export const CALLBACK_PREFIX = {
   SETWELCOME_CANCEL: "setwelcome_cancel:",
   SETLINK_CONFIRM: "setlink_confirm:",
   SETLINK_CANCEL: "setlink_cancel:",
+
+  PAYCONFIRM_OK: "payconfirm_ok:",
+  PAYCONFIRM_REJECT: "payconfirm_reject:",
 };
 
 export const OBSOLETE_ADMIN_COMMANDS = new Set([
@@ -98,4 +101,7 @@ export const cb = {
   setWelcomeCancel: (adminId) => `${CALLBACK_PREFIX.SETWELCOME_CANCEL}${adminId}`,
   setLinkConfirm: (adminId) => `${CALLBACK_PREFIX.SETLINK_CONFIRM}${adminId}`,
   setLinkCancel: (adminId) => `${CALLBACK_PREFIX.SETLINK_CANCEL}${adminId}`,
+
+  payConfirmOk: (ticketId) => `${CALLBACK_PREFIX.PAYCONFIRM_OK}${ticketId}`,
+  payConfirmReject: (ticketId) => `${CALLBACK_PREFIX.PAYCONFIRM_REJECT}${ticketId}`,
 };
