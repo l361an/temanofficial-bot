@@ -38,13 +38,21 @@ export async function handlePaymentProofUpload({ env, chatId, telegramId, update
   if (!fileId) return false;
 
   const ticket = await getOpenPaymentTicketByPartnerId(env, telegramId);
-  if (!ticket) return false;
+
+  if (!ticket) {
+    await sendMessage(
+      env,
+      chatId,
+      "⚠️ Tidak ada payment ticket yang sedang menunggu bukti transfer.\nSilakan buat ticket payment dulu."
+    );
+    return true;
+  }
 
   if (String(ticket.status) !== "waiting_payment") {
     await sendMessage(
       env,
       chatId,
-      "⚠️ Tidak ada pembayaran yang menunggu bukti transfer."
+      "⚠️ Payment ticket saat ini tidak dalam status menunggu pembayaran.\nSilakan cek menu payment kamu."
     );
     return true;
   }
