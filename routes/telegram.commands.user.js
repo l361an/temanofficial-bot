@@ -63,7 +63,6 @@ export const buildTeManMenuKeyboard = () => ({
 });
 
 // ✅ MENU SELF (kalau sudah terdaftar)
-// (sesuai requirement: hanya 2 tombol)
 export function buildSelfMenuKeyboard() {
   return {
     inline_keyboard: [
@@ -112,13 +111,11 @@ function sanitizeWelcome(text) {
   const raw = String(text || "").trim();
   if (!raw) return raw;
 
-  // hapus baris yang mengandung "/mulai" atau "* /mulai *"
   const lines = raw
     .split("\n")
     .map((l) => l.trimEnd())
     .filter((l) => !/\/mulai/i.test(l));
 
-  // juga hapus kalimat "ketik mulai" yang implisit
   const joined = lines.join("\n").replace(/langsung aja ketik\s+\*?\/?mulai\*?.*$/gim, "").trim();
 
   return joined || raw;
@@ -178,7 +175,7 @@ async function sendSelfProfile(env, chatId, telegramId) {
 }
 
 // =====================
-// Edit flow helpers (Menu TeMan selalu tersedia setelah selesai)
+// Edit flow helpers
 // =====================
 async function askTextInput(env, chatId, STATE_KEY, field, prompt) {
   await saveSession(env, STATE_KEY, { mode: "edit_profile", step: "await_text", field });
@@ -203,14 +200,12 @@ async function askKategori(env, chatId, STATE_KEY) {
     return;
   }
 
-  // simpan list kategori ke session supaya parse konsisten
   await saveSession(env, STATE_KEY, {
     mode: "edit_profile",
     step: "await_kategori_select",
     data: { _category_list: cats },
   });
 
-  // gunakan message yang sama dengan registrasi (angka)
   await sendMessage(env, chatId, buildCategoryChoiceMessage(cats), {
     parse_mode: "Markdown",
     reply_markup: buildTeManMenuKeyboard(),
@@ -255,7 +250,6 @@ export async function handleUserCommand({ env, chatId, telegramId, role, text })
     return true;
   }
 
-  // /start dan /cmd: hanya tampil 1 tombol Menu TeMan (tanpa cek DB)
   if (text === "/start" || text === "/cmd") {
     if (isAdminRole(role)) {
       await sendMessage(env, chatId, "Halo Officer, ketik /help untuk daftar command.");
@@ -271,7 +265,6 @@ export async function handleUserCommand({ env, chatId, telegramId, role, text })
     return true;
   }
 
-  // /mulai: deprecated (tetap jawab arahkan ke Menu TeMan)
   if (text === "/mulai") {
     if (isAdminRole(role)) {
       await sendMessage(env, chatId, "Halo Officer, ketik /help untuk daftar command.");
@@ -289,8 +282,6 @@ export async function handleUserCommand({ env, chatId, telegramId, role, text })
 
 // =====================
 // Callback handler
-// - teman:* (Menu TeMan)
-// - self:*  (Lihat/Update)
 // =====================
 export async function handleSelfInlineCallback(update, env) {
   const data = update?.callback_query?.data || "";
@@ -300,21 +291,15 @@ export async function handleSelfInlineCallback(update, env) {
   const STATE_KEY = `state:${telegramId}`;
   if (!chatId || !telegramId) return true;
 
-  // -----------------
-  // teman:* (MENU UTAMA)
-  // -----------------
   if (data.startsWith("teman:")) {
-    // teman:menu -> cek DB
     if (data === "teman:menu") {
       const existing = await getProfileByTelegramId(env, telegramId).catch(() => null);
 
-      // sudah terdaftar (status apapun) kecuali rejected
-      if (existing?.telegram_id && String(existing.status || "").toLowerCase() !== "rejected") {
+      if (existing?.telegram_id) {
         await sendSelfMenu(env, chatId, telegramId);
         return true;
       }
 
-      // belum terdaftar / rejected -> mulai registrasi langsung
       await saveSession(env, STATE_KEY, { step: "input_nama", data: {} });
       await sendMessage(env, chatId, "Masukkan Nama Lengkap:");
       return true;
@@ -323,9 +308,6 @@ export async function handleSelfInlineCallback(update, env) {
     return true;
   }
 
-  // -----------------
-  // self:* (SELF MENU)
-  // -----------------
   if (!data.startsWith("self:")) return false;
 
   const loadProfile = async () => getProfileFullByTelegramId(env, telegramId);
@@ -356,14 +338,20 @@ export async function handleSelfInlineCallback(update, env) {
     const p = await ensureRegistered();
     if (!p) return true;
 
-    if (EDIT_TEXT_FIELDS[key])
-      return (
-        await askTextInput(env, chatId, STATE_KEY, EDIT_TEXT_FIELDS[key].field, EDIT_TEXT_FIELDS[key].prompt),
-        true
-      );
+    if (EDIT_TEXT_FIELDS[key]) {
+      await askTextInput(env, chatId, STATE_KEY, EDIT_TEXT_FIELDS[key].field, EDIT_TEXT_FIELDS[key].prompt);
+      return true;
+    }
 
-    if (key === "kategori") return (await askKategori(env, chatId, STATE_KEY)), true;
-    if (key === "closeup") return (await askCloseupPhoto(env, chatId, STATE_KEY)), true;
+    if (key === "kategori") {
+      await askKategori(env, chatId, STATE_KEY);
+      return true;
+    }
+
+    if (key === "closeup") {
+      await askCloseupPhoto(env, chatId, STATE_KEY);
+      return true;
+    }
 
     await sendHtml(env, chatId, "Pilihan tidak valid.", { reply_markup: buildTeManMenuKeyboard() });
     return true;
@@ -378,8 +366,6 @@ export async function handleSelfInlineCallback(update, env) {
 export async function handleUserEditFlow({ env, chatId, telegramId, text, session, STATE_KEY, update }) {
   const profile = await getProfileFullByTelegramId(env, telegramId);
   if (!profile) return void (await stopEdit(env, chatId, STATE_KEY, "Data partner tidak ditemukan."));
-  // semua status boleh update (yang penting profile ada)
-  // (menu self tetap dikontrol di teman:menu, sehingga user yang rejected tidak masuk ke update)
 
   const photoFileId = getPhotoFileId(update);
 
@@ -400,7 +386,6 @@ export async function handleUserEditFlow({ env, chatId, telegramId, text, sessio
     return;
   }
 
-  // ✅ Update kategori: pakai flow yang sama dengan registrasi (angka) dan wajib pilih 1
   if (session?.step === "await_kategori_select") {
     const categories = Array.isArray(session?.data?._category_list) ? session.data._category_list : [];
 
