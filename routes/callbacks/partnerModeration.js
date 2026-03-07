@@ -3,15 +3,20 @@ import { sendMessage, editMessageReplyMarkup } from "../../services/telegramApi.
 import { saveSession, clearSession } from "../../utils/session.js";
 import { isSuperadminRole } from "../../utils/roles.js";
 import { buildPartnerModerationKeyboard, buildBackToPartnerModerationKeyboard } from "./keyboards.js";
+import { CALLBACKS, SESSION_MODES } from "../telegram.constants.js";
 
 export function buildPartnerModerationHandlers() {
   const EXACT = {};
   const PREFIX = [];
 
-  EXACT["mod:menu"] = async (ctx) => {
+  EXACT[CALLBACKS.PARTNER_MODERATION_MENU] = async (ctx) => {
     const { env, adminId, msgChatId, msgId, role } = ctx;
+
     await clearSession(env, `state:${adminId}`).catch(() => {});
-    if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+    if (msgChatId && msgId) {
+      await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+    }
+
     await sendMessage(env, adminId, "🛠️ <b>Partner Moderation</b>\nPilih aksi di bawah:", {
       parse_mode: "HTML",
       reply_markup: buildPartnerModerationKeyboard(role),
@@ -20,19 +25,34 @@ export function buildPartnerModerationHandlers() {
   };
 
   PREFIX.push({
-    match: (d) => d.startsWith("mod:") && ["mod:activate", "mod:suspend", "mod:delete"].includes(d),
+    match: (d) =>
+      [
+        CALLBACKS.PARTNER_MOD_ACTIVATE,
+        CALLBACKS.PARTNER_MOD_SUSPEND,
+        CALLBACKS.PARTNER_MOD_DELETE,
+      ].includes(d),
     run: async (ctx) => {
       const { env, data, adminId, msgChatId, msgId, role } = ctx;
-      const action = data.split(":")[1];
+
+      let action = "";
+      if (data === CALLBACKS.PARTNER_MOD_ACTIVATE) action = "activate";
+      if (data === CALLBACKS.PARTNER_MOD_SUSPEND) action = "suspend";
+      if (data === CALLBACKS.PARTNER_MOD_DELETE) action = "delete";
 
       if (action === "delete" && !isSuperadminRole(role)) {
         await sendMessage(env, adminId, "⛔ Akses ditolak. Delete Partner hanya untuk Superadmin.");
         return true;
       }
 
-      await saveSession(env, `state:${adminId}`, { mode: "partner_moderation", action, step: "await_target" });
+      await saveSession(env, `state:${adminId}`, {
+        mode: SESSION_MODES.PARTNER_MODERATION,
+        action,
+        step: "await_target",
+      });
 
-      if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+      if (msgChatId && msgId) {
+        await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+      }
 
       const nice =
         action === "activate"
