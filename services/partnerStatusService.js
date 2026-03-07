@@ -33,15 +33,13 @@ export const USER_REASON_TEXT = {
     "Akun kamu sudah dipulihkan.",
 };
 
-function toSafeString(v) {
-  return v == null ? null : String(v);
-}
-
 export async function derivePartnerStatus(env, telegramId) {
   const profile = await getProfileFullByTelegramId(env, telegramId);
   if (!profile) return { ok: false, reason: "profile_not_found" };
 
-  if (String(profile.status || "") === "pending_approval") {
+  const currentStatus = String(profile.status || "").trim();
+
+  if (currentStatus === "pending_approval") {
     return {
       ok: true,
       status: "pending_approval",
@@ -55,27 +53,27 @@ export async function derivePartnerStatus(env, telegramId) {
     return {
       ok: true,
       status: "suspended",
-      reason_code: profile.status_reason || STATUS_REASON.MANUAL_SUSPEND,
+      reason_code: STATUS_REASON.MANUAL_SUSPEND,
       profile,
       activeSubscription: null,
     };
   }
 
-  const activeSub = await getActiveSubscriptionByTelegramId(env, telegramId);
-  if (activeSub) {
+  const activeSubscription = await getActiveSubscriptionByTelegramId(env, telegramId);
+  if (activeSubscription) {
     return {
       ok: true,
       status: "active",
       reason_code: STATUS_REASON.PAYMENT_CONFIRMED,
       profile,
-      activeSubscription: activeSub,
+      activeSubscription,
     };
   }
 
   return {
     ok: true,
     status: "approved",
-    reason_code: profile.status_reason || STATUS_REASON.REGISTRATION_APPROVED,
+    reason_code: STATUS_REASON.REGISTRATION_APPROVED,
     profile,
     activeSubscription: null,
   };
@@ -187,7 +185,7 @@ export async function manualRestorePartner(env, telegramId, actorId, adminNote =
 
   if (!applied.ok) return applied;
 
-  let userMessage =
+  const userMessage =
     applied.status === "active"
       ? "Status Premium kamu sudah diaktifkan kembali.\nKamu bisa kembali menggunakan fitur Premium TeMan."
       : "Akun kamu sudah dipulihkan.\nUntuk menggunakan fitur Premium, silakan lakukan pembayaran di menu Payment.";
@@ -201,5 +199,5 @@ export async function manualRestorePartner(env, telegramId, actorId, adminNote =
 }
 
 export function getUserReasonText(reasonCode) {
-  return USER_REASON_TEXT[toSafeString(reasonCode)] || null;
+  return USER_REASON_TEXT[String(reasonCode || "")] || null;
 }
