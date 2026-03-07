@@ -205,6 +205,18 @@ export function buildFinanceKeyboard(manualOn) {
   };
 }
 
+export function buildPaymentReviewKeyboard(ticketId) {
+  return {
+    inline_keyboard: [
+      [
+        { text: "✅ Confirm Payment", callback_data: cb.payConfirmOk(ticketId) },
+        { text: "❌ Reject Payment", callback_data: cb.payConfirmReject(ticketId) },
+      ],
+      [{ text: "💰 Finance", callback_data: CALLBACKS.SUPERADMIN_FINANCE_MENU }],
+    ],
+  };
+}
+
 // Verificator / Approve
 export function buildMainKeyboard(telegramId) {
   return { inline_keyboard: [[{ text: "👤 Pilih Verificator", callback_data: cb.pickVer(telegramId) }]] };
