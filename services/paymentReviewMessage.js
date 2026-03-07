@@ -12,15 +12,12 @@ function esc(value) {
     .replace(/>/g, "&gt;");
 }
 
-function fmtValue(value, fallback = "-") {
-  if (value === null || value === undefined || value === "") return fallback;
-  return String(value);
+function hasValue(value) {
+  return !(value === null || value === undefined || value === "");
 }
 
-function fmtCurrency(value, currency = "IDR") {
-  const amount = Number(value || 0);
-  if (!Number.isFinite(amount)) return `${currency} 0`;
-  return `${currency} ${amount}`;
+function fmtText(value, fallback = "-") {
+  return hasValue(value) ? String(value) : fallback;
 }
 
 function fmtUsername(profile = null) {
@@ -28,44 +25,115 @@ function fmtUsername(profile = null) {
   return raw ? `@${raw}` : "-";
 }
 
-function fmtExpiry(ticket) {
-  return fmtValue(ticket?.expires_at);
+function fmtClassLabel(classId) {
+  const raw = String(classId || "").trim().toLowerCase();
+  if (raw === "bronze") return "Bronze";
+  if (raw === "gold") return "Gold";
+  if (raw === "platinum") return "Platinum";
+  return raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : "-";
+}
+
+function fmtProviderLabel(provider) {
+  const raw = String(provider || "").trim().toLowerCase();
+  if (raw === "manual") return "Transfer / QRIS Manual";
+  return raw || "-";
+}
+
+function fmtStatusLabel(status) {
+  const raw = String(status || "").trim().toLowerCase();
+  if (raw === "waiting_payment") return "Menunggu Pembayaran";
+  if (raw === "waiting_confirmation") return "Menunggu Konfirmasi Superadmin";
+  if (raw === "confirmed") return "Pembayaran Terkonfirmasi";
+  if (raw === "rejected") return "Pembayaran Ditolak";
+  if (raw === "expired") return "Tiket Kedaluwarsa";
+  if (raw === "cancelled") return "Tiket Dibatalkan";
+  return raw || "-";
+}
+
+function fmtMonthLabel(value) {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n) || n <= 0) return "-";
+  return `${n} Bulan`;
+}
+
+function fmtRupiah(value) {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n)) return "Rp0";
+  return `Rp${n.toLocaleString("id-ID")}`;
+}
+
+function pad2(value) {
+  return String(value).padStart(2, "0");
+}
+
+function fmtDateTime(value) {
+  if (!hasValue(value)) return "-";
+
+  const raw = String(value).trim();
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$/);
+  if (m) {
+    const [, yyyy, mm, dd, hh = "00", mi = "00"] = m;
+    return `${dd}-${mm}-${yyyy} ${hh}:${mi}`;
+  }
+
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return raw;
+
+  return `${pad2(d.getDate())}-${pad2(d.getMonth() + 1)}-${d.getFullYear()} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
 export function buildPaymentReviewText(ticket, profile = null) {
   const lines = [
-    "💳 <b>Review Payment</b>",
+    "💳 <b>REVIEW PEMBAYARAN PARTNER</b>",
     "",
-    `Ticket ID: <code>${esc(fmtValue(ticket?.id))}</code>`,
-    `Ticket Code: <code>${esc(fmtValue(ticket?.ticket_code))}</code>`,
-    `Partner ID: <code>${esc(fmtValue(ticket?.partner_id))}</code>`,
-    `Username: <b>${esc(fmtUsername(profile))}</b>`,
-    `Class ID: <b>${esc(fmtValue(ticket?.class_id))}</b>`,
-    `Durasi: <b>${esc(fmtValue(ticket?.duration_months))}</b> bulan`,
-    `Amount Base: <b>${esc(fmtCurrency(ticket?.amount_base, ticket?.currency || "IDR"))}</b>`,
-    `Unique Code: <b>${esc(fmtValue(ticket?.unique_code, "0"))}</b>`,
-    `Amount Final: <b>${esc(fmtCurrency(ticket?.amount_final, ticket?.currency || "IDR"))}</b>`,
-    `Provider: <b>${esc(fmtValue(ticket?.provider))}</b>`,
-    `Status: <b>${esc(fmtValue(ticket?.status))}</b>`,
-    `Expires At: <code>${esc(fmtExpiry(ticket))}</code>`,
-    `Proof Asset ID: <code>${esc(fmtValue(ticket?.proof_asset_id))}</code>`,
+    "🧾 <b>Kode Tiket</b>",
+    esc(fmtText(ticket?.ticket_code)),
+    "",
+    "👤 <b>Partner</b>",
+    `ID Telegram : <code>${esc(fmtText(ticket?.partner_id))}</code>`,
+    `Username    : <b>${esc(fmtUsername(profile))}</b>`,
+    "",
+    "🏷 <b>Kelas Partner</b>",
+    esc(fmtClassLabel(ticket?.class_id)),
+    "",
+    "⏳ <b>Durasi Langganan</b>",
+    esc(fmtMonthLabel(ticket?.duration_months)),
+    "",
+    "💰 <b>Rincian Pembayaran</b>",
+    `Harga Dasar : <b>${esc(fmtRupiah(ticket?.amount_base))}</b>`,
+    `Kode Unik   : <b>${esc(fmtText(ticket?.unique_code, "0"))}</b>`,
+    `Total Bayar : <b>${esc(fmtRupiah(ticket?.amount_final))}</b>`,
+    "",
+    "🏦 <b>Metode Pembayaran</b>",
+    esc(fmtProviderLabel(ticket?.provider)),
+    "",
+    "📌 <b>Status Tiket</b>",
+    esc(fmtStatusLabel(ticket?.status)),
+    "",
+    "⏱ <b>Batas Waktu Pembayaran</b>",
+    esc(fmtDateTime(ticket?.expires_at)),
+    "",
+    "📎 <b>Bukti Transfer</b>",
+    "(File dikirim bersama pesan ini)",
   ];
 
-  if (ticket?.payer_name) {
-    lines.push(`Payer Name: <b>${esc(ticket.payer_name)}</b>`);
+  if (hasValue(ticket?.payer_name)) {
+    lines.push("", "🙍 <b>Nama Pengirim</b>", esc(fmtText(ticket?.payer_name)));
   }
 
-  if (ticket?.payer_notes) {
-    lines.push(`Payer Notes: ${esc(ticket.payer_notes)}`);
+  if (hasValue(ticket?.payer_notes)) {
+    lines.push("", "📝 <b>Catatan Pengirim</b>", esc(fmtText(ticket?.payer_notes)));
   }
 
-  if (ticket?.proof_caption) {
-    lines.push(`Proof Caption: ${esc(ticket.proof_caption)}`);
+  if (hasValue(ticket?.proof_caption)) {
+    lines.push("", "🗒 <b>Keterangan Bukti</b>", esc(fmtText(ticket?.proof_caption)));
   }
 
-  if (ticket?.proof_uploaded_at) {
-    lines.push(`Proof Uploaded At: <code>${esc(fmtValue(ticket.proof_uploaded_at))}</code>`);
+  if (hasValue(ticket?.proof_uploaded_at)) {
+    lines.push("", "🕓 <b>Waktu Upload Bukti</b>", esc(fmtDateTime(ticket?.proof_uploaded_at)));
   }
+
+  lines.push("", "Silakan lakukan verifikasi pembayaran ini.");
 
   return lines.join("\n");
 }
