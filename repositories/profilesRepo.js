@@ -52,32 +52,37 @@ export async function getProfileByTelegramId(env, telegramId) {
   return row ?? null;
 }
 
-export async function resetRejectedProfile(env, telegramId) {
-  const tid = String(telegramId);
-  const existing = await getProfileByTelegramId(env, tid);
-  if (!existing?.telegram_id) return { ok: true, didReset: false };
-  if (existing.status !== "rejected") return { ok: false, reason: "not_rejected", existing };
-
-  await env.DB.prepare("DELETE FROM profile_categories WHERE profile_id = ?").bind(String(existing.id)).run();
-  await env.DB.prepare("DELETE FROM profiles WHERE telegram_id = ?").bind(tid).run();
-  return { ok: true, didReset: true };
-}
-
 export async function approveProfile(env, telegramId, adminId) {
   await env.DB.prepare(
     `
     UPDATE profiles
     SET status = 'approved',
-        verificator_admin_id = ?
+        approved_at = datetime('now'),
+        approved_by = ?,
+        verificator_admin_id = ?,
+        diupdate_pada = datetime('now')
     WHERE telegram_id = ?
   `
   )
-    .bind(String(adminId), String(telegramId))
+    .bind(String(adminId), String(adminId), String(telegramId))
     .run();
 }
 
-export async function rejectProfile(env, telegramId) {
-  await env.DB.prepare("UPDATE profiles SET status = 'rejected' WHERE telegram_id = ?").bind(String(telegramId)).run();
+export async function suspendProfile(env, telegramId, adminId, reason = null) {
+  await env.DB.prepare(
+    `
+    UPDATE profiles
+    SET status = 'suspended',
+        is_manual_suspended = 1,
+        suspended_at = datetime('now'),
+        suspended_by = ?,
+        suspend_reason = ?,
+        diupdate_pada = datetime('now')
+    WHERE telegram_id = ?
+  `
+  )
+    .bind(String(adminId), reason ? String(reason) : null, String(telegramId))
+    .run();
 }
 
 export async function insertPendingProfile(env, payload) {
@@ -101,7 +106,7 @@ export async function insertPendingProfile(env, payload) {
       class_id,
       status
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_approval')
   `
   )
     .bind(
@@ -123,7 +128,9 @@ export async function insertPendingProfile(env, payload) {
 }
 
 export async function setProfileStatus(env, telegramId, status) {
-  await env.DB.prepare("UPDATE profiles SET status = ? WHERE telegram_id = ?")
+  await env.DB.prepare(
+    "UPDATE profiles SET status = ?, diupdate_pada = datetime('now') WHERE telegram_id = ?"
+  )
     .bind(String(status), String(telegramId))
     .run();
 }
