@@ -8,6 +8,7 @@ import { listActiveVerificators, getAdminByTelegramId } from "../../repositories
 
 import { buildMainKeyboard, buildVerificatorKeyboard, buildApproveRejectKeyboard } from "./keyboards.js";
 import { buildTeManMenuKeyboard } from "../telegram.commands.user.js";
+import { CALLBACK_PREFIX, CALLBACKS } from "../telegram.constants.js";
 
 function upsertVerificatorLine(caption, label) {
   const raw = String(caption || "");
@@ -20,7 +21,7 @@ function upsertVerificatorLine(caption, label) {
 
 function buildOfficerHomeOnlyKeyboard() {
   return {
-    inline_keyboard: [[{ text: "🏠 Officer Home", callback_data: "officer:home" }]],
+    inline_keyboard: [[{ text: "🏠 Officer Home", callback_data: CALLBACKS.OFFICER_HOME }]],
   };
 }
 
@@ -51,12 +52,28 @@ export function buildVerificationHandlers() {
   const PREFIX = [];
 
   PREFIX.push({
-    match: (d) => d.startsWith("pickver:") || d.startsWith("setver:") || d.startsWith("backver:"),
+    match: (d) =>
+      d.startsWith(CALLBACK_PREFIX.PICK_VER) ||
+      d.startsWith(CALLBACK_PREFIX.SET_VER) ||
+      d.startsWith(CALLBACK_PREFIX.BACK_VER),
     run: async (ctx) => {
       const { env, data, adminId, msgChatId, msgId, msg } = ctx;
-      const parts = data.split(":");
-      const action = parts[0];
-      const telegramId = parts[1];
+
+      let action = "";
+      let telegramId = "";
+
+      if (data.startsWith(CALLBACK_PREFIX.PICK_VER)) {
+        action = "pickver";
+        telegramId = data.slice(CALLBACK_PREFIX.PICK_VER.length);
+      } else if (data.startsWith(CALLBACK_PREFIX.BACK_VER)) {
+        action = "backver";
+        telegramId = data.slice(CALLBACK_PREFIX.BACK_VER.length);
+      } else if (data.startsWith(CALLBACK_PREFIX.SET_VER)) {
+        action = "setver";
+        const payload = data.slice(CALLBACK_PREFIX.SET_VER.length);
+        telegramId = payload.split(":")[0] || "";
+      }
+
       if (!telegramId) return true;
 
       const status = await getProfileStatus(env, telegramId);
@@ -94,7 +111,8 @@ export function buildVerificationHandlers() {
       }
 
       if (action === "setver") {
-        const verificatorId = parts[2];
+        const payload = data.slice(CALLBACK_PREFIX.SET_VER.length);
+        const verificatorId = payload.split(":")[1] || "";
         if (!verificatorId) return true;
 
         const adminRow = await getAdminByTelegramId(env, verificatorId);
@@ -127,10 +145,18 @@ export function buildVerificationHandlers() {
   });
 
   PREFIX.push({
-    match: (d) => d.startsWith("approve:") || d.startsWith("reject:"),
+    match: (d) =>
+      d.startsWith(CALLBACK_PREFIX.APPROVE) ||
+      d.startsWith(CALLBACK_PREFIX.REJECT),
     run: async (ctx) => {
       const { env, data, adminId, msgChatId, msgId, msg } = ctx;
-      const [action, telegramId] = data.split(":");
+
+      const isApprove = data.startsWith(CALLBACK_PREFIX.APPROVE);
+      const action = isApprove ? "approve" : "reject";
+      const telegramId = isApprove
+        ? data.slice(CALLBACK_PREFIX.APPROVE.length)
+        : data.slice(CALLBACK_PREFIX.REJECT.length);
+
       if (!telegramId) return true;
 
       const status = await getProfileStatus(env, telegramId);
