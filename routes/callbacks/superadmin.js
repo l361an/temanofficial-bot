@@ -3,6 +3,8 @@ import { sendMessage, editMessageReplyMarkup } from "../../services/telegramApi.
 import { getSetting, upsertSetting } from "../../repositories/settingsRepo.js";
 import { listCategories } from "../../repositories/categoriesRepo.js";
 import { saveSession, clearSession } from "../../utils/session.js";
+import { getPaymentTicketById, rejectPaymentTicket } from "../../repositories/paymentTicketsRepo.js";
+import { confirmPaymentAndActivateSubscription } from "../../services/paymentActivationService.js";
 
 import {
   buildSuperadminToolsKeyboard,
@@ -16,6 +18,19 @@ import {
 
 import { deleteSetting, escapeHtml } from "./shared.js";
 import { CALLBACKS, CALLBACK_PREFIX, SESSION_MODES } from "../telegram.constants.js";
+
+function buildPaymentConfirmSummary(ticket) {
+  const lines = [
+    "💳 <b>Payment Confirmed</b>",
+    "",
+    `Ticket ID: <code>${escapeHtml(String(ticket.id || "-"))}</code>`,
+    `Partner ID: <code>${escapeHtml(String(ticket.partner_id || "-"))}</code>`,
+    `Class ID: <b>${escapeHtml(String(ticket.class_id || "-"))}</b>`,
+    `Durasi: <b>${escapeHtml(String(ticket.duration_months || "-"))}</b> bulan`,
+    `Nominal: <b>${escapeHtml(String(ticket.final_amount || 0))}</b>`,
+  ];
+  return lines.join("\n");
+}
 
 export function buildSuperadminHandlers() {
   const EXACT = {};
@@ -202,7 +217,7 @@ export function buildSuperadminHandlers() {
     const text =
       "💰 <b>Finance</b>\n\n" +
       `Manual payment: <b>${manualOn ? "ON" : "OFF"}</b>\n` +
-      "Provider: <i>placeholder</i> (Xendit/Midtrans nanti)\n";
+      "Provider: <i>manual</i>\n";
     await sendMessage(env, adminId, text, {
       parse_mode: "HTML",
       reply_markup: buildFinanceKeyboard(manualOn),
@@ -228,20 +243,93 @@ export function buildSuperadminHandlers() {
     CALLBACK_PREFIX.SETWELCOME_CANCEL,
     CALLBACK_PREFIX.SETLINK_CONFIRM,
     CALLBACK_PREFIX.SETLINK_CANCEL,
+    CALLBACK_PREFIX.PAYCONFIRM_OK,
+    CALLBACK_PREFIX.PAYCONFIRM_REJECT,
   ];
 
   PREFIX.push({
     match: (d) => CONFIRM_PREFIX.some((p) => d.startsWith(p)),
     run: async (ctx) => {
       const { env, data, adminId, msgChatId, msgId } = ctx;
+
+      if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+
+      if (data.startsWith(CALLBACK_PREFIX.PAYCONFIRM_OK)) {
+        const ticketId = data.slice(CALLBACK_PREFIX.PAYCONFIRM_OK.length);
+        const ticket = await getPaymentTicketById(env, ticketId);
+
+        if (!ticket) {
+          await sendMessage(env, adminId, "⚠️ Ticket payment tidak ditemukan.");
+          return true;
+        }
+
+        if (String(ticket.status) === "confirmed") {
+          await sendMessage(env, adminId, "⚠️ Ticket ini sudah dikonfirmasi sebelumnya.");
+          return true;
+        }
+
+        const res = await confirmPaymentAndActivateSubscription(env, ticketId, adminId, null);
+        if (!res.ok) {
+          await sendMessage(env, adminId, `⚠️ Gagal confirm payment. Reason: ${escapeHtml(String(res.reason || "-"))}`, {
+            parse_mode: "HTML",
+          });
+          return true;
+        }
+
+        await sendMessage(env, adminId, buildPaymentConfirmSummary(ticket), {
+          parse_mode: "HTML",
+          reply_markup: buildFinanceKeyboard(true),
+        });
+
+        await sendMessage(
+          env,
+          res.profile.telegram_id,
+          res.user_message,
+          { reply_markup: undefined }
+        ).catch(() => {});
+
+        return true;
+      }
+
+      if (data.startsWith(CALLBACK_PREFIX.PAYCONFIRM_REJECT)) {
+        const ticketId = data.slice(CALLBACK_PREFIX.PAYCONFIRM_REJECT.length);
+        const ticket = await getPaymentTicketById(env, ticketId);
+
+        if (!ticket) {
+          await sendMessage(env, adminId, "⚠️ Ticket payment tidak ditemukan.");
+          return true;
+        }
+
+        if (String(ticket.status) === "confirmed") {
+          await sendMessage(env, adminId, "⚠️ Ticket ini sudah confirmed, tidak bisa direject.");
+          return true;
+        }
+
+        await rejectPaymentTicket(env, ticketId, adminId, "Rejected by superadmin callback");
+
+        await sendMessage(
+          env,
+          adminId,
+          `❌ Payment ticket direject.\nTicket ID: ${ticketId}\nPartner ID: ${ticket.partner_id}`,
+          { reply_markup: buildFinanceKeyboard(true) }
+        );
+
+        await sendMessage(
+          env,
+          ticket.partner_id,
+          "❌ Bukti pembayaran kamu ditolak. Silakan hubungi admin TeMan atau upload ulang sesuai instruksi.",
+          {}
+        ).catch(() => {});
+
+        return true;
+      }
+
       const [action, ownerId] = data.split(":");
 
       if (String(ownerId) !== String(adminId)) {
         await sendMessage(env, adminId, "⚠️ Aksi ini bukan untuk akunmu.");
         return true;
       }
-
-      if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
 
       if (action === "setwelcome_confirm" || action === "setwelcome_cancel") {
         const draftKey = `draft_welcome:${adminId}`;
