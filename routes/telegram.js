@@ -20,6 +20,7 @@ import {
 import { handleRegistrationFlow } from "./telegram.flow.js";
 import { handlePartnerModerationInput } from "./telegram.flow.partnerModeration.js";
 import { handlePartnerViewInput } from "./telegram.flow.partnerView.js";
+import { handlePartnerCloseupInput } from "./telegram.flow.partnerCloseup.js";
 import { handleSuperadminConfigInput } from "./telegram.flow.superadminConfig.js";
 import { handleSuperadminCategoryInput } from "./telegram.flow.superadminCategory.js";
 
@@ -83,6 +84,11 @@ export async function handleTelegramWebhook(request, env) {
 
       if (session?.mode === SESSION_MODES.PARTNER_VIEW) {
         await handlePartnerViewInput({ env, chatId, text, STATE_KEY, role });
+        return json({ ok: true });
+      }
+
+      if (session?.mode === SESSION_MODES.PARTNER_EDIT_CLOSEUP) {
+        await handlePartnerCloseupInput({ env, chatId, text, session, STATE_KEY, role, update });
         return json({ ok: true });
       }
 
