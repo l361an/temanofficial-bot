@@ -1,9 +1,9 @@
 // routes/telegram.commands.admin.js
 import { sendMessage } from "../services/telegramApi.js";
 import {
-  getSubscriptionInfo,
   getProfileFullByTelegramId,
 } from "../repositories/profilesRepo.js";
+import { getSubscriptionInfoByTelegramId } from "../repositories/partnerSubscriptionsRepo.js";
 import { listCategories, addCategory, delCategoryByKode } from "../repositories/categoriesRepo.js";
 import { isAdminRole, isSuperadminRole } from "../utils/roles.js";
 import { buildOfficerHomeKeyboard } from "./callbacks/keyboards.js";
@@ -24,6 +24,11 @@ async function getPartnerLabelByTelegramId(env, telegramId) {
   const profile = await getProfileFullByTelegramId(env, tid);
   const u = String(profile?.username || "").trim().replace(/^@/, "");
   return u ? `@${u}` : tid;
+}
+
+function formatDateTime(v) {
+  if (!v) return "-";
+  return String(v);
 }
 
 // =============================
@@ -100,27 +105,43 @@ export async function handleAdminCommand({ env, chatId, text, role }) {
     const targetId = await resolveTelegramId(env, raw);
     if (!targetId) return badTarget();
 
-    const info = await getSubscriptionInfo(env, targetId);
-    if (!info.supported) {
-      await sendMessage(
-        env,
-        chatId,
-        "⚠️ Fitur cek subscription belum siap.\nKolom `subscription_status` dan `subscription_end_at` belum ada di tabel `profiles`."
-      );
-      return true;
-    }
-
-    if (!info.found) {
+    const profile = await getProfileFullByTelegramId(env, targetId);
+    if (!profile) {
       await sendMessage(env, chatId, "Data partner tidak ditemukan.");
       return true;
     }
 
+    const sub = await getSubscriptionInfoByTelegramId(env, targetId);
     const label = await getPartnerLabelByTelegramId(env, targetId);
-    await sendMessage(
-      env,
-      chatId,
-      `📦 Subscription Partner ${label}\n\nStatus: ${info.subscription_status ?? "-"}\nBerakhir: ${info.subscription_end_at ?? "-"}`
-    );
+
+    const lines = [];
+    lines.push(`📦 Subscription Partner ${label}`);
+    lines.push("");
+    lines.push(`Status Partner: ${profile.status ?? "-"}`);
+    lines.push(`Reason: ${profile.status_reason ?? "-"}`);
+    lines.push(`Class ID: ${profile.class_id ?? "-"}`);
+    lines.push(`Manual Suspended: ${Number(profile.is_manual_suspended || 0) === 1 ? "ya" : "tidak"}`);
+    lines.push("");
+
+    if (!sub.found || !sub.row) {
+      lines.push("Subscription: belum ada");
+    } else {
+      lines.push(`Subscription Status: ${sub.row.status ?? "-"}`);
+      lines.push(`Duration (bulan): ${sub.row.duration_months ?? "-"}`);
+      lines.push(`Mulai: ${formatDateTime(sub.row.start_at)}`);
+      lines.push(`Berakhir: ${formatDateTime(sub.row.end_at)}`);
+      lines.push(`Activated At: ${formatDateTime(sub.row.activated_at)}`);
+      lines.push(`Expired At: ${formatDateTime(sub.row.expired_at)}`);
+      lines.push(`Source Type: ${sub.row.source_type ?? "-"}`);
+      lines.push(`Source Ref ID: ${sub.row.source_ref_id ?? "-"}`);
+    }
+
+    if (profile.admin_note) {
+      lines.push("");
+      lines.push(`Admin Note: ${profile.admin_note}`);
+    }
+
+    await sendMessage(env, chatId, lines.join("\n"));
     return true;
   }
 
