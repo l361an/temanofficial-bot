@@ -3,12 +3,18 @@ import { sendMessage, editMessageReplyMarkup, editMessageCaption } from "../../s
 import { uploadKtpToR2OnApprove } from "../../services/ktpR2.js";
 
 import { getSetting } from "../../repositories/settingsRepo.js";
-import { getProfileStatus, approveProfile, deleteProfileByTelegramId } from "../../repositories/profilesRepo.js";
+import {
+  getProfileStatus,
+  approveProfile,
+  deleteProfileByTelegramId,
+  getProfileFullByTelegramId,
+} from "../../repositories/profilesRepo.js";
 import { listActiveVerificators, getAdminByTelegramId } from "../../repositories/adminsRepo.js";
 
 import { buildMainKeyboard, buildVerificatorKeyboard, buildApproveRejectKeyboard } from "./keyboards.js";
 import { buildTeManMenuKeyboard } from "../telegram.commands.user.js";
 import { CALLBACK_PREFIX, CALLBACKS } from "../telegram.constants.js";
+import { markRegistrationApproved } from "../../services/partnerStatusService.js";
 
 function upsertVerificatorLine(caption, label) {
   const raw = String(caption || "");
@@ -178,7 +184,14 @@ export function buildVerificationHandlers() {
           return true;
         }
 
+        const profile = await getProfileFullByTelegramId(env, telegramId);
+        if (!profile) {
+          await sendMessage(env, adminId, `⚠️ Data partner tidak ditemukan.\nTelegram ID: ${telegramId}`);
+          return true;
+        }
+
         await approveProfile(env, telegramId, verificatorId);
+        const approvedRes = await markRegistrationApproved(env, telegramId, verificatorId);
 
         try {
           const up = await uploadKtpToR2OnApprove(env, telegramId);
@@ -187,20 +200,24 @@ export function buildVerificationHandlers() {
           await sendMessage(env, adminId, `⚠️ Backup KTP ke R2 GAGAL\nTelegram ID: ${telegramId}`);
         }
 
-        const link = (await getSetting(env, "link_aturan")) ?? "-";
         const vRow = await getAdminByTelegramId(env, verificatorId);
         const vLabel = vRow?.label || "-";
 
         await sendMessage(
           env,
           telegramId,
-          `✅ Permintaan Bergabung Disetujui!\n\nVerificator kamu adalah : ${vLabel}\n\nSilakan baca aturan TeMan:\n${link}`,
-          { reply_markup: buildTeManMenuKeyboard(), disable_web_page_preview: true }
-        );
+          approvedRes.user_message,
+          { reply_markup: buildTeManMenuKeyboard() }
+        ).catch(() => {});
 
-        await sendMessage(env, adminId, `✅ APPROVED\nTelegram ID: ${telegramId}\nLink aturan: ${link}\nVerificator: ${vLabel}`, {
-          reply_markup: buildOfficerHomeOnlyKeyboard(),
-        });
+        await sendMessage(
+          env,
+          adminId,
+          `✅ APPROVED\nTelegram ID: ${telegramId}\nStatus akhir: approved\nClass ID: ${profile.class_id ?? "-"}\nVerificator: ${vLabel}`,
+          {
+            reply_markup: buildOfficerHomeOnlyKeyboard(),
+          }
+        );
 
         if (msgChatId && msgId) {
           await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
@@ -218,7 +235,7 @@ export function buildVerificationHandlers() {
           telegramId,
           "❌ Permintaan Bergabung Ditolak.\nSilakan daftar ulang jika ingin mengajukan kembali.",
           { reply_markup: buildTeManMenuKeyboard() }
-        );
+        ).catch(() => {});
 
         await sendMessage(env, adminId, `❌ REGISTRATION REJECTED & DELETED\nTelegram ID: ${telegramId}`);
 
