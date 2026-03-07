@@ -15,7 +15,7 @@ import {
 } from "./keyboards.js";
 
 import { deleteSetting, escapeHtml } from "./shared.js";
-import { CALLBACKS, CALLBACK_PREFIX, SESSION_MODES, cb } from "../telegram.constants.js";
+import { CALLBACKS, CALLBACK_PREFIX, SESSION_MODES } from "../telegram.constants.js";
 
 export function buildSuperadminHandlers() {
   const EXACT = {};
@@ -57,7 +57,7 @@ export function buildSuperadminHandlers() {
     return true;
   };
 
-  EXACT["sa:cfg:welcome_edit"] = async (ctx) => {
+  EXACT[CALLBACKS.SUPERADMIN_CONFIG_WELCOME_EDIT] = async (ctx) => {
     const { env, adminId, msgChatId, msgId } = ctx;
     await saveSession(env, `state:${adminId}`, {
       mode: SESSION_MODES.SA_CONFIG,
@@ -91,7 +91,7 @@ export function buildSuperadminHandlers() {
     return true;
   };
 
-  EXACT["sa:cfg:aturan_edit"] = async (ctx) => {
+  EXACT[CALLBACKS.SUPERADMIN_CONFIG_ATURAN_EDIT] = async (ctx) => {
     const { env, adminId, msgChatId, msgId } = ctx;
     await saveSession(env, `state:${adminId}`, {
       mode: SESSION_MODES.SA_CONFIG,
@@ -133,7 +133,7 @@ export function buildSuperadminHandlers() {
     return true;
   };
 
-  EXACT["sa:cat:list"] = async (ctx) => {
+  EXACT[CALLBACKS.SUPERADMIN_CATEGORY_LIST] = async (ctx) => {
     const { env, adminId, msgChatId, msgId } = ctx;
     if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
     const rows = await listCategories(env);
@@ -153,7 +153,7 @@ export function buildSuperadminHandlers() {
     return true;
   };
 
-  EXACT["sa:cat:add"] = async (ctx) => {
+  EXACT[CALLBACKS.SUPERADMIN_CATEGORY_ADD] = async (ctx) => {
     const { env, adminId, msgChatId, msgId } = ctx;
     await saveSession(env, `state:${adminId}`, {
       mode: SESSION_MODES.SA_CATEGORY,
@@ -173,7 +173,7 @@ export function buildSuperadminHandlers() {
     return true;
   };
 
-  EXACT["sa:cat:del"] = async (ctx) => {
+  EXACT[CALLBACKS.SUPERADMIN_CATEGORY_DEL] = async (ctx) => {
     const { env, adminId, msgChatId, msgId } = ctx;
     await saveSession(env, `state:${adminId}`, {
       mode: SESSION_MODES.SA_CATEGORY,
@@ -210,7 +210,7 @@ export function buildSuperadminHandlers() {
     return true;
   };
 
-  EXACT["sa:fin:manual_toggle"] = async (ctx) => {
+  EXACT[CALLBACKS.SUPERADMIN_FINANCE_MANUAL_TOGGLE] = async (ctx) => {
     const { env, adminId } = ctx;
     const raw = (await getSetting(env, "payment_manual_enabled")) ?? "1";
     const manualOn = String(raw) !== "0";
