@@ -6,8 +6,8 @@ export async function getOpenPaymentTicketByPartnerId(env, partnerId) {
     SELECT *
     FROM payment_tickets
     WHERE partner_id = ?
-      AND status IN ('draft', 'waiting_payment', 'waiting_confirmation')
-    ORDER BY datetime(created_at) DESC, datetime(updated_at) DESC
+      AND status IN ('waiting_payment', 'waiting_confirmation')
+    ORDER BY datetime(created_at) DESC, datetime(updated_at) DESC, id DESC
     LIMIT 1
   `
   )
@@ -26,7 +26,22 @@ export async function getPaymentTicketById(env, ticketId) {
     LIMIT 1
   `
   )
-    .bind(String(ticketId))
+    .bind(ticketId)
+    .first();
+
+  return row ?? null;
+}
+
+export async function getPaymentTicketByCode(env, ticketCode) {
+  const row = await env.DB.prepare(
+    `
+    SELECT *
+    FROM payment_tickets
+    WHERE ticket_code = ?
+    LIMIT 1
+  `
+  )
+    .bind(String(ticketCode))
     .first();
 
   return row ?? null;
@@ -34,96 +49,120 @@ export async function getPaymentTicketById(env, ticketId) {
 
 export async function createPaymentTicket(env, payload) {
   const {
-    id,
+    ticketCode,
     partnerId,
-    profileId = null,
+    subscriptionId = null,
     classId,
     durationMonths,
-    baseAmount,
-    uniqueAmount,
-    finalAmount,
+    amountBase,
+    uniqueCode,
+    amountFinal,
+    currency = "IDR",
     provider = "manual",
     status = "waiting_payment",
-    expiresAt = null,
-    notes = null,
+    expiresAt,
+    pricingSnapshotJson,
     metadataJson = null,
   } = payload || {};
 
   await env.DB.prepare(
     `
     INSERT INTO payment_tickets (
-      id,
+      ticket_code,
       partner_id,
-      profile_id,
+      subscription_id,
       class_id,
       duration_months,
-      base_amount,
-      unique_amount,
-      final_amount,
+      amount_base,
+      unique_code,
+      amount_final,
+      currency,
       provider,
       status,
+      requested_at,
       expires_at,
-      notes,
+      pricing_snapshot_json,
       metadata_json,
       created_at,
       updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?, datetime('now'), datetime('now'))
   `
   )
     .bind(
-      String(id),
+      String(ticketCode),
       String(partnerId),
-      profileId == null ? null : String(profileId),
+      subscriptionId == null ? null : String(subscriptionId),
       String(classId || "bronze").toLowerCase(),
       Number(durationMonths || 1),
-      Number(baseAmount || 0),
-      Number(uniqueAmount || 0),
-      Number(finalAmount || 0),
+      Number(amountBase || 0),
+      Number(uniqueCode || 0),
+      Number(amountFinal || 0),
+      String(currency || "IDR").toUpperCase(),
       String(provider || "manual"),
       String(status || "waiting_payment"),
-      expiresAt == null ? null : String(expiresAt),
-      notes == null ? null : String(notes),
+      String(expiresAt),
+      String(pricingSnapshotJson || "{}"),
       metadataJson == null ? null : String(metadataJson)
     )
     .run();
 
-  return { ok: true };
+  const row = await getPaymentTicketByCode(env, ticketCode);
+  return row ?? null;
 }
 
-export async function markPaymentProofUploaded(env, ticketId, proofFileId) {
+export async function markPaymentProofUploaded(
+  env,
+  ticketId,
+  proofAssetId,
+  proofCaption = null,
+  payerName = null,
+  payerNotes = null,
+  proofAssetUrl = null
+) {
   await env.DB.prepare(
     `
     UPDATE payment_tickets
-    SET proof_file_id = ?,
+    SET proof_asset_id = ?,
+        proof_asset_url = COALESCE(?, proof_asset_url),
+        proof_caption = COALESCE(?, proof_caption),
+        payer_name = COALESCE(?, payer_name),
+        payer_notes = COALESCE(?, payer_notes),
         proof_uploaded_at = datetime('now'),
         status = 'waiting_confirmation',
         updated_at = datetime('now')
     WHERE id = ?
   `
   )
-    .bind(String(proofFileId), String(ticketId))
+    .bind(
+      String(proofAssetId),
+      proofAssetUrl == null ? null : String(proofAssetUrl),
+      proofCaption == null ? null : String(proofCaption),
+      payerName == null ? null : String(payerName),
+      payerNotes == null ? null : String(payerNotes),
+      ticketId
+    )
     .run();
 
   return { ok: true };
 }
 
-export async function confirmPaymentTicket(env, ticketId, actorId, notes = null) {
+export async function confirmPaymentTicket(env, ticketId, actorId, payerNotes = null) {
   await env.DB.prepare(
     `
     UPDATE payment_tickets
     SET status = 'confirmed',
         confirmed_at = datetime('now'),
         confirmed_by = ?,
-        notes = COALESCE(?, notes),
+        payer_notes = COALESCE(?, payer_notes),
         updated_at = datetime('now')
     WHERE id = ?
   `
   )
     .bind(
       actorId == null ? null : String(actorId),
-      notes == null ? null : String(notes),
-      String(ticketId)
+      payerNotes == null ? null : String(payerNotes),
+      ticketId
     )
     .run();
 
@@ -145,7 +184,7 @@ export async function rejectPaymentTicket(env, ticketId, actorId, rejectionReaso
     .bind(
       actorId == null ? null : String(actorId),
       rejectionReason == null ? null : String(rejectionReason),
-      String(ticketId)
+      ticketId
     )
     .run();
 
@@ -155,9 +194,9 @@ export async function rejectPaymentTicket(env, ticketId, actorId, rejectionReaso
 export async function expireDuePaymentTickets(env) {
   const { results } = await env.DB.prepare(
     `
-    SELECT id, partner_id
+    SELECT id, partner_id, ticket_code
     FROM payment_tickets
-    WHERE status IN ('draft', 'waiting_payment')
+    WHERE status IN ('waiting_payment')
       AND expires_at IS NOT NULL
       AND datetime(expires_at) <= datetime('now')
   `
@@ -168,7 +207,7 @@ export async function expireDuePaymentTickets(env) {
     UPDATE payment_tickets
     SET status = 'expired',
         updated_at = datetime('now')
-    WHERE status IN ('draft', 'waiting_payment')
+    WHERE status IN ('waiting_payment')
       AND expires_at IS NOT NULL
       AND datetime(expires_at) <= datetime('now')
   `
@@ -177,8 +216,9 @@ export async function expireDuePaymentTickets(env) {
   return {
     ok: true,
     rows: (results || []).map((r) => ({
-      id: String(r.id),
+      id: Number(r.id),
       partner_id: String(r.partner_id),
+      ticket_code: String(r.ticket_code || ""),
     })),
   };
 }
