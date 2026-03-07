@@ -25,10 +25,19 @@ export const CALLBACKS = {
   SUPERADMIN_TOOLS_MENU: "sa:tools:menu",
   SUPERADMIN_CONFIG_MENU: "sa:cfg:menu",
   SUPERADMIN_CONFIG_WELCOME: "sa:cfg:welcome",
+  SUPERADMIN_CONFIG_WELCOME_EDIT: "sa:cfg:welcome_edit",
   SUPERADMIN_CONFIG_ATURAN: "sa:cfg:aturan",
+  SUPERADMIN_CONFIG_ATURAN_EDIT: "sa:cfg:aturan_edit",
+
   SUPERADMIN_SETTINGS_MENU: "sa:settings:menu",
+
   SUPERADMIN_CATEGORY_MENU: "sa:cat:menu",
+  SUPERADMIN_CATEGORY_LIST: "sa:cat:list",
+  SUPERADMIN_CATEGORY_ADD: "sa:cat:add",
+  SUPERADMIN_CATEGORY_DEL: "sa:cat:del",
+
   SUPERADMIN_FINANCE_MENU: "sa:fin:menu",
+  SUPERADMIN_FINANCE_MANUAL_TOGGLE: "sa:fin:manual_toggle",
 };
 
 export const CALLBACK_PREFIX = {
