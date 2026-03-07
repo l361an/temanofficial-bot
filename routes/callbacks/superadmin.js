@@ -15,12 +15,13 @@ import {
 } from "./keyboards.js";
 
 import { deleteSetting, escapeHtml } from "./shared.js";
+import { CALLBACKS, CALLBACK_PREFIX, SESSION_MODES, cb } from "../telegram.constants.js";
 
 export function buildSuperadminHandlers() {
   const EXACT = {};
   const PREFIX = [];
 
-  EXACT["sa:tools:menu"] = async (ctx) => {
+  EXACT[CALLBACKS.SUPERADMIN_TOOLS_MENU] = async (ctx) => {
     const { env, adminId, msgChatId, msgId } = ctx;
     await clearSession(env, `state:${adminId}`).catch(() => {});
     if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
@@ -31,7 +32,7 @@ export function buildSuperadminHandlers() {
     return true;
   };
 
-  EXACT["sa:cfg:menu"] = async (ctx) => {
+  EXACT[CALLBACKS.SUPERADMIN_CONFIG_MENU] = async (ctx) => {
     const { env, adminId, msgChatId, msgId } = ctx;
     await clearSession(env, `state:${adminId}`).catch(() => {});
     if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
@@ -42,7 +43,7 @@ export function buildSuperadminHandlers() {
     return true;
   };
 
-  EXACT["sa:cfg:welcome"] = async (ctx) => {
+  EXACT[CALLBACKS.SUPERADMIN_CONFIG_WELCOME] = async (ctx) => {
     const { env, adminId, msgChatId, msgId } = ctx;
     await clearSession(env, `state:${adminId}`).catch(() => {});
     if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
@@ -58,7 +59,11 @@ export function buildSuperadminHandlers() {
 
   EXACT["sa:cfg:welcome_edit"] = async (ctx) => {
     const { env, adminId, msgChatId, msgId } = ctx;
-    await saveSession(env, `state:${adminId}`, { mode: "sa_config", area: "welcome", step: "await_text" });
+    await saveSession(env, `state:${adminId}`, {
+      mode: SESSION_MODES.SA_CONFIG,
+      area: "welcome",
+      step: "await_text",
+    });
     if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
     await sendMessage(
       env,
@@ -66,13 +71,13 @@ export function buildSuperadminHandlers() {
       "✏️ <b>Edit Welcome Message</b>\n\nKirim teks welcome baru.\n\nKetik <b>batal</b> untuk keluar.",
       {
         parse_mode: "HTML",
-        reply_markup: { inline_keyboard: [[{ text: "⬅️ Back", callback_data: "sa:cfg:welcome" }]] },
+        reply_markup: { inline_keyboard: [[{ text: "⬅️ Back", callback_data: CALLBACKS.SUPERADMIN_CONFIG_WELCOME }]] },
       }
     );
     return true;
   };
 
-  EXACT["sa:cfg:aturan"] = async (ctx) => {
+  EXACT[CALLBACKS.SUPERADMIN_CONFIG_ATURAN] = async (ctx) => {
     const { env, adminId, msgChatId, msgId } = ctx;
     await clearSession(env, `state:${adminId}`).catch(() => {});
     if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
@@ -88,7 +93,11 @@ export function buildSuperadminHandlers() {
 
   EXACT["sa:cfg:aturan_edit"] = async (ctx) => {
     const { env, adminId, msgChatId, msgId } = ctx;
-    await saveSession(env, `state:${adminId}`, { mode: "sa_config", area: "aturan", step: "await_text" });
+    await saveSession(env, `state:${adminId}`, {
+      mode: SESSION_MODES.SA_CONFIG,
+      area: "aturan",
+      step: "await_text",
+    });
     if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
     await sendMessage(
       env,
@@ -96,13 +105,13 @@ export function buildSuperadminHandlers() {
       "✏️ <b>Edit Link Aturan</b>\n\nKirim URL aturan baru (contoh: https://domain.com/aturan).\n\nKetik <b>batal</b> untuk keluar.",
       {
         parse_mode: "HTML",
-        reply_markup: { inline_keyboard: [[{ text: "⬅️ Back", callback_data: "sa:cfg:aturan" }]] },
+        reply_markup: { inline_keyboard: [[{ text: "⬅️ Back", callback_data: CALLBACKS.SUPERADMIN_CONFIG_ATURAN }]] },
       }
     );
     return true;
   };
 
-  EXACT["sa:settings:menu"] = async (ctx) => {
+  EXACT[CALLBACKS.SUPERADMIN_SETTINGS_MENU] = async (ctx) => {
     const { env, adminId, msgChatId, msgId } = ctx;
     await clearSession(env, `state:${adminId}`).catch(() => {});
     if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
@@ -113,7 +122,7 @@ export function buildSuperadminHandlers() {
     return true;
   };
 
-  EXACT["sa:cat:menu"] = async (ctx) => {
+  EXACT[CALLBACKS.SUPERADMIN_CATEGORY_MENU] = async (ctx) => {
     const { env, adminId, msgChatId, msgId } = ctx;
     await clearSession(env, `state:${adminId}`).catch(() => {});
     if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
@@ -146,31 +155,45 @@ export function buildSuperadminHandlers() {
 
   EXACT["sa:cat:add"] = async (ctx) => {
     const { env, adminId, msgChatId, msgId } = ctx;
-    await saveSession(env, `state:${adminId}`, { mode: "sa_category", action: "add", step: "await_text" });
+    await saveSession(env, `state:${adminId}`, {
+      mode: SESSION_MODES.SA_CATEGORY,
+      action: "add",
+      step: "await_text",
+    });
     if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
     await sendMessage(
       env,
       adminId,
       "➕ <b>Add Category</b>\n\nKirim <b>kode kategori</b> (contoh: Cuci Sofa).\n\nKetik <b>batal</b> untuk keluar.",
-      { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "⬅️ Back", callback_data: "sa:cat:menu" }]] } }
+      {
+        parse_mode: "HTML",
+        reply_markup: { inline_keyboard: [[{ text: "⬅️ Back", callback_data: CALLBACKS.SUPERADMIN_CATEGORY_MENU }]] },
+      }
     );
     return true;
   };
 
   EXACT["sa:cat:del"] = async (ctx) => {
     const { env, adminId, msgChatId, msgId } = ctx;
-    await saveSession(env, `state:${adminId}`, { mode: "sa_category", action: "del", step: "await_text" });
+    await saveSession(env, `state:${adminId}`, {
+      mode: SESSION_MODES.SA_CATEGORY,
+      action: "del",
+      step: "await_text",
+    });
     if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
     await sendMessage(
       env,
       adminId,
       "➖ <b>Delete Category</b>\n\nKirim <b>kode kategori</b> yang mau dihapus.\n\nKetik <b>batal</b> untuk keluar.",
-      { parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "⬅️ Back", callback_data: "sa:cat:menu" }]] } }
+      {
+        parse_mode: "HTML",
+        reply_markup: { inline_keyboard: [[{ text: "⬅️ Back", callback_data: CALLBACKS.SUPERADMIN_CATEGORY_MENU }]] },
+      }
     );
     return true;
   };
 
-  EXACT["sa:fin:menu"] = async (ctx) => {
+  EXACT[CALLBACKS.SUPERADMIN_FINANCE_MENU] = async (ctx) => {
     const { env, adminId, msgChatId, msgId } = ctx;
     await clearSession(env, `state:${adminId}`).catch(() => {});
     if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
@@ -180,7 +203,10 @@ export function buildSuperadminHandlers() {
       "💰 <b>Finance</b>\n\n" +
       `Manual payment: <b>${manualOn ? "ON" : "OFF"}</b>\n` +
       "Provider: <i>placeholder</i> (Xendit/Midtrans nanti)\n";
-    await sendMessage(env, adminId, text, { parse_mode: "HTML", reply_markup: buildFinanceKeyboard(manualOn) });
+    await sendMessage(env, adminId, text, {
+      parse_mode: "HTML",
+      reply_markup: buildFinanceKeyboard(manualOn),
+    });
     return true;
   };
 
@@ -197,7 +223,12 @@ export function buildSuperadminHandlers() {
     return true;
   };
 
-  const CONFIRM_PREFIX = ["setwelcome_confirm:", "setwelcome_cancel:", "setlink_confirm:", "setlink_cancel:"];
+  const CONFIRM_PREFIX = [
+    CALLBACK_PREFIX.SETWELCOME_CONFIRM,
+    CALLBACK_PREFIX.SETWELCOME_CANCEL,
+    CALLBACK_PREFIX.SETLINK_CONFIRM,
+    CALLBACK_PREFIX.SETLINK_CANCEL,
+  ];
 
   PREFIX.push({
     match: (d) => CONFIRM_PREFIX.some((p) => d.startsWith(p)),
@@ -221,7 +252,9 @@ export function buildSuperadminHandlers() {
         }
         if (action === "setwelcome_cancel") {
           await deleteSetting(env, draftKey);
-          await sendMessage(env, adminId, "❌ Draft welcome dibatalkan.", { reply_markup: buildSuperadminToolsKeyboard() });
+          await sendMessage(env, adminId, "❌ Draft welcome dibatalkan.", {
+            reply_markup: buildSuperadminToolsKeyboard(),
+          });
           return true;
         }
         await upsertSetting(env, "welcome_partner", draftText);
@@ -243,7 +276,9 @@ export function buildSuperadminHandlers() {
         }
         if (action === "setlink_cancel") {
           await deleteSetting(env, draftKey);
-          await sendMessage(env, adminId, "❌ Draft link aturan dibatalkan.", { reply_markup: buildSuperadminToolsKeyboard() });
+          await sendMessage(env, adminId, "❌ Draft link aturan dibatalkan.", {
+            reply_markup: buildSuperadminToolsKeyboard(),
+          });
           return true;
         }
         await upsertSetting(env, "link_aturan", draftUrl);
