@@ -1,4 +1,5 @@
 // repositories/profilesRepo.js
+
 export async function deleteProfileByTelegramId(env, telegramId) {
   await env.DB.prepare("DELETE FROM profiles WHERE telegram_id = ?").bind(String(telegramId)).run();
 }
@@ -6,6 +7,7 @@ export async function deleteProfileByTelegramId(env, telegramId) {
 export async function listProfilesByStatus(env, status) {
   const clean = String(status || "").trim();
   if (!clean) return [];
+
   const { results } = await env.DB.prepare(
     `
     SELECT telegram_id, nama_lengkap, username, nickname, class_id, verificator_admin_id
@@ -16,6 +18,7 @@ export async function listProfilesByStatus(env, status) {
   )
     .bind(clean)
     .all();
+
   return results ?? [];
 }
 
@@ -27,13 +30,17 @@ export async function listProfilesAll(env) {
     ORDER BY diupdate_pada DESC, dibuat_pada DESC, nama_lengkap ASC
   `
   ).all();
+
   return results ?? [];
 }
 
 export async function getProfileStatus(env, telegramId) {
-  const { results } = await env.DB.prepare("SELECT status FROM profiles WHERE telegram_id = ? LIMIT 1")
+  const { results } = await env.DB.prepare(
+    "SELECT status FROM profiles WHERE telegram_id = ? LIMIT 1"
+  )
     .bind(String(telegramId))
     .all();
+
   return results?.[0]?.status ?? null;
 }
 
@@ -48,6 +55,7 @@ export async function getProfileByTelegramId(env, telegramId) {
   )
     .bind(String(telegramId))
     .first();
+
   return row ?? null;
 }
 
@@ -90,9 +98,9 @@ export async function suspendProfile(env, telegramId, adminId, reason = null) {
   )
     .bind(
       String(adminId),
-      reason ? String(reason) : null,
+      reason == null ? null : String(reason),
       String(adminId),
-      reason ? String(reason) : "manual_suspend",
+      reason == null ? "manual_suspend" : String(reason),
       String(telegramId)
     )
     .run();
@@ -290,9 +298,12 @@ export async function getSubscriptionInfo(env, telegramId) {
 }
 
 export async function getProfileFullByTelegramId(env, telegramId) {
-  const row = await env.DB.prepare("SELECT * FROM profiles WHERE telegram_id = ? LIMIT 1")
+  const row = await env.DB.prepare(
+    "SELECT * FROM profiles WHERE telegram_id = ? LIMIT 1"
+  )
     .bind(String(telegramId))
     .first();
+
   return row ?? null;
 }
 
@@ -403,7 +414,9 @@ export async function setProfileCategoriesByProfileId(env, profileId, categoryId
   const pid = String(profileId || "").trim();
   if (!pid) return { ok: false, reason: "empty_profile_id" };
 
-  const ids = Array.isArray(categoryIds) ? categoryIds.map((x) => String(x).trim()).filter(Boolean) : [];
+  const ids = Array.isArray(categoryIds)
+    ? categoryIds.map((x) => String(x).trim()).filter(Boolean)
+    : [];
   if (!ids.length) return { ok: false, reason: "empty_category_ids" };
 
   const placeholders = ids.map(() => "?").join(",");
@@ -420,15 +433,23 @@ export async function setProfileCategoriesByProfileId(env, profileId, categoryId
   const existingIds = (check?.results || []).map((r) => r.id).filter(Boolean);
   if (!existingIds.length) return { ok: false, reason: "no_match" };
 
-  await env.DB.prepare("DELETE FROM profile_categories WHERE profile_id = ?").bind(pid).run();
+  await env.DB.prepare("DELETE FROM profile_categories WHERE profile_id = ?")
+    .bind(pid)
+    .run();
 
   for (const cid of existingIds) {
-    await env.DB.prepare("INSERT INTO profile_categories (profile_id, category_id) VALUES (?, ?)")
+    await env.DB.prepare(
+      "INSERT INTO profile_categories (profile_id, category_id) VALUES (?, ?)"
+    )
       .bind(pid, String(cid))
       .run();
   }
 
-  await env.DB.prepare("UPDATE profiles SET diupdate_pada = datetime('now') WHERE id = ?").bind(pid).run();
+  await env.DB.prepare(
+    "UPDATE profiles SET diupdate_pada = datetime('now') WHERE id = ?"
+  )
+    .bind(pid)
+    .run();
 
   return { ok: true, count: existingIds.length };
 }
@@ -450,7 +471,9 @@ export async function setProfileCategoriesByCodes(env, telegramId, kodeList) {
 
   if (!profile?.id) return { ok: false, reason: "no_profile" };
 
-  const codes = Array.isArray(kodeList) ? kodeList.map((x) => String(x).trim()).filter(Boolean) : [];
+  const codes = Array.isArray(kodeList)
+    ? kodeList.map((x) => String(x).trim()).filter(Boolean)
+    : [];
   if (!codes.length) return { ok: false, reason: "empty_codes" };
 
   const placeholders = codes.map(() => "?").join(",");
@@ -469,15 +492,21 @@ export async function setProfileCategoriesByCodes(env, telegramId, kodeList) {
   const ids = rows.map((r) => r.id).filter(Boolean);
   if (!ids.length) return { ok: false, reason: "no_match" };
 
-  await env.DB.prepare("DELETE FROM profile_categories WHERE profile_id = ?").bind(String(profile.id)).run();
+  await env.DB.prepare("DELETE FROM profile_categories WHERE profile_id = ?")
+    .bind(String(profile.id))
+    .run();
 
   for (const cid of ids) {
-    await env.DB.prepare("INSERT INTO profile_categories (profile_id, category_id) VALUES (?, ?)")
+    await env.DB.prepare(
+      "INSERT INTO profile_categories (profile_id, category_id) VALUES (?, ?)"
+    )
       .bind(String(profile.id), String(cid))
       .run();
   }
 
-  await env.DB.prepare("UPDATE profiles SET diupdate_pada = datetime('now') WHERE id = ?")
+  await env.DB.prepare(
+    "UPDATE profiles SET diupdate_pada = datetime('now') WHERE id = ?"
+  )
     .bind(String(profile.id))
     .run();
 
