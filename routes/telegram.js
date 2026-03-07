@@ -23,6 +23,7 @@ import { handlePartnerViewInput } from "./telegram.flow.partnerView.js";
 import { handlePartnerCloseupInput } from "./telegram.flow.partnerCloseup.js";
 import { handleSuperadminConfigInput } from "./telegram.flow.superadminConfig.js";
 import { handleSuperadminCategoryInput } from "./telegram.flow.superadminCategory.js";
+import { handlePaymentProofUpload } from "./telegram.flow.paymentProof.js";
 
 import {
   getProfileFullByTelegramId,
@@ -75,6 +76,19 @@ export async function handleTelegramWebhook(request, env) {
     }
 
     const session = await loadSession(env, STATE_KEY);
+
+    if (!isAdminRole(role) && update?.message?.photo) {
+      const handledPaymentProof = await handlePaymentProofUpload({
+        env,
+        chatId,
+        telegramId,
+        update,
+      });
+
+      if (handledPaymentProof) {
+        return json({ ok: true });
+      }
+    }
 
     if (isAdminRole(role)) {
       if (session?.mode === SESSION_MODES.PARTNER_MODERATION) {
