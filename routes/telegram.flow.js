@@ -5,7 +5,6 @@ import { saveSession, clearSession } from "../utils/session.js";
 import {
   insertPendingProfile,
   getProfileByTelegramId,
-  resetRejectedProfile,
   setProfileCategoriesByProfileId,
 } from "../repositories/profilesRepo.js";
 import { notifySuperadmin } from "../services/notifyAdmin.js";
@@ -22,11 +21,14 @@ import {
 } from "../utils/categoryFlow.js";
 
 function statusMessage(status) {
-  if (status === "pending") {
+  if (status === "pending_approval") {
     return "⏳ Kamu sudah pernah daftar dan saat ini masih *menunggu review superadmin*.";
   }
   if (status === "approved") {
     return "✅ Kamu sudah terdaftar dan status kamu *APPROVED*.";
+  }
+  if (status === "active") {
+    return "✅ Akun premium kamu saat ini *ACTIVE*.";
   }
   if (status === "suspended") {
     return "⛔ Akun kamu saat ini *SUSPENDED*. Silakan hubungi admin.";
@@ -209,33 +211,17 @@ export async function handleRegistrationFlow({
     }
 
     try {
-      // ✅ Jika sudah ada profile:
-      // - rejected: reset dulu lalu lanjut insert baru
-      // - selain rejected: stop
       const existing = await getProfileByTelegramId(env, telegramId);
 
       if (existing?.telegram_id) {
-        if (existing.status === "rejected") {
-          const res = await resetRejectedProfile(env, telegramId);
-          if (!res.ok) {
-            await clearSession(env, STATE_KEY);
-            await sendMessage(
-              env,
-              chatId,
-              "⚠️ Tidak bisa reset data pendaftaran lama. Silakan hubungi admin."
-            );
-            return true;
-          }
-        } else {
-          await clearSession(env, STATE_KEY);
-          await sendMessage(
-            env,
-            chatId,
-            `${statusMessage(existing.status)}\n\nJika butuh bantuan, hubungi admin.`,
-            { parse_mode: "Markdown", reply_markup: buildTeManMenuKeyboard() }
-          );
-          return true;
-        }
+        await clearSession(env, STATE_KEY);
+        await sendMessage(
+          env,
+          chatId,
+          `${statusMessage(existing.status)}\n\nJika butuh bantuan, hubungi admin.`,
+          { parse_mode: "Markdown", reply_markup: buildTeManMenuKeyboard() }
+        );
+        return true;
       }
 
       // simpan foto KTP file_id
@@ -283,7 +269,6 @@ export async function handleRegistrationFlow({
 
       await clearSession(env, STATE_KEY);
 
-      // ✅ selesai registrasi → Menu TeMan ready
       await sendMessage(
         env,
         chatId,
