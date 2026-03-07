@@ -10,15 +10,19 @@ import {
 } from "./keyboards.js";
 
 import { buildListMessageHtml, buildVerificatorMap } from "./shared.js";
+import { CALLBACKS, CALLBACK_PREFIX, SESSION_MODES } from "../telegram.constants.js";
 
 export function buildPartnerDatabaseHandlers() {
   const EXACT = {};
   const PREFIX = [];
 
-  EXACT["pm:menu"] = async (ctx) => {
+  EXACT[CALLBACKS.PARTNER_DATABASE_MENU] = async (ctx) => {
     const { env, adminId, msgChatId, msgId } = ctx;
     await clearSession(env, `state:${adminId}`).catch(() => {});
-    if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+    if (msgChatId && msgId) {
+      await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+    }
+
     await sendMessage(env, adminId, "🗃️ <b>Partner Database</b>\nPilih menu di bawah:", {
       parse_mode: "HTML",
       reply_markup: buildPartnerDatabaseKeyboard(),
@@ -26,10 +30,18 @@ export function buildPartnerDatabaseHandlers() {
     return true;
   };
 
-  EXACT["pm:view"] = async (ctx) => {
+  EXACT[CALLBACKS.PARTNER_DATABASE_VIEW] = async (ctx) => {
     const { env, adminId, msgChatId, msgId } = ctx;
-    await saveSession(env, `state:${adminId}`, { mode: "partner_view", step: "await_target" });
-    if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+
+    await saveSession(env, `state:${adminId}`, {
+      mode: SESSION_MODES.PARTNER_VIEW,
+      step: "await_target",
+    });
+
+    if (msgChatId && msgId) {
+      await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+    }
+
     await sendMessage(
       env,
       adminId,
@@ -40,10 +52,10 @@ export function buildPartnerDatabaseHandlers() {
   };
 
   PREFIX.push({
-    match: (d) => d.startsWith("pm:list:"),
+    match: (d) => d.startsWith(CALLBACK_PREFIX.PM_LIST),
     run: async (ctx) => {
       const { env, data, adminId, msgChatId, msgId } = ctx;
-      const key = String(data.split(":")[2] || "").trim();
+      const key = String(data.slice(CALLBACK_PREFIX.PM_LIST.length) || "").trim();
 
       let rows = [];
       let title = "";
@@ -57,7 +69,9 @@ export function buildPartnerDatabaseHandlers() {
         rows = await listProfilesByStatus(env, key);
         title = `PARTNER ${key.toUpperCase()}`;
       } else {
-        if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+        if (msgChatId && msgId) {
+          await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+        }
         await sendMessage(env, adminId, "Menu tidak dikenal. Balik ke Partner Database.", {
           reply_markup: buildPartnerDatabaseKeyboard(),
         });
@@ -65,7 +79,9 @@ export function buildPartnerDatabaseHandlers() {
       }
 
       if (!rows.length) {
-        if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+        if (msgChatId && msgId) {
+          await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+        }
         await sendMessage(env, adminId, `Tidak ada data untuk: ${title}`, {
           reply_markup: buildBackToPartnerDatabaseKeyboard(),
         });
@@ -73,7 +89,10 @@ export function buildPartnerDatabaseHandlers() {
       }
 
       const verificatorMap = await buildVerificatorMap(env, rows).catch(() => new Map());
-      if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+      if (msgChatId && msgId) {
+        await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+      }
+
       const text = buildListMessageHtml(title, rows, verificatorMap, { showStatus });
 
       await sendMessage(env, adminId, text, {
