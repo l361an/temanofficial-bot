@@ -3,7 +3,7 @@ import { sendMessage, editMessageReplyMarkup, editMessageCaption } from "../../s
 import { uploadKtpToR2OnApprove } from "../../services/ktpR2.js";
 
 import { getSetting } from "../../repositories/settingsRepo.js";
-import { getProfileStatus, approveProfile, rejectProfile } from "../../repositories/profilesRepo.js";
+import { getProfileStatus, approveProfile, deleteProfileByTelegramId } from "../../repositories/profilesRepo.js";
 import { listActiveVerificators, getAdminByTelegramId } from "../../repositories/adminsRepo.js";
 
 import { buildMainKeyboard, buildVerificatorKeyboard, buildApproveRejectKeyboard } from "./keyboards.js";
@@ -82,7 +82,7 @@ export function buildVerificationHandlers() {
         await sendMessage(env, adminId, `⚠️ Data partner tidak ditemukan.\nTelegram ID: ${telegramId}`);
         return true;
       }
-      if (status !== "pending") {
+      if (status !== "pending_approval") {
         if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
         await sendMessage(env, adminId, `⚠️ Tidak bisa diubah. Status saat ini: ${status}\nTelegram ID: ${telegramId}`);
         return true;
@@ -165,7 +165,7 @@ export function buildVerificationHandlers() {
         await sendMessage(env, adminId, `⚠️ Data partner tidak ditemukan.\nTelegram ID: ${telegramId}`);
         return true;
       }
-      if (status !== "pending") {
+      if (status !== "pending_approval") {
         if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
         await sendMessage(env, adminId, `⚠️ Tidak bisa diproses. Status saat ini: ${status}\nTelegram ID: ${telegramId}`);
         return true;
@@ -211,18 +211,21 @@ export function buildVerificationHandlers() {
       }
 
       if (action === "reject") {
-        await rejectProfile(env, telegramId);
+        await deleteProfileByTelegramId(env, telegramId);
 
-        await sendMessage(env, telegramId, "❌ Permintaan Bergabung Ditolak.\nSilakan hubungi admin.", {
-          reply_markup: buildTeManMenuKeyboard(),
-        });
+        await sendMessage(
+          env,
+          telegramId,
+          "❌ Permintaan Bergabung Ditolak.\nSilakan daftar ulang jika ingin mengajukan kembali.",
+          { reply_markup: buildTeManMenuKeyboard() }
+        );
 
-        await sendMessage(env, adminId, `❌ REJECTED\nTelegram ID: ${telegramId}`);
+        await sendMessage(env, adminId, `❌ REGISTRATION REJECTED & DELETED\nTelegram ID: ${telegramId}`);
 
         if (msgChatId && msgId) {
           await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
           const oldCaption = msg?.caption || "";
-          await editMessageCaption(env, msgChatId, msgId, `${oldCaption}\n\n❌ REJECTED`).catch(() => {});
+          await editMessageCaption(env, msgChatId, msgId, `${oldCaption}\n\n❌ REGISTRATION REJECTED`).catch(() => {});
         }
         return true;
       }
