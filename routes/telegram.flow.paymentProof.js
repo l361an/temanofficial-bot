@@ -6,7 +6,18 @@ import {
   markPaymentProofUploaded,
   getPaymentTicketById,
 } from "../repositories/paymentTicketsRepo.js";
+import { getAdminByTelegramId, getFirstActiveSuperadminId } from "../repositories/adminsRepo.js";
 import * as paymentReviewMessageService from "../services/paymentReviewMessage.js";
+
+function normalizeStatus(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function formatIDR(value) {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n)) return "0";
+  return n.toLocaleString("id-ID");
+}
 
 async function buildReviewPayload(env, ticketId) {
   const candidates = [
@@ -29,7 +40,7 @@ async function buildReviewPayload(env, ticketId) {
   return null;
 }
 
-async function getLatestPaymentTicketByPartnerId(env, partnerId) {
+async function getLatestTicket(env, partnerId) {
   const row = await env.DB.prepare(
     `
     SELECT *
@@ -45,18 +56,71 @@ async function getLatestPaymentTicketByPartnerId(env, partnerId) {
   return row ?? null;
 }
 
-function normalizeStatus(value) {
-  return String(value || "").trim().toLowerCase();
+async function getPrimarySuperadminContact(env) {
+  const superadminId = await getFirstActiveSuperadminId(env).catch(() => null);
+  if (!superadminId) return null;
+
+  const admin = await getAdminByTelegramId(env, superadminId).catch(() => null);
+  if (!admin) {
+    return {
+      telegram_id: String(superadminId),
+      username: null,
+      label: String(superadminId),
+      url: null,
+    };
+  }
+
+  const username = String(admin.username || "").trim().replace(/^@/, "");
+  return {
+    telegram_id: String(admin.telegram_id),
+    username: username || null,
+    label: admin.label || (username ? `@${username}` : String(admin.telegram_id)),
+    url: username ? `https://t.me/${username}` : null,
+  };
+}
+
+async function buildSuperadminContactKeyboard(env) {
+  const contact = await getPrimarySuperadminContact(env);
+  if (!contact?.url) return undefined;
+
+  return {
+    inline_keyboard: [
+      [{ text: "📞 Hubungi Superadmin", url: contact.url }],
+    ],
+  };
+}
+
+async function buildSuperadminContactLine(env) {
+  const contact = await getPrimarySuperadminContact(env);
+  if (!contact) return "Superadmin aktif belum tersedia.";
+
+  if (contact.url && contact.username) {
+    return `Superadmin: <a href="${contact.url}">@${contact.username}</a>`;
+  }
+
+  if (contact.label) {
+    return `Superadmin: <code>${String(contact.label)}</code>`;
+  }
+
+  return "Superadmin aktif belum tersedia.";
 }
 
 async function sendTicketStatusMessage(env, chatId, ticket) {
   const status = normalizeStatus(ticket?.status);
+  const totalBayar = formatIDR(ticket?.amount_final);
+  const ticketCode = String(ticket?.ticket_code || "-");
+  const keyboard = await buildSuperadminContactKeyboard(env);
+  const contactLine = await buildSuperadminContactLine(env);
 
   if (status === "waiting_confirmation") {
     await sendMessage(
       env,
       chatId,
-      "⏳ Bukti pembayaran untuk tiket kamu sudah pernah dikirim dan saat ini sedang menunggu konfirmasi superadmin.\n\nSilakan tunggu proses review ya."
+      `⏳ Bukti Pembayaran tiket kamu <b>${ticketCode}</b> senilai <b>IDR ${totalBayar}</b> sedang dalam proses <b>Review</b> dan menunggu <b>Konfirmasi dari Superadmin</b>.\n\nSilahkan tunggu proses Review dan Verifikasi atau Hubungi SuperAdmin.\n${contactLine}`,
+      {
+        parse_mode: "HTML",
+        reply_markup: keyboard,
+      }
     );
     return true;
   }
@@ -65,7 +129,11 @@ async function sendTicketStatusMessage(env, chatId, ticket) {
     await sendMessage(
       env,
       chatId,
-      "⚠️ Tiket pembayaran kamu sudah melewati batas waktu dan tidak bisa diproses otomatis.\n\nKalau kamu belum transfer, silakan buat tiket payment baru.\nKalau kamu sudah terlanjur transfer, silakan hubungi admin TeMan dan kirim bukti pembayaran untuk pengecekan manual."
+      `⚠️ Tiket pembayaran <b>${ticketCode}</b> sudah melewati batas waktu dan tidak bisa diproses otomatis.\n\nJika kamu belum melakukan transfer, silakan buat tiket payment baru.\nJika kamu sudah terlanjur transfer, silakan hubungi Superadmin untuk pengecekan manual.\n${contactLine}`,
+      {
+        parse_mode: "HTML",
+        reply_markup: keyboard,
+      }
     );
     return true;
   }
@@ -74,7 +142,10 @@ async function sendTicketStatusMessage(env, chatId, ticket) {
     await sendMessage(
       env,
       chatId,
-      "✅ Pembayaran untuk tiket ini sudah dikonfirmasi sebelumnya.\nTidak perlu kirim bukti lagi ya."
+      `✅ Pembayaran untuk tiket <b>${ticketCode}</b> sudah dikonfirmasi sebelumnya.\nTidak perlu mengirim bukti pembayaran lagi.`,
+      {
+        parse_mode: "HTML",
+      }
     );
     return true;
   }
@@ -83,7 +154,11 @@ async function sendTicketStatusMessage(env, chatId, ticket) {
     await sendMessage(
       env,
       chatId,
-      "❌ Bukti pembayaran untuk tiket sebelumnya sudah ditolak.\nSilakan buat tiket payment baru atau hubungi admin jika perlu bantuan."
+      `❌ Bukti pembayaran untuk tiket <b>${ticketCode}</b> ditolak.\nSilakan buat tiket payment baru atau hubungi Superadmin jika memerlukan bantuan.\n${contactLine}`,
+      {
+        parse_mode: "HTML",
+        reply_markup: keyboard,
+      }
     );
     return true;
   }
@@ -92,7 +167,10 @@ async function sendTicketStatusMessage(env, chatId, ticket) {
     await sendMessage(
       env,
       chatId,
-      "⚠️ Tiket pembayaran sebelumnya sudah dibatalkan.\nSilakan buat tiket payment baru ya."
+      `⚠️ Tiket pembayaran <b>${ticketCode}</b> sudah dibatalkan.\nSilakan buat tiket payment baru.`,
+      {
+        parse_mode: "HTML",
+      }
     );
     return true;
   }
@@ -100,8 +178,12 @@ async function sendTicketStatusMessage(env, chatId, ticket) {
   await sendMessage(
     env,
     chatId,
-    "⚠️ Tidak ada tiket payment aktif yang bisa menerima bukti transfer.\nSilakan buat tiket payment baru dulu."
+    "⚠️ Tidak ada tiket payment aktif yang bisa menerima bukti transfer.\nSilakan buat tiket payment terlebih dahulu.",
+    {
+      parse_mode: "HTML",
+    }
   );
+
   return true;
 }
 
@@ -116,13 +198,14 @@ export async function handlePaymentProofUpload({ env, chatId, telegramId, update
   const openTicket = await getOpenPaymentTicketByPartnerId(env, telegramId);
 
   if (!openTicket) {
-    const latestTicket = await getLatestPaymentTicketByPartnerId(env, telegramId);
+    const latestTicket = await getLatestTicket(env, telegramId);
 
     if (!latestTicket) {
       await sendMessage(
         env,
         chatId,
-        "⚠️ Tidak ada payment ticket yang sedang aktif.\nSilakan buat tiket payment dulu sebelum kirim bukti transfer."
+        "⚠️ Tidak ada tiket payment aktif.\nSilakan buat tiket payment terlebih dahulu sebelum mengirim bukti transfer.",
+        { parse_mode: "HTML" }
       );
       return true;
     }
@@ -143,9 +226,7 @@ export async function handlePaymentProofUpload({ env, chatId, telegramId, update
 
   const superadminIds = Array.isArray(review?.superadmin_ids)
     ? review.superadmin_ids
-    : Array.isArray(review?.superadminIds)
-      ? review.superadminIds
-      : [];
+    : [];
 
   for (const adminId of superadminIds) {
     try {
@@ -156,7 +237,7 @@ export async function handlePaymentProofUpload({ env, chatId, telegramId, update
         review?.caption || "🧾 Review pembayaran baru",
         {
           parse_mode: "HTML",
-          reply_markup: review?.keyboard || review?.reply_markup || undefined,
+          reply_markup: review?.keyboard,
         }
       );
     } catch (err) {
@@ -164,10 +245,16 @@ export async function handlePaymentProofUpload({ env, chatId, telegramId, update
     }
   }
 
+  const keyboard = await buildSuperadminContactKeyboard(env);
+
   await sendMessage(
     env,
     chatId,
-    "✅ Bukti pembayaran berhasil dikirim.\nMenunggu verifikasi superadmin."
+    `✅ Bukti pembayaran untuk tiket <b>${String(freshTicket?.ticket_code || openTicket.ticket_code || "-")}</b> berhasil dikirim.\nMenunggu verifikasi Superadmin.`,
+    {
+      parse_mode: "HTML",
+      reply_markup: keyboard,
+    }
   );
 
   return true;
