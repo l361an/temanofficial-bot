@@ -19,7 +19,6 @@ export async function listProfilesByStatus(env, status) {
   return results ?? [];
 }
 
-// list all partners (no status filter)
 export async function listProfilesAll(env) {
   const { results } = await env.DB.prepare(
     `
@@ -57,6 +56,10 @@ export async function approveProfile(env, telegramId, adminId) {
     `
     UPDATE profiles
     SET status = 'approved',
+        status_reason = 'registration_approved',
+        status_changed_at = datetime('now'),
+        status_changed_by = ?,
+        admin_note = NULL,
         approved_at = datetime('now'),
         approved_by = ?,
         verificator_admin_id = ?,
@@ -64,7 +67,7 @@ export async function approveProfile(env, telegramId, adminId) {
     WHERE telegram_id = ?
   `
   )
-    .bind(String(adminId), String(adminId), String(telegramId))
+    .bind(String(adminId), String(adminId), String(adminId), String(telegramId))
     .run();
 }
 
@@ -73,6 +76,10 @@ export async function suspendProfile(env, telegramId, adminId, reason = null) {
     `
     UPDATE profiles
     SET status = 'suspended',
+        status_reason = 'manual_suspend',
+        status_changed_at = datetime('now'),
+        status_changed_by = ?,
+        admin_note = ?,
         is_manual_suspended = 1,
         suspended_at = datetime('now'),
         suspended_by = ?,
@@ -81,7 +88,13 @@ export async function suspendProfile(env, telegramId, adminId, reason = null) {
     WHERE telegram_id = ?
   `
   )
-    .bind(String(adminId), reason ? String(reason) : null, String(telegramId))
+    .bind(
+      String(adminId),
+      reason ? String(reason) : null,
+      String(adminId),
+      reason ? String(reason) : "manual_suspend",
+      String(telegramId)
+    )
     .run();
 }
 
@@ -129,9 +142,90 @@ export async function insertPendingProfile(env, payload) {
 
 export async function setProfileStatus(env, telegramId, status) {
   await env.DB.prepare(
-    "UPDATE profiles SET status = ?, diupdate_pada = datetime('now') WHERE telegram_id = ?"
+    `
+    UPDATE profiles
+    SET status = ?, diupdate_pada = datetime('now')
+    WHERE telegram_id = ?
+  `
   )
     .bind(String(status), String(telegramId))
+    .run();
+}
+
+export async function setProfileStatusAuditFields(
+  env,
+  telegramId,
+  {
+    status,
+    statusReason = null,
+    statusChangedBy = null,
+    adminNote = null,
+  } = {}
+) {
+  await env.DB.prepare(
+    `
+    UPDATE profiles
+    SET status = ?,
+        status_reason = ?,
+        status_changed_at = datetime('now'),
+        status_changed_by = ?,
+        admin_note = ?,
+        diupdate_pada = datetime('now')
+    WHERE telegram_id = ?
+  `
+  )
+    .bind(
+      String(status),
+      statusReason == null ? null : String(statusReason),
+      statusChangedBy == null ? null : String(statusChangedBy),
+      adminNote == null ? null : String(adminNote),
+      String(telegramId)
+    )
+    .run();
+}
+
+export async function markManualSuspendProfile(
+  env,
+  telegramId,
+  { adminId, statusReason = "manual_suspend", adminNote = null } = {}
+) {
+  await env.DB.prepare(
+    `
+    UPDATE profiles
+    SET status = 'suspended',
+        status_reason = ?,
+        status_changed_at = datetime('now'),
+        status_changed_by = ?,
+        admin_note = ?,
+        is_manual_suspended = 1,
+        suspended_at = datetime('now'),
+        suspended_by = ?,
+        suspend_reason = ?,
+        diupdate_pada = datetime('now')
+    WHERE telegram_id = ?
+  `
+  )
+    .bind(
+      String(statusReason),
+      adminId == null ? null : String(adminId),
+      adminNote == null ? null : String(adminNote),
+      adminId == null ? null : String(adminId),
+      adminNote == null ? "manual_suspend" : String(adminNote),
+      String(telegramId)
+    )
+    .run();
+}
+
+export async function clearManualSuspendProfile(env, telegramId) {
+  await env.DB.prepare(
+    `
+    UPDATE profiles
+    SET is_manual_suspended = 0,
+        diupdate_pada = datetime('now')
+    WHERE telegram_id = ?
+  `
+  )
+    .bind(String(telegramId))
     .run();
 }
 
@@ -305,11 +399,6 @@ export async function updateCloseupPhoto(env, telegramId, fotoCloseupFileId) {
   return { ok: true };
 }
 
-/**
- * shared setter for profile categories (by IDs)
- * - replace all existing categories with provided categoryIds
- * - wajib minimal 1 kalau function ini dipakai
- */
 export async function setProfileCategoriesByProfileId(env, profileId, categoryIds) {
   const pid = String(profileId || "").trim();
   if (!pid) return { ok: false, reason: "empty_profile_id" };
@@ -344,7 +433,6 @@ export async function setProfileCategoriesByProfileId(env, profileId, categoryId
   return { ok: true, count: existingIds.length };
 }
 
-// legacy keep for backward compatibility
 export async function setProfileCategoriesByCodes(env, telegramId, kodeList) {
   const tid = String(telegramId || "").trim();
   if (!tid) return { ok: false, reason: "empty_tid" };
