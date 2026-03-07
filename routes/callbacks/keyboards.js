@@ -156,7 +156,7 @@ export function buildConfigKeyboard() {
 export function buildConfigWelcomeKeyboard() {
   return {
     inline_keyboard: [
-      [{ text: "✏️ Edit", callback_data: "sa:cfg:welcome_edit" }],
+      [{ text: "✏️ Edit", callback_data: CALLBACKS.SUPERADMIN_CONFIG_WELCOME_EDIT }],
       [{ text: "⬅️ Back", callback_data: CALLBACKS.SUPERADMIN_CONFIG_MENU }],
     ],
   };
@@ -165,7 +165,7 @@ export function buildConfigWelcomeKeyboard() {
 export function buildConfigAturanKeyboard() {
   return {
     inline_keyboard: [
-      [{ text: "✏️ Edit", callback_data: "sa:cfg:aturan_edit" }],
+      [{ text: "✏️ Edit", callback_data: CALLBACKS.SUPERADMIN_CONFIG_ATURAN_EDIT }],
       [{ text: "⬅️ Back", callback_data: CALLBACKS.SUPERADMIN_CONFIG_MENU }],
     ],
   };
@@ -183,9 +183,9 @@ export function buildSettingsKeyboard() {
 export function buildCategoryKeyboard() {
   return {
     inline_keyboard: [
-      [{ text: "📚 Category List", callback_data: "sa:cat:list" }],
-      [{ text: "➕ Add Category", callback_data: "sa:cat:add" }],
-      [{ text: "➖ Delete Category", callback_data: "sa:cat:del" }],
+      [{ text: "📚 Category List", callback_data: CALLBACKS.SUPERADMIN_CATEGORY_LIST }],
+      [{ text: "➕ Add Category", callback_data: CALLBACKS.SUPERADMIN_CATEGORY_ADD }],
+      [{ text: "➖ Delete Category", callback_data: CALLBACKS.SUPERADMIN_CATEGORY_DEL }],
       [{ text: "⬅️ Back", callback_data: CALLBACKS.SUPERADMIN_SETTINGS_MENU }],
     ],
   };
@@ -197,7 +197,7 @@ export function buildFinanceKeyboard(manualOn) {
       [
         {
           text: manualOn ? "🛑 Set Manual Payment: OFF" : "✅ Set Manual Payment: ON",
-          callback_data: "sa:fin:manual_toggle",
+          callback_data: CALLBACKS.SUPERADMIN_FINANCE_MANUAL_TOGGLE,
         },
       ],
       [{ text: "⬅️ Back", callback_data: CALLBACKS.SUPERADMIN_TOOLS_MENU }],
