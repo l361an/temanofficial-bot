@@ -1,21 +1,17 @@
 // repositories/partnerSubscriptionsRepo.js
 
-function nowSql() {
-  return "datetime('now')";
-}
-
 export async function getActiveSubscriptionByTelegramId(env, telegramId) {
   const row = await env.DB.prepare(
     `
     SELECT *
     FROM partner_subscriptions
-    WHERE telegram_id = ?
+    WHERE partner_id = ?
       AND status = 'active'
-      AND starts_at IS NOT NULL
-      AND ends_at IS NOT NULL
-      AND datetime(starts_at) <= datetime('now')
-      AND datetime(ends_at) > datetime('now')
-    ORDER BY datetime(ends_at) DESC, datetime(dibuat_pada) DESC
+      AND start_at IS NOT NULL
+      AND end_at IS NOT NULL
+      AND datetime(start_at) <= datetime('now')
+      AND datetime(end_at) > datetime('now')
+    ORDER BY datetime(end_at) DESC, datetime(created_at) DESC
     LIMIT 1
   `
   )
@@ -30,8 +26,8 @@ export async function getLatestSubscriptionByTelegramId(env, telegramId) {
     `
     SELECT *
     FROM partner_subscriptions
-    WHERE telegram_id = ?
-    ORDER BY datetime(dibuat_pada) DESC, datetime(id) DESC
+    WHERE partner_id = ?
+    ORDER BY datetime(created_at) DESC, datetime(updated_at) DESC
     LIMIT 1
   `
   )
@@ -44,82 +40,125 @@ export async function getLatestSubscriptionByTelegramId(env, telegramId) {
 export async function createPartnerSubscription(env, payload) {
   const {
     id,
-    telegramId,
-    profileId,
+    partnerId,
+    paymentTicketId = null,
     classId,
-    ticketId = null,
+    durationMonths,
     status = "active",
-    startsAt,
-    endsAt,
+    startAt,
+    endAt,
     activatedAt = null,
-    activatedBy = null,
+    expiredAt = null,
+    cancelledAt = null,
+    cancelledBy = null,
+    cancelReason = null,
+    sourceType = "payment_ticket",
+    sourceRefId = null,
+    notes = null,
+    metadataJson = null,
   } = payload || {};
 
   await env.DB.prepare(
     `
     INSERT INTO partner_subscriptions (
       id,
-      telegram_id,
-      profile_id,
+      partner_id,
+      payment_ticket_id,
       class_id,
-      ticket_id,
+      duration_months,
       status,
-      starts_at,
-      ends_at,
+      start_at,
+      end_at,
       activated_at,
-      activated_by,
-      dibuat_pada,
-      diupdate_pada
+      expired_at,
+      cancelled_at,
+      cancelled_by,
+      cancel_reason,
+      source_type,
+      source_ref_id,
+      notes,
+      metadata_json,
+      created_at,
+      updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${nowSql()}, ${nowSql()})
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
   `
   )
     .bind(
       String(id),
-      String(telegramId),
-      profileId == null ? null : String(profileId),
+      String(partnerId),
+      paymentTicketId == null ? null : Number(paymentTicketId),
       String(classId || "bronze").toLowerCase(),
-      ticketId == null ? null : String(ticketId),
+      Number(durationMonths || 1),
       String(status),
-      String(startsAt),
-      String(endsAt),
+      String(startAt),
+      String(endAt),
       activatedAt == null ? null : String(activatedAt),
-      activatedBy == null ? null : String(activatedBy)
+      expiredAt == null ? null : String(expiredAt),
+      cancelledAt == null ? null : String(cancelledAt),
+      cancelledBy == null ? null : String(cancelledBy),
+      cancelReason == null ? null : String(cancelReason),
+      String(sourceType || "payment_ticket"),
+      sourceRefId == null ? null : String(sourceRefId),
+      notes == null ? null : String(notes),
+      metadataJson == null ? null : String(metadataJson)
     )
     .run();
 
   return { ok: true };
 }
 
-export async function expireElapsedSubscriptions(env) {
-  const res = await env.DB.prepare(
+export async function expireDueSubscriptions(env) {
+  const { results } = await env.DB.prepare(
+    `
+    SELECT DISTINCT partner_id
+    FROM partner_subscriptions
+    WHERE status = 'active'
+      AND end_at IS NOT NULL
+      AND datetime(end_at) <= datetime('now')
+  `
+  ).all();
+
+  await env.DB.prepare(
     `
     UPDATE partner_subscriptions
     SET status = 'expired',
-        diupdate_pada = ${nowSql()}
+        expired_at = COALESCE(expired_at, datetime('now')),
+        updated_at = datetime('now')
     WHERE status = 'active'
-      AND ends_at IS NOT NULL
-      AND datetime(ends_at) <= datetime('now')
+      AND end_at IS NOT NULL
+      AND datetime(end_at) <= datetime('now')
   `
   ).run();
 
   return {
     ok: true,
-    changes: Number(res?.meta?.changes || 0),
+    partnerIds: (results || []).map((r) => String(r.partner_id)).filter(Boolean),
   };
 }
 
-export async function listExpiredActiveSubscriptionOwners(env) {
-  const { results } = await env.DB.prepare(
-    `
-    SELECT telegram_id
-    FROM partner_subscriptions
-    WHERE status = 'active'
-      AND ends_at IS NOT NULL
-      AND datetime(ends_at) <= datetime('now')
-    GROUP BY telegram_id
-  `
-  ).all();
+export async function getSubscriptionInfoByTelegramId(env, telegramId) {
+  const active = await getActiveSubscriptionByTelegramId(env, telegramId);
+  if (active) {
+    return {
+      found: true,
+      is_active: true,
+      row: active,
+    };
+  }
 
-  return (results || []).map((r) => String(r.telegram_id)).filter(Boolean);
+  const latest = await getLatestSubscriptionByTelegramId(env, telegramId);
+  if (!latest) {
+    return {
+      found: false,
+      is_active: false,
+      row: null,
+    };
+  }
+
+  return {
+    found: true,
+    is_active: false,
+    row: latest,
+  };
 }
