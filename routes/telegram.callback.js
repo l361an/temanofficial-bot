@@ -5,10 +5,9 @@ import { json } from "../utils/response.js";
 import { getAdminRole } from "../repositories/adminsRepo.js";
 import { isAdminRole, isSuperadminRole } from "../utils/roles.js";
 
-// user callback handler (teman:* + self:*)
 import { handleSelfInlineCallback } from "./telegram.commands.user.js";
-
 import { createHandlers } from "./callbacks/registry.js";
+import { CALLBACKS, CALLBACK_PREFIX } from "./telegram.constants.js";
 
 const { EXACT, PREFIX } = createHandlers();
 
@@ -19,10 +18,8 @@ export async function handleCallback(update, env) {
 
   if (!data || !adminId) return json({ ok: true });
 
-  // ack callback (biar UI Telegram nggak loading lama)
   await answerCallbackQuery(env, callbackQueryId).catch(() => {});
 
-  // 1) handle user callbacks first (teman:* dan self:*)
   try {
     const handled = await handleSelfInlineCallback(update, env);
     if (handled) return json({ ok: true });
@@ -36,31 +33,35 @@ export async function handleCallback(update, env) {
 
   const role = await getAdminRole(env, adminId);
 
-  // 2) role gating (tetap sama konsepnya)
   const isOfficerAction =
-    data === "officer:home" ||
+    data === CALLBACKS.OFFICER_HOME ||
     data.startsWith("pt:") ||
     data.startsWith("pm:") ||
     data.startsWith("mod:") ||
-    data.startsWith("pickver:") ||
-    data.startsWith("setver:") ||
-    data.startsWith("backver:") ||
-    data.startsWith("approve:") ||
-    data.startsWith("reject:");
+    data.startsWith(CALLBACK_PREFIX.PICK_VER) ||
+    data.startsWith(CALLBACK_PREFIX.SET_VER) ||
+    data.startsWith(CALLBACK_PREFIX.BACK_VER) ||
+    data.startsWith(CALLBACK_PREFIX.APPROVE) ||
+    data.startsWith(CALLBACK_PREFIX.REJECT);
 
   const isSAAction =
     data.startsWith("sa:") ||
-    data.startsWith("pmclass:") ||
-    data.startsWith("setwelcome_confirm:") ||
-    data.startsWith("setwelcome_cancel:") ||
-    data.startsWith("setlink_confirm:") ||
-    data.startsWith("setlink_cancel:");
+    data.startsWith(CALLBACK_PREFIX.PM_CLASS_START) ||
+    data.startsWith(CALLBACK_PREFIX.PM_CLASS_SET) ||
+    data.startsWith(CALLBACK_PREFIX.PM_CLASS_BACK) ||
+    data.startsWith(CALLBACK_PREFIX.PM_VER_START) ||
+    data.startsWith(CALLBACK_PREFIX.PM_VER_SET) ||
+    data.startsWith(CALLBACK_PREFIX.PM_VER_BACK) ||
+    data.startsWith(CALLBACK_PREFIX.PM_PHOTO_START) ||
+    data.startsWith(CALLBACK_PREFIX.SETWELCOME_CONFIRM) ||
+    data.startsWith(CALLBACK_PREFIX.SETWELCOME_CANCEL) ||
+    data.startsWith(CALLBACK_PREFIX.SETLINK_CONFIRM) ||
+    data.startsWith(CALLBACK_PREFIX.SETLINK_CANCEL);
 
   if (isOfficerAction && !isAdminRole(role)) return json({ ok: true });
   if (isSAAction && !isSuperadminRole(role)) return json({ ok: true });
 
-  // extra hard gate: mod:delete only superadmin
-  if (data === "mod:delete" && !isSuperadminRole(role)) return json({ ok: true });
+  if (data === CALLBACKS.PARTNER_MOD_DELETE && !isSuperadminRole(role)) return json({ ok: true });
 
   const ctx = { env, update, data, adminId, role, msg, msgChatId, msgId };
 
