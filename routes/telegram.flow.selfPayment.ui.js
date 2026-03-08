@@ -21,7 +21,10 @@ export function fmtTicketStatusLabel(status) {
 
 export function fmtDurationLabel(durationCode, durationMonths) {
   const raw = String(durationCode || "").trim().toLowerCase();
+
   if (raw === "1d") return "1 Hari";
+  if (raw === "3d") return "3 Hari";
+  if (raw === "7d") return "7 Hari";
   if (raw === "1m") return "1 Bulan";
 
   const months = Number(durationMonths || 0);
@@ -36,7 +39,7 @@ function readDurationCodeFromTicket(ticket) {
     try {
       const parsed = JSON.parse(pricingSnapshot);
       const raw = String(parsed?.duration_code || "").trim().toLowerCase();
-      if (raw === "1d" || raw === "1m") return raw;
+      if (raw === "1d" || raw === "3d" || raw === "7d" || raw === "1m") return raw;
     } catch {}
   }
 
@@ -45,7 +48,7 @@ function readDurationCodeFromTicket(ticket) {
     try {
       const parsed = JSON.parse(metadata);
       const raw = String(parsed?.duration_code || "").trim().toLowerCase();
-      if (raw === "1d" || raw === "1m") return raw;
+      if (raw === "1d" || raw === "3d" || raw === "7d" || raw === "1m") return raw;
     } catch {}
   }
 
@@ -76,8 +79,14 @@ export function buildPaymentMenuKeyboard({
 export function buildPaymentDurationKeyboard() {
   return {
     inline_keyboard: [
-      [{ text: "1 Hari", callback_data: "self:payment:create:1d" }],
-      [{ text: "1 Bulan", callback_data: "self:payment:create:1m" }],
+      [
+        { text: "1 Hari", callback_data: "self:payment:create:1d" },
+        { text: "3 Hari", callback_data: "self:payment:create:3d" },
+      ],
+      [
+        { text: "7 Hari", callback_data: "self:payment:create:7d" },
+        { text: "1 Bulan", callback_data: "self:payment:create:1m" },
+      ],
       [{ text: "⬅️ Kembali", callback_data: "self:payment" }],
     ],
   };
@@ -103,6 +112,8 @@ export function buildChooseDurationMessage(ctx) {
     "",
     "Pilih durasi yang ingin kamu aktifkan:",
     "• 1 Hari",
+    "• 3 Hari",
+    "• 7 Hari",
     "• 1 Bulan",
   ].join("\n");
 }
