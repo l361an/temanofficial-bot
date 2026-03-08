@@ -1,6 +1,6 @@
 // routes/telegram.flow.selfProfile.edit.js
 
-import { sendMessage } from "../services/telegramApi.js";
+import { sendMessage, upsertCallbackMessage } from "../services/telegramApi.js";
 import { saveSession, clearSession } from "../utils/session.js";
 import {
   getProfileFullByTelegramId,
@@ -31,17 +31,16 @@ export function buildUpdateKeyboard() {
       [{ text: "🏙️ Ubah Kota", callback_data: "self:edit:kota" }],
       [{ text: "🗂️ Ubah Kategori", callback_data: "self:edit:kategori" }],
       [{ text: "📸 Ubah Foto Closeup", callback_data: "self:edit:closeup" }],
-      [{ text: "⬅️ Kembali", callback_data: "teman:menu" }],
-      [{ text: "📋 Menu TeMan", callback_data: "teman:menu" }],
+      [{ text: "⬅️ Kembali ke Menu", callback_data: "teman:menu" }],
     ],
   };
 }
 
 const EDIT_TEXT_FIELDS = {
-  nickname: { field: "nickname", prompt: "Ketik <b>nickname</b> baru:" },
+  nickname: { field: "nickname", prompt: "Ketik <b>Nickname</b> baru:" },
   no_whatsapp: { field: "no_whatsapp", prompt: "Ketik <b>No. Whatsapp</b> baru:" },
-  kecamatan: { field: "kecamatan", prompt: "Ketik <b>kecamatan</b> baru:" },
-  kota: { field: "kota", prompt: "Ketik <b>kota</b> baru:" },
+  kecamatan: { field: "kecamatan", prompt: "Ketik <b>Kecamatan</b> baru:" },
+  kota: { field: "kota", prompt: "Ketik <b>Kota</b> baru:" },
 };
 
 async function askTextInput(env, chatId, STATE_KEY, field, prompt) {
@@ -62,9 +61,14 @@ async function askCloseupPhoto(env, chatId, STATE_KEY) {
     step: "await_closeup_photo",
   });
 
-  await sendHtml(env, chatId, "Silakan kirim <b>foto CLOSEUP</b> terbaru (sebagai foto, bukan file).", {
-    reply_markup: buildTeManMenuKeyboard(),
-  });
+  await sendHtml(
+    env,
+    chatId,
+    "Silakan kirim <b>foto closeup</b> terbaru sebagai <b>photo</b>, bukan file.",
+    {
+      reply_markup: buildTeManMenuKeyboard(),
+    }
+  );
 }
 
 async function askKategori(env, chatId, STATE_KEY) {
@@ -102,7 +106,14 @@ async function stopEdit(env, chatId, STATE_KEY, msg) {
   });
 }
 
-export async function handleSelfProfileEditCallback({ env, chatId, telegramId, STATE_KEY, data }) {
+export async function handleSelfProfileEditCallback({
+  env,
+  chatId,
+  telegramId,
+  STATE_KEY,
+  data,
+  sourceMessage = null,
+}) {
   const profile = await getProfileFullByTelegramId(env, telegramId);
 
   if (!profile) {
@@ -113,11 +124,24 @@ export async function handleSelfProfileEditCallback({ env, chatId, telegramId, S
   }
 
   if (data === "self:update") {
-    await sendMessage(env, chatId, "Pilih data yang mau kamu update:", {
+    const text = [
+      "📝 <b>UPDATE PROFILE</b>",
+      "",
+      "Pilih data yang mau kamu update.",
+    ].join("\n");
+
+    const extra = {
       parse_mode: "HTML",
       reply_markup: buildUpdateKeyboard(),
       disable_web_page_preview: true,
-    });
+    };
+
+    if (sourceMessage) {
+      await upsertCallbackMessage(env, sourceMessage, text, extra);
+      return true;
+    }
+
+    await sendMessage(env, chatId, text, extra);
     return true;
   }
 
@@ -191,9 +215,14 @@ export async function handleUserProfileEditFlow({ env, chatId, telegramId, text,
 
     const parsed = parseMultiIndexInputRequired(text, categories.length);
     if (!parsed.ok) {
-      await sendMessage(env, chatId, "Input tidak valid.\nPilih minimal 1.\nKetik nomor dipisah koma.\nContoh: 1,3", {
-        reply_markup: buildTeManMenuKeyboard(),
-      });
+      await sendMessage(
+        env,
+        chatId,
+        "Input tidak valid.\nPilih minimal 1.\nKetik nomor dipisah koma.\nContoh: 1,3",
+        {
+          reply_markup: buildTeManMenuKeyboard(),
+        }
+      );
       return;
     }
 
@@ -222,7 +251,7 @@ export async function handleUserProfileEditFlow({ env, chatId, telegramId, text,
 
   if (session?.step === "await_closeup_photo") {
     if (!photoFileId) {
-      await sendHtml(env, chatId, "⚠️ Belum ada foto. Kirim foto closeup ya (bukan file).", {
+      await sendHtml(env, chatId, "⚠️ Belum ada foto. Kirim foto closeup ya sebagai photo, bukan file.", {
         reply_markup: buildTeManMenuKeyboard(),
       });
       return;
