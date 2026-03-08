@@ -28,12 +28,24 @@ function buildPaymentMenuKeyboard({ hasOpenTicket = false } = {}) {
   const rows = [];
 
   if (!hasOpenTicket) {
-    rows.push([{ text: "🧾 Ajukan Tiket Payment", callback_data: "self:payment:create" }]);
+    rows.push([
+      { text: "🧾 Upgrade Premium", callback_data: "self:payment:create" }
+    ]);
   }
 
-  rows.push([{ text: "📄 Status Tiket Payment", callback_data: "self:payment:status" }]);
-  rows.push([{ text: "📤 Upload Bukti Transfer", callback_data: "self:payment:upload_info" }]);
-  rows.push([{ text: "📋 Menu TeMan", callback_data: "teman:menu" }]);
+  if (hasOpenTicket) {
+    rows.push([
+      { text: "📄 Cek Status", callback_data: "self:payment:status" }
+    ]);
+
+    rows.push([
+      { text: "📤 Upload Bukti Transfer", callback_data: "self:payment:upload_info" }
+    ]);
+  }
+
+  rows.push([
+    { text: "📋 Menu TeMan", callback_data: "teman:menu" }
+  ]);
 
   return { inline_keyboard: rows };
 }
