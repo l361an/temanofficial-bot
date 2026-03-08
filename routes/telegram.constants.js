@@ -39,9 +39,13 @@ export const CALLBACKS = {
 
   SUPERADMIN_FINANCE_MENU: "sa:fin:menu",
   SUPERADMIN_FINANCE_MANUAL_TOGGLE: "sa:fin:manual_toggle",
-  SUPERADMIN_FINANCE_PRICE_BRONZE: "sa:fin:price:bronze",
-  SUPERADMIN_FINANCE_PRICE_GOLD: "sa:fin:price:gold",
-  SUPERADMIN_FINANCE_PRICE_PLATINUM: "sa:fin:price:platinum",
+
+  SUPERADMIN_FINANCE_PRICE_BRONZE_1D: "sa:fin:price:bronze:1d",
+  SUPERADMIN_FINANCE_PRICE_BRONZE_1M: "sa:fin:price:bronze:1m",
+  SUPERADMIN_FINANCE_PRICE_GOLD_1D: "sa:fin:price:gold:1d",
+  SUPERADMIN_FINANCE_PRICE_GOLD_1M: "sa:fin:price:gold:1m",
+  SUPERADMIN_FINANCE_PRICE_PLATINUM_1D: "sa:fin:price:platinum:1d",
+  SUPERADMIN_FINANCE_PRICE_PLATINUM_1M: "sa:fin:price:platinum:1m",
 };
 
 export const CALLBACK_PREFIX = {
@@ -98,14 +102,13 @@ export const cb = {
   pickVer: (telegramId) => `${CALLBACK_PREFIX.PICK_VER}${telegramId}`,
   setVer: (telegramId, verificatorId) => `${CALLBACK_PREFIX.SET_VER}${telegramId}:${verificatorId}`,
   backVer: (telegramId) => `${CALLBACK_PREFIX.BACK_VER}${telegramId}`,
-
   approve: (telegramId) => `${CALLBACK_PREFIX.APPROVE}${telegramId}`,
   reject: (telegramId) => `${CALLBACK_PREFIX.REJECT}${telegramId}`,
 
-  setWelcomeConfirm: (adminId) => `${CALLBACK_PREFIX.SETWELCOME_CONFIRM}${adminId}`,
-  setWelcomeCancel: (adminId) => `${CALLBACK_PREFIX.SETWELCOME_CANCEL}${adminId}`,
-  setLinkConfirm: (adminId) => `${CALLBACK_PREFIX.SETLINK_CONFIRM}${adminId}`,
-  setLinkCancel: (adminId) => `${CALLBACK_PREFIX.SETLINK_CANCEL}${adminId}`,
+  setWelcomeConfirm: (ownerId) => `${CALLBACK_PREFIX.SETWELCOME_CONFIRM}${ownerId}`,
+  setWelcomeCancel: (ownerId) => `${CALLBACK_PREFIX.SETWELCOME_CANCEL}${ownerId}`,
+  setLinkConfirm: (ownerId) => `${CALLBACK_PREFIX.SETLINK_CONFIRM}${ownerId}`,
+  setLinkCancel: (ownerId) => `${CALLBACK_PREFIX.SETLINK_CANCEL}${ownerId}`,
 
   payConfirmOk: (ticketId) => `${CALLBACK_PREFIX.PAYCONFIRM_OK}${ticketId}`,
   payConfirmReject: (ticketId) => `${CALLBACK_PREFIX.PAYCONFIRM_REJECT}${ticketId}`,
