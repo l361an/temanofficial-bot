@@ -1,15 +1,15 @@
 // routes/telegram.flow.selfProfile.menu.js
 
-import { sendMessage } from "../services/telegramApi.js";
+import { sendMessage, upsertCallbackMessage } from "../services/telegramApi.js";
 import { getProfileFullByTelegramId } from "../repositories/profilesRepo.js";
 import { sendHtml, buildTeManMenuKeyboard, escapeHtml } from "./telegram.user.shared.js";
 
 function fmtPartnerStatusLabel(status) {
   const raw = String(status || "").trim().toLowerCase();
 
-  if (raw === "pending_approval") return "Pending Approval";
+  if (raw === "pending_approval") return "Menunggu Persetujuan";
   if (raw === "approved") return "Approved";
-  if (raw === "active") return "Active";
+  if (raw === "active") return "Premium Aktif";
   if (raw === "suspended") return "Suspended";
 
   return raw ? raw.replaceAll("_", " ") : "-";
@@ -35,13 +35,18 @@ export function buildSelfMenuMessage(profile) {
   const statusLabel = fmtPartnerStatusLabel(profile?.status);
 
   return [
-    `Halo ${escapeHtml(nick)} !!!`,
-    `Status Partnership kamu saat ini <b>${escapeHtml(statusLabel)}</b>...`,
-    "Apa yang bisa TeMan bantu hari ini ?",
+    "📋 <b>MENU PARTNER</b>",
+    "",
+    `Halo, <b>${escapeHtml(nick)}</b>.`,
+    `Status Partner: <b>${escapeHtml(statusLabel)}</b>`,
+    "",
+    "Silakan pilih menu yang ingin kamu buka.",
   ].join("\n");
 }
 
-export async function sendSelfMenu(env, chatId, telegramId) {
+export async function sendSelfMenu(env, chatId, telegramId, options = {}) {
+  const { sourceMessage = null } = options;
+
   const profile = await getProfileFullByTelegramId(env, telegramId);
 
   if (!profile) {
@@ -51,9 +56,17 @@ export async function sendSelfMenu(env, chatId, telegramId) {
     return;
   }
 
-  await sendMessage(env, chatId, buildSelfMenuMessage(profile), {
+  const text = buildSelfMenuMessage(profile);
+  const extra = {
     parse_mode: "HTML",
     reply_markup: buildSelfMenuKeyboard(),
     disable_web_page_preview: true,
-  });
+  };
+
+  if (sourceMessage) {
+    await upsertCallbackMessage(env, sourceMessage, text, extra);
+    return;
+  }
+
+  await sendMessage(env, chatId, text, extra);
 }
