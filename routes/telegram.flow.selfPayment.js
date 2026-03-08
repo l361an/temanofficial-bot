@@ -1,6 +1,6 @@
 // routes/telegram.flow.selfPayment.js
 
-import { sendMessage } from "../services/telegramApi.js";
+import { sendMessage, upsertCallbackMessage } from "../services/telegramApi.js";
 import { getSetting } from "../repositories/settingsRepo.js";
 import {
   getOpenPaymentTicketByPartnerId,
@@ -42,7 +42,7 @@ function fmtPartnerStatusLabel(status) {
   const raw = String(status || "").trim().toLowerCase();
   if (raw === "pending_approval") return "Menunggu Persetujuan";
   if (raw === "approved") return "Approved";
-  if (raw === "active") return "Premium Active";
+  if (raw === "active") return "Premium Aktif";
   if (raw === "suspended") return "Suspended";
   return raw ? raw.replaceAll("_", " ") : "-";
 }
@@ -59,14 +59,14 @@ function fmtTicketStatusLabel(status) {
 }
 
 function fmtPremiumStatusLabel(profile, subInfo) {
-  if (subInfo?.is_active && subInfo?.row) return "Active";
+  if (subInfo?.is_active && subInfo?.row) return "Aktif";
 
   const latestSubStatus = String(subInfo?.row?.status || "").trim().toLowerCase();
   if (latestSubStatus === "expired") return "Expired";
   if (latestSubStatus === "cancelled") return "Cancelled";
 
   const partnerStatus = String(profile?.status || "").trim().toLowerCase();
-  if (partnerStatus === "active") return "Active";
+  if (partnerStatus === "active") return "Aktif";
   if (partnerStatus === "suspended") return "Suspended";
 
   return "Belum Aktif";
@@ -140,7 +140,7 @@ function buildPaymentTicketSummary(ticket) {
     "💳 <b>STATUS TIKET PAYMENT</b>",
     "",
     `Kode Tiket: <code>${escapeHtml(String(ticket.ticket_code || "-"))}</code>`,
-    `Status: <b>${escapeHtml(fmtTicketStatusLabel(ticket.status))}</b>`,
+    `Status Tiket: <b>${escapeHtml(fmtTicketStatusLabel(ticket.status))}</b>`,
     `Class Partner: <b>${escapeHtml(classLabel)}</b>`,
     `Durasi: <b>${escapeHtml(String(ticket.duration_months || "-"))}</b> bulan`,
     `Nominal Transfer: <b>${escapeHtml(formatMoney(ticket.amount_final))}</b>`,
@@ -171,7 +171,7 @@ function buildPaymentInstructionMessage(ticket) {
     "Catatan:",
     "• 1 partner hanya boleh punya 1 tiket aktif",
     "• upload bukti hanya saat status <b>Menunggu Pembayaran</b>",
-    "• setelah upload, status jadi <b>Menunggu Konfirmasi Superadmin</b>",
+    "• setelah upload, status menjadi <b>Menunggu Konfirmasi Superadmin</b>",
     "• tiket expired tetap tersimpan di sistem",
     "• jika tiket expired dan transfer sudah terlanjur dilakukan, hubungi Superadmin untuk manual check",
   ];
@@ -188,14 +188,14 @@ function buildPaymentUploadInfoMessage(ticket = null) {
     "",
     "Rule:",
     "• upload bukti hanya saat tiket status <b>Menunggu Pembayaran</b>",
-    "• setelah upload, tiket jadi <b>Menunggu Konfirmasi Superadmin</b>",
+    "• setelah upload, tiket menjadi <b>Menunggu Konfirmasi Superadmin</b>",
     "• kalau tiket sudah expired, sistem tidak proses otomatis",
   ];
 
   if (ticket) {
     lines.push("");
     lines.push(`Tiket Aktif: <code>${escapeHtml(String(ticket.ticket_code || "-"))}</code>`);
-    lines.push(`Status: <b>${escapeHtml(fmtTicketStatusLabel(ticket.status))}</b>`);
+    lines.push(`Status Tiket: <b>${escapeHtml(fmtTicketStatusLabel(ticket.status))}</b>`);
     lines.push(`Nominal: <b>${escapeHtml(formatMoney(ticket.amount_final))}</b>`);
     lines.push(`Batas Waktu: <b>${escapeHtml(formatDateTime(ticket.expires_at))}</b>`);
   } else {
@@ -220,7 +220,7 @@ function buildExpiredTicketHelpMessage(ticket) {
     "⚠️ <b>TIKET SUDAH KEDALUWARSA</b>",
     "",
     `Kode Tiket: <code>${escapeHtml(String(ticket?.ticket_code || "-"))}</code>`,
-    `Status: <b>${escapeHtml(fmtTicketStatusLabel(ticket?.status))}</b>`,
+    `Status Tiket: <b>${escapeHtml(fmtTicketStatusLabel(ticket?.status))}</b>`,
     `Nominal: <b>${escapeHtml(formatMoney(ticket?.amount_final))}</b>`,
     "",
     "Kalau belum transfer, silakan buat tiket baru.",
@@ -228,7 +228,24 @@ function buildExpiredTicketHelpMessage(ticket) {
   ].join("\n");
 }
 
-async function sendPaymentMenu(env, chatId, telegramId) {
+async function renderPaymentScreen(env, chatId, sourceMessage, text, replyMarkup) {
+  const extra = {
+    parse_mode: "HTML",
+    reply_markup: replyMarkup,
+    disable_web_page_preview: true,
+  };
+
+  if (sourceMessage) {
+    await upsertCallbackMessage(env, sourceMessage, text, extra);
+    return;
+  }
+
+  await sendMessage(env, chatId, text, extra);
+}
+
+async function sendPaymentMenu(env, chatId, telegramId, options = {}) {
+  const { sourceMessage = null } = options;
+
   const profile = await getProfileFullByTelegramId(env, telegramId);
   if (!profile) {
     await sendHtml(env, chatId, "Data partner tidak ditemukan.", {
@@ -267,14 +284,18 @@ async function sendPaymentMenu(env, chatId, telegramId) {
     lines.push("Tiket Terakhir: <b>-</b>");
   }
 
-  await sendMessage(env, chatId, lines.join("\n"), {
-    parse_mode: "HTML",
-    reply_markup: buildPaymentMenuKeyboard({ hasOpenTicket: Boolean(openTicket) }),
-    disable_web_page_preview: true,
-  });
+  await renderPaymentScreen(
+    env,
+    chatId,
+    sourceMessage,
+    lines.join("\n"),
+    buildPaymentMenuKeyboard({ hasOpenTicket: Boolean(openTicket) })
+  );
 }
 
-async function createPartnerPaymentTicket(env, chatId, telegramId) {
+async function createPartnerPaymentTicket(env, chatId, telegramId, options = {}) {
+  const { sourceMessage = null } = options;
+
   const profile = await getProfileFullByTelegramId(env, telegramId);
   if (!profile) {
     await sendHtml(env, chatId, "Data partner tidak ditemukan.", {
@@ -285,44 +306,49 @@ async function createPartnerPaymentTicket(env, chatId, telegramId) {
 
   const partnerStatus = normalizeStatus(profile.status);
   if (partnerStatus === "pending_approval") {
-    await sendHtml(
+    await renderPaymentScreen(
       env,
       chatId,
+      sourceMessage,
       "⚠️ Akun kamu masih <b>Menunggu Persetujuan</b>.\nTiket payment baru bisa diajukan setelah registrasi disetujui.",
-      { reply_markup: buildPaymentMenuKeyboard() }
+      buildPaymentMenuKeyboard()
     );
     return;
   }
 
   const paymentEnabled = (await getSetting(env, "payment_manual_enabled")) ?? "1";
   if (String(paymentEnabled) === "0") {
-    await sendHtml(
+    await renderPaymentScreen(
       env,
       chatId,
+      sourceMessage,
       "⚠️ Payment manual sedang dinonaktifkan oleh Superadmin.",
-      { reply_markup: buildPaymentMenuKeyboard() }
+      buildPaymentMenuKeyboard()
     );
     return;
   }
 
   const openTicket = await getOpenPaymentTicketByPartnerId(env, telegramId);
   if (openTicket) {
-    await sendMessage(env, chatId, buildOpenTicketWarningMessage(openTicket), {
-      parse_mode: "HTML",
-      reply_markup: buildPaymentMenuKeyboard({ hasOpenTicket: true }),
-      disable_web_page_preview: true,
-    });
+    await renderPaymentScreen(
+      env,
+      chatId,
+      sourceMessage,
+      buildOpenTicketWarningMessage(openTicket),
+      buildPaymentMenuKeyboard({ hasOpenTicket: true })
+    );
     return;
   }
 
   const classId = normalizeClassId(profile.class_id || "bronze");
   const price = await resolveBasePriceByClass(env, classId);
   if (!Number(price.amount)) {
-    await sendHtml(
+    await renderPaymentScreen(
       env,
       chatId,
+      sourceMessage,
       `⚠️ Harga untuk class <b>${escapeHtml(fmtClassId(classId))}</b> belum diset di settings.`,
-      { reply_markup: buildPaymentMenuKeyboard() }
+      buildPaymentMenuKeyboard()
     );
     return;
   }
@@ -363,46 +389,60 @@ async function createPartnerPaymentTicket(env, chatId, telegramId) {
     }),
   });
 
-  await sendMessage(env, chatId, buildPaymentInstructionMessage(created), {
-    parse_mode: "HTML",
-    reply_markup: buildPaymentMenuKeyboard({ hasOpenTicket: true }),
-    disable_web_page_preview: true,
-  });
+  await renderPaymentScreen(
+    env,
+    chatId,
+    sourceMessage,
+    buildPaymentInstructionMessage(created),
+    buildPaymentMenuKeyboard({ hasOpenTicket: true })
+  );
 }
 
-async function sendPaymentTicketStatus(env, chatId, telegramId) {
+async function sendPaymentTicketStatus(env, chatId, telegramId, options = {}) {
+  const { sourceMessage = null } = options;
+
   const openTicket = await getOpenPaymentTicketByPartnerId(env, telegramId);
   if (openTicket) {
-    await sendMessage(env, chatId, buildPaymentTicketSummary(openTicket), {
-      parse_mode: "HTML",
-      reply_markup: buildPaymentMenuKeyboard({ hasOpenTicket: true }),
-      disable_web_page_preview: true,
-    });
+    await renderPaymentScreen(
+      env,
+      chatId,
+      sourceMessage,
+      buildPaymentTicketSummary(openTicket),
+      buildPaymentMenuKeyboard({ hasOpenTicket: true })
+    );
     return;
   }
 
   const latestTicket = await getLatestPaymentTicket(env, telegramId);
   if (!latestTicket) {
-    await sendHtml(env, chatId, "Belum ada tiket payment.", {
-      reply_markup: buildPaymentMenuKeyboard(),
-    });
+    await renderPaymentScreen(
+      env,
+      chatId,
+      sourceMessage,
+      "Belum ada tiket payment.",
+      buildPaymentMenuKeyboard()
+    );
     return;
   }
 
   if (normalizeStatus(latestTicket.status) === "expired") {
-    await sendMessage(env, chatId, buildExpiredTicketHelpMessage(latestTicket), {
-      parse_mode: "HTML",
-      reply_markup: buildPaymentMenuKeyboard(),
-      disable_web_page_preview: true,
-    });
+    await renderPaymentScreen(
+      env,
+      chatId,
+      sourceMessage,
+      buildExpiredTicketHelpMessage(latestTicket),
+      buildPaymentMenuKeyboard()
+    );
     return;
   }
 
-  await sendMessage(env, chatId, buildPaymentTicketSummary(latestTicket), {
-    parse_mode: "HTML",
-    reply_markup: buildPaymentMenuKeyboard(),
-    disable_web_page_preview: true,
-  });
+  await renderPaymentScreen(
+    env,
+    chatId,
+    sourceMessage,
+    buildPaymentTicketSummary(latestTicket),
+    buildPaymentMenuKeyboard()
+  );
 }
 
 export async function handleSelfPaymentInlineCallback(update, env) {
@@ -428,7 +468,7 @@ export async function handleSelfPaymentInlineCallback(update, env) {
     const p = await ensureRegistered();
     if (!p) return true;
 
-    await sendPaymentMenu(env, chatId, telegramId);
+    await sendPaymentMenu(env, chatId, telegramId, { sourceMessage: msg });
     return true;
   }
 
@@ -436,7 +476,7 @@ export async function handleSelfPaymentInlineCallback(update, env) {
     const p = await ensureRegistered();
     if (!p) return true;
 
-    await createPartnerPaymentTicket(env, chatId, telegramId);
+    await createPartnerPaymentTicket(env, chatId, telegramId, { sourceMessage: msg });
     return true;
   }
 
@@ -444,7 +484,7 @@ export async function handleSelfPaymentInlineCallback(update, env) {
     const p = await ensureRegistered();
     if (!p) return true;
 
-    await sendPaymentTicketStatus(env, chatId, telegramId);
+    await sendPaymentTicketStatus(env, chatId, telegramId, { sourceMessage: msg });
     return true;
   }
 
@@ -453,11 +493,13 @@ export async function handleSelfPaymentInlineCallback(update, env) {
     if (!p) return true;
 
     const openTicket = await getOpenPaymentTicketByPartnerId(env, telegramId);
-    await sendMessage(env, chatId, buildPaymentUploadInfoMessage(openTicket), {
-      parse_mode: "HTML",
-      reply_markup: buildPaymentMenuKeyboard({ hasOpenTicket: Boolean(openTicket) }),
-      disable_web_page_preview: true,
-    });
+    await renderPaymentScreen(
+      env,
+      chatId,
+      msg,
+      buildPaymentUploadInfoMessage(openTicket),
+      buildPaymentMenuKeyboard({ hasOpenTicket: Boolean(openTicket) })
+    );
     return true;
   }
 
