@@ -4,7 +4,6 @@ import { clearSession } from "../utils/session.js";
 import { sendMessage } from "../services/telegramApi.js";
 import { upsertSetting } from "../repositories/settingsRepo.js";
 import { CALLBACKS } from "./telegram.constants.js";
-import { buildFinanceKeyboard } from "./callbacks/keyboards.js";
 
 function formatMoney(value) {
   const n = Number(value || 0);
@@ -12,8 +11,8 @@ function formatMoney(value) {
   return `Rp ${n.toLocaleString("id-ID")}`;
 }
 
-function getPriceKey(classId) {
-  return `payment_price_${classId}_1m`;
+function getPriceKey(classId, durationCode) {
+  return `payment_price_${classId}_${durationCode}`;
 }
 
 function getPriceLabel(classId) {
@@ -22,6 +21,14 @@ function getPriceLabel(classId) {
   if (raw === "gold") return "Gold";
   if (raw === "platinum") return "Platinum";
   return raw || "-";
+}
+
+function getDurationLabel(durationCode) {
+  const raw = String(durationCode || "").trim().toLowerCase();
+  if (raw === "1d") return "1 Hari";
+  if (raw === "3d") return "3 Hari";
+  if (raw === "7d") return "7 Hari";
+  return "1 Bulan";
 }
 
 function buildBackKeyboard() {
@@ -43,8 +50,13 @@ export async function handleSuperadminFinanceInput({ env, chatId, text, session,
 
   const area = String(session?.area || "");
   const classId = String(session?.class_id || "").trim().toLowerCase();
+  const durationCode = String(session?.duration_code || "").trim().toLowerCase();
 
-  if (area !== "price" || !["bronze", "gold", "platinum"].includes(classId)) {
+  if (
+    area !== "price" ||
+    !["bronze", "gold", "platinum"].includes(classId) ||
+    !["1d", "3d", "7d", "1m"].includes(durationCode)
+  ) {
     await clearSession(env, STATE_KEY);
     await sendMessage(env, chatId, "⚠️ Mode Finance tidak dikenal. Balik ke menu.", {
       reply_markup: buildBackKeyboard(),
@@ -64,14 +76,14 @@ export async function handleSuperadminFinanceInput({ env, chatId, text, session,
     return true;
   }
 
-  const key = getPriceKey(classId);
+  const key = getPriceKey(classId, durationCode);
   await upsertSetting(env, key, String(amount));
   await clearSession(env, STATE_KEY);
 
   await sendMessage(
     env,
     chatId,
-    `✅ Harga class ${getPriceLabel(classId)} berhasil diupdate menjadi ${formatMoney(amount)}.`,
+    `✅ Harga class ${getPriceLabel(classId)} untuk ${getDurationLabel(durationCode)} berhasil diupdate menjadi ${formatMoney(amount)}.`,
     {
       reply_markup: buildBackKeyboard(),
     }
