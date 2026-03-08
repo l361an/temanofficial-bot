@@ -203,7 +203,7 @@ export function buildFinanceKeyboard(manualOn) {
           callback_data: CALLBACKS.SUPERADMIN_FINANCE_MANUAL_TOGGLE,
         },
       ],
-      [{ text: "🏷️ Pricing", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICING_MENU }],
+      [{ text: "🏷️ Setup Pricing", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICING_MENU }],
       [{ text: "⬅️ Back", callback_data: CALLBACKS.SUPERADMIN_SETTINGS_MENU }],
     ],
   };
