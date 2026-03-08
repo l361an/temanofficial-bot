@@ -11,25 +11,34 @@ export function resolvePartnerStatusLabel(profile) {
 
   if (raw === "pending_approval") return "Pending";
   if (raw === "approved") return "Approved";
-  if (raw === "active") return "Approved";
   if (raw === "suspended") return "Suspended";
 
   return raw ? raw.replaceAll("_", " ") : "-";
 }
 
-export function resolvePremiumAccessLabel(profile, subInfo) {
+export function hasPremiumAccess(profile, subInfo) {
   const partnerStatus = String(profile?.status || "").trim().toLowerCase();
   const isManualSuspended = Number(profile?.is_manual_suspended || 0) === 1;
 
-  if (partnerStatus === "suspended" || isManualSuspended) return "Non-aktif";
-  if (subInfo?.is_active && subInfo?.row) return "Aktif";
-  return "Non-aktif";
+  if (partnerStatus === "suspended" || isManualSuspended) return false;
+  if (subInfo?.is_active && subInfo?.row) return true;
+  return false;
+}
+
+export function resolvePremiumAccessLabel(profile, subInfo) {
+  return hasPremiumAccess(profile, subInfo) ? "Aktif" : "Non-aktif";
 }
 
 export function resolvePrimaryActionText(profile, subInfo) {
-  return resolvePremiumAccessLabel(profile, subInfo) === "Aktif"
-    ? "🔄 Renew Premium"
-    : "🧾 Upgrade Premium";
+  return hasPremiumAccess(profile, subInfo) ? "🔄 Renew Premium" : "🧾 Upgrade Premium";
+}
+
+export function resolveDurationLabel(durationCode) {
+  return String(durationCode || "").trim().toLowerCase() === "1d" ? "1 Hari" : "1 Bulan";
+}
+
+export function resolveDurationMonths(durationCode) {
+  return String(durationCode || "").trim().toLowerCase() === "1d" ? 0 : 1;
 }
 
 export async function getLatestPaymentTicket(env, partnerId) {
@@ -69,27 +78,40 @@ export async function getUniqueCodeRange(env) {
   };
 }
 
-export async function resolveBasePriceByClass(env, classId) {
+export async function resolvePriceByClassAndDuration(env, classId, durationCode) {
+  const normalizedClassId = normalizeClassId(classId || "bronze");
+  const normalizedDurationCode = String(durationCode || "1m").trim().toLowerCase() === "1d" ? "1d" : "1m";
+
   const keyCandidates = [
-    `payment_price_${classId}_1m`,
-    `payment_price_${classId}`,
-    `payment_${classId}_1m`,
-    `payment_${classId}`,
-    `pp_price_${classId}_1m`,
-    `pp_price_${classId}`,
-    `${classId}_price_1m`,
-    `${classId}_price`,
+    `payment_price_${normalizedClassId}_${normalizedDurationCode}`,
+    `payment_${normalizedClassId}_${normalizedDurationCode}`,
+    `pp_price_${normalizedClassId}_${normalizedDurationCode}`,
+    `${normalizedClassId}_price_${normalizedDurationCode}`,
   ];
 
   for (const key of keyCandidates) {
     const raw = await getSetting(env, key);
     const num = Number(raw);
     if (Number.isFinite(num) && num > 0) {
-      return { amount: num, key };
+      return {
+        amount: num,
+        key,
+        classId: normalizedClassId,
+        durationCode: normalizedDurationCode,
+        durationLabel: resolveDurationLabel(normalizedDurationCode),
+        durationMonths: resolveDurationMonths(normalizedDurationCode),
+      };
     }
   }
 
-  return { amount: 0, key: null };
+  return {
+    amount: 0,
+    key: null,
+    classId: normalizedClassId,
+    durationCode: normalizedDurationCode,
+    durationLabel: resolveDurationLabel(normalizedDurationCode),
+    durationMonths: resolveDurationMonths(normalizedDurationCode),
+  };
 }
 
 export async function loadSelfPaymentContext(env, telegramId) {
@@ -119,5 +141,6 @@ export async function loadSelfPaymentContext(env, telegramId) {
     premiumAccessLabel,
     primaryActionText,
     classId,
+    hasPremiumAccess: hasPremiumAccess(profile, subInfo),
   };
 }
