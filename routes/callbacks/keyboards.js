@@ -28,7 +28,7 @@ export function buildPartnerDatabaseKeyboard() {
     inline_keyboard: [
       [{ text: "🔎 View Partner", callback_data: CALLBACKS.PARTNER_DATABASE_VIEW }],
       [{ text: "👥 Partner", callback_data: cb.pmList("all") }],
-      [{ text: "🕒 Partner Pending Approval", callback_data: cb.pmList("pending_approval") }],
+      [{ text: "🕒 Partner Pending", callback_data: cb.pmList("pending_approval") }],
       [{ text: "✅ Partner Approved", callback_data: cb.pmList("approved") }],
       [{ text: "⛔ Partner Suspended", callback_data: cb.pmList("suspended") }],
       [{ text: "🟢 Partner Active", callback_data: cb.pmList("active") }],
