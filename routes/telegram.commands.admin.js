@@ -14,9 +14,6 @@ import {
 } from "./telegram.messages.js";
 import { OBSOLETE_ADMIN_COMMANDS } from "./telegram.constants.js";
 
-// =============================
-// Helpers
-// =============================
 async function getPartnerLabelByTelegramId(env, telegramId) {
   const tid = String(telegramId || "").trim();
   if (!tid) return "-";
@@ -31,9 +28,14 @@ function formatDateTime(v) {
   return String(v);
 }
 
-// =============================
-// Category command configs
-// =============================
+function formatClassId(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "bronze") return "Bronze";
+  if (raw === "gold") return "Gold";
+  if (raw === "platinum") return "Platinum";
+  return raw || "-";
+}
+
 const CATEGORY_CMDS = {
   "/addcategory": {
     fmt: "Format:\n/addcategory <kode>\nContoh:\n/addcategory TeManMakan",
@@ -59,9 +61,6 @@ const CATEGORY_CMDS = {
   },
 };
 
-// =============================
-// Main
-// =============================
 export async function handleAdminCommand({ env, chatId, text, role }) {
   if (!isAdminRole(role)) return false;
 
@@ -119,7 +118,7 @@ export async function handleAdminCommand({ env, chatId, text, role }) {
     lines.push("");
     lines.push(`Status Partner: ${profile.status ?? "-"}`);
     lines.push(`Reason: ${profile.status_reason ?? "-"}`);
-    lines.push(`Class ID: ${profile.class_id ?? "-"}`);
+    lines.push(`Class ID: ${formatClassId(profile.class_id)}`);
     lines.push(`Manual Suspended: ${Number(profile.is_manual_suspended || 0) === 1 ? "ya" : "tidak"}`);
     lines.push("");
 
@@ -127,6 +126,7 @@ export async function handleAdminCommand({ env, chatId, text, role }) {
       lines.push("Subscription: belum ada");
     } else {
       lines.push(`Subscription Status: ${sub.row.status ?? "-"}`);
+      lines.push(`Class Subscription: ${formatClassId(sub.row.class_id)}`);
       lines.push(`Duration (bulan): ${sub.row.duration_months ?? "-"}`);
       lines.push(`Mulai: ${formatDateTime(sub.row.start_at)}`);
       lines.push(`Berakhir: ${formatDateTime(sub.row.end_at)}`);
