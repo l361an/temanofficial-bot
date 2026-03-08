@@ -56,10 +56,10 @@ function fmtMonthLabel(value) {
   return `${n} Bulan`;
 }
 
-function fmtRupiah(value) {
+function fmtMoney(value) {
   const n = Number(value || 0);
-  if (!Number.isFinite(n)) return "Rp0";
-  return `Rp${n.toLocaleString("id-ID")}`;
+  if (!Number.isFinite(n)) return "Rp. 0";
+  return `Rp. ${n.toLocaleString("en-US")}`;
 }
 
 function pad2(value) {
@@ -100,9 +100,9 @@ export function buildPaymentReviewText(ticket, profile = null) {
     esc(fmtMonthLabel(ticket?.duration_months)),
     "",
     "💰 <b>Rincian Pembayaran</b>",
-    `Harga Dasar : <b>${esc(fmtRupiah(ticket?.amount_base))}</b>`,
+    `Harga Dasar : <b>${esc(fmtMoney(ticket?.amount_base))}</b>`,
     `Kode Unik   : <b>${esc(fmtText(ticket?.unique_code, "0"))}</b>`,
-    `Total Bayar : <b>${esc(fmtRupiah(ticket?.amount_final))}</b>`,
+    `Total Bayar : <b>${esc(fmtMoney(ticket?.amount_final))}</b>`,
     "",
     "🏦 <b>Metode Pembayaran</b>",
     esc(fmtProviderLabel(ticket?.provider)),
