@@ -85,7 +85,7 @@ export async function handlePartnerModerationInput({ env, chatId, text, session,
 
     const link = (await getSetting(env, "link_aturan")) ?? "-";
     const userText =
-      res.status === "active"
+      res.reason_code === "payment_confirmed"
         ? `${res.user_message}\n\nIkuti seluruh arahan Admin dan\nBaca ATURAN MAIN TeMan:\n${link}`
         : res.user_message;
 
