@@ -139,7 +139,9 @@ async function sendDurationPicker(env, chatId, telegramId, options = {}) {
 async function createPartnerPaymentTicket(env, chatId, telegramId, durationCode, options = {}) {
   const { sourceMessage = null } = options;
 
-  const normalizedDurationCode = String(durationCode || "").trim().toLowerCase() === "1d" ? "1d" : "1m";
+  const allowedDurationCodes = new Set(["1d", "3d", "7d", "1m"]);
+  const normalizedDurationCode = String(durationCode || "").trim().toLowerCase();
+  const finalDurationCode = allowedDurationCodes.has(normalizedDurationCode) ? normalizedDurationCode : "1m";
 
   const ctx = await loadSelfPaymentContext(env, telegramId);
   if (!ctx.profile) {
@@ -208,7 +210,8 @@ async function createPartnerPaymentTicket(env, chatId, telegramId, durationCode,
   }
 
   const classId = normalizeClassId(ctx.profile.class_id || "bronze");
-  const price = await resolvePriceByClassAndDuration(env, classId, normalizedDurationCode);
+  const price = await resolvePriceByClassAndDuration(env, classId, finalDurationCode);
+
   if (!Number(price.amount)) {
     await renderPaymentScreen(
       env,
@@ -247,6 +250,7 @@ async function createPartnerPaymentTicket(env, chatId, telegramId, durationCode,
       class_label: classId,
       duration_code: price.durationCode,
       duration_label: price.durationLabel,
+      duration_days: price.durationDays,
       duration_months: price.durationMonths,
       amount_base: amountBase,
       unique_code: uniqueCode,
@@ -257,6 +261,7 @@ async function createPartnerPaymentTicket(env, chatId, telegramId, durationCode,
       source: "partner_self_menu",
       action_label: ctx.primaryActionText,
       duration_code: price.durationCode,
+      duration_days: price.durationDays,
     }),
   });
 
@@ -358,6 +363,16 @@ export async function handleSelfPaymentInlineCallback(update, env) {
 
   if (data === "self:payment:create:1d") {
     await createPartnerPaymentTicket(env, chatId, telegramId, "1d", { sourceMessage: msg });
+    return true;
+  }
+
+  if (data === "self:payment:create:3d") {
+    await createPartnerPaymentTicket(env, chatId, telegramId, "3d", { sourceMessage: msg });
+    return true;
+  }
+
+  if (data === "self:payment:create:7d") {
+    await createPartnerPaymentTicket(env, chatId, telegramId, "7d", { sourceMessage: msg });
     return true;
   }
 
