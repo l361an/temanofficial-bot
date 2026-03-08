@@ -39,6 +39,11 @@ export const CALLBACKS = {
 
   SUPERADMIN_FINANCE_MENU: "sa:fin:menu",
   SUPERADMIN_FINANCE_MANUAL_TOGGLE: "sa:fin:manual_toggle",
+  SUPERADMIN_FINANCE_PRICING_MENU: "sa:fin:pricing:menu",
+
+  SUPERADMIN_FINANCE_PRICING_BRONZE_MENU: "sa:fin:pricing:bronze",
+  SUPERADMIN_FINANCE_PRICING_GOLD_MENU: "sa:fin:pricing:gold",
+  SUPERADMIN_FINANCE_PRICING_PLATINUM_MENU: "sa:fin:pricing:platinum",
 
   SUPERADMIN_FINANCE_PRICE_BRONZE_1D: "sa:fin:price:bronze:1d",
   SUPERADMIN_FINANCE_PRICE_BRONZE_1M: "sa:fin:price:bronze:1m",
