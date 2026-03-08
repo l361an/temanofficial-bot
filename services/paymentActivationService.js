@@ -32,6 +32,41 @@ function makeId(prefix = "sub") {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function pad2(value) {
+  return String(value).padStart(2, "0");
+}
+
+function formatDateTime(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "-";
+
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$/);
+  if (m) {
+    const [, yyyy, mm, dd, hh = "00", mi = "00"] = m;
+    return `${dd}-${mm}-${yyyy} ${hh}:${mi}`;
+  }
+
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return raw;
+
+  return `${pad2(d.getDate())}-${pad2(d.getMonth() + 1)}-${d.getFullYear()} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+function buildPartnerPaymentConfirmedMessage(subscription) {
+  return [
+    "Info :",
+    "Pembayaran kamu sudah dikonfirmasi.",
+    "",
+    "Fitur PREMIUM TeMan",
+    "Status : Active",
+    `Masa Aktif: ${formatDateTime(subscription?.start_at)} s.d ${formatDateTime(subscription?.end_at)}`,
+    "",
+    "<i>Perpanjang masa aktif sebelum kadaluarsa untuk tetap menikmati Fitur PREMIUM TeMan.</i>",
+    "",
+    "Terimakasih.",
+  ].join("\n");
+}
+
 export async function confirmPaymentAndActivateSubscription(env, ticketId, actorId, adminNote = null) {
   const ticket = await getPaymentTicketById(env, ticketId);
   if (!ticket) return { ok: false, reason: "ticket_not_found" };
@@ -70,17 +105,19 @@ export async function confirmPaymentAndActivateSubscription(env, ticketId, actor
 
   const statusRes = await markPaymentConfirmedAndActivate(env, partnerId, actorId, adminNote);
 
+  const subscription = {
+    start_at: startedAt,
+    end_at: endedAt,
+    duration_months: Number(ticket.duration_months || 1),
+    class_id: ticket.class_id || profile.class_id || "bronze",
+  };
+
   return {
     ok: true,
     ticket,
     profile,
-    subscription: {
-      start_at: startedAt,
-      end_at: endedAt,
-      duration_months: Number(ticket.duration_months || 1),
-      class_id: ticket.class_id || profile.class_id || "bronze",
-    },
+    subscription,
     status: statusRes.status,
-    user_message: statusRes.user_message,
+    user_message: buildPartnerPaymentConfirmedMessage(subscription),
   };
 }
