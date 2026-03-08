@@ -1,4 +1,5 @@
 // routes/callbacks/shared.js
+
 export async function deleteSetting(env, key) {
   await env.DB.prepare("DELETE FROM settings WHERE key = ?").bind(key).run();
 }
@@ -33,11 +34,20 @@ export function buildVerificatorLine(row, verificatorMap) {
   return `Verificator: <code>${escapeHtml(vid)}</code> - <b>${escapeHtml(uname)}</b>`;
 }
 
+function fmtStatusLabel(status) {
+  const raw = String(status || "").trim().toLowerCase();
+  if (raw === "pending_approval") return "Pending";
+  if (raw === "approved") return "Approved";
+  if (raw === "suspended") return "Suspended";
+  return raw ? raw.replaceAll("_", " ") : "-";
+}
+
 export function buildListMessageHtml(title, rows, verificatorMap, { showStatus = false } = {}) {
   const lines = [`📋 <b>${escapeHtml(title)}:</b>`, ""];
+
   rows.forEach((r) => {
     lines.push(`👤 <b>${escapeHtml(r?.nama_lengkap ? String(r.nama_lengkap) : "-")}</b>`);
-    if (showStatus) lines.push(`Status: <b>${escapeHtml(r?.status ? String(r.status) : "-")}</b>`);
+    if (showStatus) lines.push(`Status: <b>${escapeHtml(fmtStatusLabel(r?.status))}</b>`);
     lines.push(`Class ID: <b>${escapeHtml(fmtClassId(r?.class_id))}</b>`);
     lines.push(`ID: <code>${escapeHtml(r?.telegram_id ? String(r.telegram_id) : "-")}</code>`);
     lines.push(`Username: <b>${escapeHtml(r?.username ? fmtHandle(r.username) : "-")}</b>`);
@@ -45,6 +55,7 @@ export function buildListMessageHtml(title, rows, verificatorMap, { showStatus =
     lines.push(buildVerificatorLine(r, verificatorMap));
     lines.push("");
   });
+
   return lines.join("\n");
 }
 
@@ -52,6 +63,7 @@ export async function buildVerificatorMap(env, rows) {
   const ids = [
     ...new Set((rows || []).map((r) => r?.verificator_admin_id).filter(Boolean).map((x) => String(x))),
   ];
+
   const map = new Map();
   if (!ids.length) return map;
 
