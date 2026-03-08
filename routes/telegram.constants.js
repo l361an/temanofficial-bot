@@ -7,6 +7,7 @@ export const SESSION_MODES = {
   PARTNER_EDIT_CLOSEUP: "partner_edit_closeup",
   SA_CONFIG: "sa_config",
   SA_CATEGORY: "sa_category",
+  SA_FINANCE: "sa_finance",
 };
 
 export const CALLBACKS = {
@@ -38,6 +39,9 @@ export const CALLBACKS = {
 
   SUPERADMIN_FINANCE_MENU: "sa:fin:menu",
   SUPERADMIN_FINANCE_MANUAL_TOGGLE: "sa:fin:manual_toggle",
+  SUPERADMIN_FINANCE_PRICE_BRONZE: "sa:fin:price:bronze",
+  SUPERADMIN_FINANCE_PRICE_GOLD: "sa:fin:price:gold",
+  SUPERADMIN_FINANCE_PRICE_PLATINUM: "sa:fin:price:platinum",
 };
 
 export const CALLBACK_PREFIX = {
@@ -94,6 +98,7 @@ export const cb = {
   pickVer: (telegramId) => `${CALLBACK_PREFIX.PICK_VER}${telegramId}`,
   setVer: (telegramId, verificatorId) => `${CALLBACK_PREFIX.SET_VER}${telegramId}:${verificatorId}`,
   backVer: (telegramId) => `${CALLBACK_PREFIX.BACK_VER}${telegramId}`,
+
   approve: (telegramId) => `${CALLBACK_PREFIX.APPROVE}${telegramId}`,
   reject: (telegramId) => `${CALLBACK_PREFIX.REJECT}${telegramId}`,
 
