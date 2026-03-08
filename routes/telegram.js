@@ -25,6 +25,7 @@ import { handlePartnerViewInput } from "./telegram.flow.partnerView.js";
 import { handlePartnerCloseupInput } from "./telegram.flow.partnerCloseup.js";
 import { handleSuperadminConfigInput } from "./telegram.flow.superadminConfig.js";
 import { handleSuperadminCategoryInput } from "./telegram.flow.superadminCategory.js";
+import { handleSuperadminFinanceInput } from "./telegram.flow.superadminFinance.js";
 import { handlePaymentProofUpload } from "./telegram.flow.paymentProof.js";
 
 import {
@@ -110,6 +111,16 @@ export async function handleTelegramWebhook(request, env) {
           return json({ ok: true });
         }
         await handleSuperadminCategoryInput({ env, chatId, text, session, STATE_KEY });
+        return json({ ok: true });
+      }
+
+      if (session?.mode === SESSION_MODES.SA_FINANCE) {
+        if (!isSuperadminRole(role)) {
+          await clearSession(env, STATE_KEY);
+          await sendMessage(env, chatId, "⛔ Aksi ini hanya untuk Superadmin.");
+          return json({ ok: true });
+        }
+        await handleSuperadminFinanceInput({ env, chatId, text, session, STATE_KEY });
         return json({ ok: true });
       }
 
