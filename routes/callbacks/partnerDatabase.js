@@ -12,13 +12,61 @@ import {
 import { buildListMessageHtml, buildVerificatorMap } from "./shared.js";
 import { CALLBACKS, CALLBACK_PREFIX, SESSION_MODES } from "../telegram.constants.js";
 
+function normalizePartnerListKey(value) {
+  const raw = String(value || "").trim().toLowerCase();
+
+  if (raw === "all") {
+    return {
+      queryStatus: "all",
+      title: "PARTNER (ALL)",
+      showStatus: true,
+    };
+  }
+
+  if (raw === "pending" || raw === "pending_approval") {
+    return {
+      queryStatus: "pending_approval",
+      title: "PARTNER PENDING APPROVAL",
+      showStatus: false,
+    };
+  }
+
+  if (raw === "approved") {
+    return {
+      queryStatus: "approved",
+      title: "PARTNER APPROVED",
+      showStatus: false,
+    };
+  }
+
+  if (raw === "suspended") {
+    return {
+      queryStatus: "suspended",
+      title: "PARTNER SUSPENDED",
+      showStatus: false,
+    };
+  }
+
+  if (raw === "active") {
+    return {
+      queryStatus: "active",
+      title: "PARTNER ACTIVE",
+      showStatus: false,
+    };
+  }
+
+  return null;
+}
+
 export function buildPartnerDatabaseHandlers() {
   const EXACT = {};
   const PREFIX = [];
 
   EXACT[CALLBACKS.PARTNER_DATABASE_MENU] = async (ctx) => {
     const { env, adminId, msgChatId, msgId } = ctx;
+
     await clearSession(env, `state:${adminId}`).catch(() => {});
+
     if (msgChatId && msgId) {
       await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
     }
@@ -27,6 +75,7 @@ export function buildPartnerDatabaseHandlers() {
       parse_mode: "HTML",
       reply_markup: buildPartnerDatabaseKeyboard(),
     });
+
     return true;
   };
 
@@ -46,8 +95,12 @@ export function buildPartnerDatabaseHandlers() {
       env,
       adminId,
       "🔎 <b>View Partner</b>\n\nKirim <b>@username</b> atau <b>telegram_id</b> target.\n\nKetik <b>batal</b> untuk keluar.",
-      { parse_mode: "HTML", reply_markup: buildBackToPartnerDatabaseViewKeyboard() }
+      {
+        parse_mode: "HTML",
+        reply_markup: buildBackToPartnerDatabaseViewKeyboard(),
+      }
     );
+
     return true;
   };
 
@@ -55,51 +108,57 @@ export function buildPartnerDatabaseHandlers() {
     match: (d) => d.startsWith(CALLBACK_PREFIX.PM_LIST),
     run: async (ctx) => {
       const { env, data, adminId, msgChatId, msgId } = ctx;
-      const key = String(data.slice(CALLBACK_PREFIX.PM_LIST.length) || "").trim();
+      const rawKey = String(data.slice(CALLBACK_PREFIX.PM_LIST.length) || "").trim();
+      const config = normalizePartnerListKey(rawKey);
 
-      let rows = [];
-      let title = "";
-      let showStatus = false;
-
-      if (key === "all") {
-        rows = await listProfilesAll(env);
-        title = "PARTNER (ALL)";
-        showStatus = true;
-      } else if (["pending", "approved", "suspended", "active"].includes(key)) {
-        rows = await listProfilesByStatus(env, key);
-        title = `PARTNER ${key.toUpperCase()}`;
-      } else {
+      if (!config) {
         if (msgChatId && msgId) {
           await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
         }
+
         await sendMessage(env, adminId, "Menu tidak dikenal. Balik ke Partner Database.", {
           reply_markup: buildPartnerDatabaseKeyboard(),
         });
+
         return true;
+      }
+
+      let rows = [];
+
+      if (config.queryStatus === "all") {
+        rows = await listProfilesAll(env);
+      } else {
+        rows = await listProfilesByStatus(env, config.queryStatus);
       }
 
       if (!rows.length) {
         if (msgChatId && msgId) {
           await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
         }
-        await sendMessage(env, adminId, `Tidak ada data untuk: ${title}`, {
+
+        await sendMessage(env, adminId, `Tidak ada data untuk: ${config.title}`, {
           reply_markup: buildBackToPartnerDatabaseKeyboard(),
         });
+
         return true;
       }
 
       const verificatorMap = await buildVerificatorMap(env, rows).catch(() => new Map());
+
       if (msgChatId && msgId) {
         await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
       }
 
-      const text = buildListMessageHtml(title, rows, verificatorMap, { showStatus });
+      const text = buildListMessageHtml(config.title, rows, verificatorMap, {
+        showStatus: config.showStatus,
+      });
 
       await sendMessage(env, adminId, text, {
         parse_mode: "HTML",
         disable_web_page_preview: true,
         reply_markup: buildBackToPartnerDatabaseKeyboard(),
       });
+
       return true;
     },
   });
