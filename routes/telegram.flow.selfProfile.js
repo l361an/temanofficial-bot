@@ -10,6 +10,7 @@ import {
   setProfileCategoriesByProfileId,
   listCategoryKodesByProfileId,
 } from "../repositories/profilesRepo.js";
+import { getSubscriptionInfoByTelegramId } from "../repositories/partnerSubscriptionsRepo.js";
 
 import {
   loadCategoriesForChoice,
@@ -24,6 +25,7 @@ import {
   getPhotoFileId,
   sendHtml,
   buildTeManMenuKeyboard,
+  formatDateTime,
 } from "./telegram.user.shared.js";
 
 export function buildSelfMenuKeyboard() {
@@ -69,6 +71,16 @@ export function buildSelfMenuMessage(profile) {
   return `Halo ${nick} !\nStatus Partner kamu saat ini <b>${status}</b>, apa yang bisa aku bantu ?`;
 }
 
+function buildMasaAktifText(subInfo) {
+  if (!subInfo?.found || !subInfo?.row) return "-";
+
+  const startAt = formatDateTime(subInfo.row.start_at);
+  const endAt = formatDateTime(subInfo.row.end_at);
+
+  if (!subInfo.row.start_at && !subInfo.row.end_at) return "-";
+  return `${startAt} s.d ${endAt}`;
+}
+
 async function sendSelfProfile(env, chatId, telegramId) {
   const profile = await getProfileFullByTelegramId(env, telegramId);
   if (!profile) {
@@ -77,6 +89,9 @@ async function sendSelfProfile(env, chatId, telegramId) {
     });
     return;
   }
+
+  const subInfo = await getSubscriptionInfoByTelegramId(env, telegramId);
+  const masaAktifText = buildMasaAktifText(subInfo);
 
   const categories = profile.id ? await listCategoryKodesByProfileId(env, profile.id) : [];
   const kategoriText = categories.length ? categories.join(", ") : "-";
@@ -101,7 +116,9 @@ async function sendSelfProfile(env, chatId, telegramId) {
     "\n" +
     fmtKV("Kota", profile.kota) +
     "\n" +
-    fmtKV("Status", profile.status);
+    fmtKV("Status", profile.status) +
+    "\n" +
+    fmtKV("Masa Aktif", masaAktifText);
 
   await sendLongMessage(env, chatId, textSummary, {
     parse_mode: "HTML",
@@ -314,7 +331,7 @@ export async function handleUserProfileEditFlow({ env, chatId, telegramId, text,
 
     const parsed = parseMultiIndexInputRequired(text, categories.length);
     if (!parsed.ok) {
-      await sendMessage(env, chatId, "Input tidak valid. Pilih minimal 1.\nKetik nomor dipisah koma.\nContoh: 1,3", {
+      await sendMessage(env, chatId, "Input tidak valid.\nPilih minimal 1.\nKetik nomor dipisah koma.\nContoh: 1,3", {
         reply_markup: buildTeManMenuKeyboard(),
       });
       return;
