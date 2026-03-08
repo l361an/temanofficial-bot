@@ -5,9 +5,11 @@ import { CALLBACKS, cb } from "../telegram.constants.js";
 // Officer Home
 export function buildOfficerHomeKeyboard(role) {
   const rows = [[{ text: "🧰 Partner Tools", callback_data: CALLBACKS.PARTNER_TOOLS_MENU }]];
+
   if (isSuperadminRole(role)) {
     rows.push([{ text: "⚙️ Superadmin Tools", callback_data: CALLBACKS.SUPERADMIN_TOOLS_MENU }]);
   }
+
   return { inline_keyboard: rows };
 }
 
@@ -31,7 +33,6 @@ export function buildPartnerDatabaseKeyboard() {
       [{ text: "🕒 Partner Pending", callback_data: cb.pmList("pending_approval") }],
       [{ text: "✅ Partner Approved", callback_data: cb.pmList("approved") }],
       [{ text: "⛔ Partner Suspended", callback_data: cb.pmList("suspended") }],
-      [{ text: "🟢 Partner Active", callback_data: cb.pmList("active") }],
       [{ text: "⬅️ Kembali", callback_data: CALLBACKS.PARTNER_TOOLS_MENU }],
     ],
   };
@@ -93,8 +94,10 @@ export function buildPartnerVerificatorPickerKeyboard(telegramId, verificators) 
   for (let i = 0; i < max; i += 2) {
     const a = verificators[i];
     const b = verificators[i + 1];
+
     const row = [{ text: a.label, callback_data: cb.pmVerSet(telegramId, a.telegram_id) }];
     if (b) row.push({ text: b.label, callback_data: cb.pmVerSet(telegramId, b.telegram_id) });
+
     rows.push(row);
   }
 
@@ -191,7 +194,7 @@ export function buildCategoryKeyboard() {
   };
 }
 
-export function buildFinanceKeyboard(manualOn, prices = {}) {
+export function buildFinanceKeyboard(manualOn) {
   return {
     inline_keyboard: [
       [
@@ -200,9 +203,18 @@ export function buildFinanceKeyboard(manualOn, prices = {}) {
           callback_data: CALLBACKS.SUPERADMIN_FINANCE_MANUAL_TOGGLE,
         },
       ],
-      [{ text: `🥉 Set Harga Bronze`, callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_BRONZE }],
-      [{ text: `🥇 Set Harga Gold`, callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_GOLD }],
-      [{ text: `💠 Set Harga Platinum`, callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_PLATINUM }],
+      [
+        { text: "🥉 Bronze 1 Hari", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_BRONZE_1D },
+        { text: "🥉 Bronze 1 Bulan", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_BRONZE_1M },
+      ],
+      [
+        { text: "🥇 Gold 1 Hari", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_GOLD_1D },
+        { text: "🥇 Gold 1 Bulan", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_GOLD_1M },
+      ],
+      [
+        { text: "💠 Platinum 1 Hari", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_PLATINUM_1D },
+        { text: "💠 Platinum 1 Bulan", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_PLATINUM_1M },
+      ],
       [{ text: "⬅️ Back", callback_data: CALLBACKS.SUPERADMIN_TOOLS_MENU }],
     ],
   };
