@@ -9,7 +9,7 @@ export function buildSelfMenuKeyboard() {
     inline_keyboard: [
       [{ text: "👤 Lihat Profile", callback_data: "self:view" }],
       [{ text: "📝 Update Profile", callback_data: "self:update" }],
-      [{ text: "💳 Payment", callback_data: "self:payment" }],
+      [{ text: "💎 Premium Partner", callback_data: "self:payment" }],
     ],
   };
 }
