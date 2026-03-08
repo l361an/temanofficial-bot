@@ -76,7 +76,7 @@ function getDurationCode(ticket) {
     try {
       const parsed = JSON.parse(metadata);
       const raw = String(parsed?.duration_code || "").trim().toLowerCase();
-      if (raw === "1d" || raw === "1m") return raw;
+      if (raw === "1d" || raw === "3d" || raw === "7d" || raw === "1m") return raw;
     } catch {}
   }
 
@@ -85,24 +85,26 @@ function getDurationCode(ticket) {
     try {
       const parsed = JSON.parse(pricingSnapshot);
       const raw = String(parsed?.duration_code || "").trim().toLowerCase();
-      if (raw === "1d" || raw === "1m") return raw;
+      if (raw === "1d" || raw === "3d" || raw === "7d" || raw === "1m") return raw;
     } catch {}
   }
 
   const months = Number(ticket?.duration_months || 0);
   if (months === 1) return "1m";
-  return "1m";
+  return "1d";
 }
 
 function resolveEndedAt(startedAt, durationCode) {
-  if (durationCode === "1d") {
-    return addDaysSqlDate(startedAt, 1);
-  }
+  if (durationCode === "1d") return addDaysSqlDate(startedAt, 1);
+  if (durationCode === "3d") return addDaysSqlDate(startedAt, 3);
+  if (durationCode === "7d") return addDaysSqlDate(startedAt, 7);
   return addMonthsSqlDate(startedAt, 1);
 }
 
 function buildDurationLabel(durationCode) {
   if (durationCode === "1d") return "1 Hari";
+  if (durationCode === "3d") return "3 Hari";
+  if (durationCode === "7d") return "7 Hari";
   return "1 Bulan";
 }
 
