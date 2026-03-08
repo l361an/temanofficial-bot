@@ -28,6 +28,24 @@ function addMonthsSqlDate(baseDate, monthsToAdd) {
   return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
 }
 
+function addDaysSqlDate(baseDate, daysToAdd) {
+  const d = new Date(baseDate);
+  if (Number.isNaN(d.getTime())) {
+    throw new Error("invalid_base_date");
+  }
+
+  d.setDate(d.getDate() + Number(daysToAdd || 0));
+
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  const ss = String(d.getSeconds()).padStart(2, "0");
+
+  return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
+}
+
 function makeId(prefix = "sub") {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -52,13 +70,52 @@ function formatDateTime(value) {
   return `${pad2(d.getDate())}-${pad2(d.getMonth() + 1)}-${d.getFullYear()} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
+function getDurationCode(ticket) {
+  const metadata = String(ticket?.metadata_json || "").trim();
+  if (metadata) {
+    try {
+      const parsed = JSON.parse(metadata);
+      const raw = String(parsed?.duration_code || "").trim().toLowerCase();
+      if (raw === "1d" || raw === "1m") return raw;
+    } catch {}
+  }
+
+  const pricingSnapshot = String(ticket?.pricing_snapshot_json || "").trim();
+  if (pricingSnapshot) {
+    try {
+      const parsed = JSON.parse(pricingSnapshot);
+      const raw = String(parsed?.duration_code || "").trim().toLowerCase();
+      if (raw === "1d" || raw === "1m") return raw;
+    } catch {}
+  }
+
+  const months = Number(ticket?.duration_months || 0);
+  if (months === 1) return "1m";
+  return "1m";
+}
+
+function resolveEndedAt(startedAt, durationCode) {
+  if (durationCode === "1d") {
+    return addDaysSqlDate(startedAt, 1);
+  }
+  return addMonthsSqlDate(startedAt, 1);
+}
+
+function buildDurationLabel(durationCode) {
+  if (durationCode === "1d") return "1 Hari";
+  return "1 Bulan";
+}
+
 function buildPartnerPaymentConfirmedMessage(subscription) {
+  const durationLabel = buildDurationLabel(subscription?.duration_code);
+
   return [
     "Info :",
     "Pembayaran kamu sudah dikonfirmasi.",
     "",
     "Fitur PREMIUM TeMan",
     "Status : Active",
+    `Durasi : ${durationLabel}`,
     `Masa Aktif: ${formatDateTime(subscription?.start_at)} s.d ${formatDateTime(subscription?.end_at)}`,
     "",
     "<i>Perpanjang masa aktif sebelum kadaluarsa untuk tetap menikmati Fitur PREMIUM TeMan.</i>",
@@ -83,7 +140,9 @@ export async function confirmPaymentAndActivateSubscription(env, ticketId, actor
 
   const now = new Date();
   const startedAt = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`;
-  const endedAt = addMonthsSqlDate(now, Number(ticket.duration_months || 1));
+  const durationCode = getDurationCode(ticket);
+  const durationMonths = durationCode === "1m" ? 1 : 0;
+  const endedAt = resolveEndedAt(now, durationCode);
 
   await confirmPaymentTicket(env, ticketId, actorId, adminNote);
 
@@ -92,7 +151,7 @@ export async function confirmPaymentAndActivateSubscription(env, ticketId, actor
     partnerId,
     paymentTicketId: ticket.id,
     classId: ticket.class_id || profile.class_id || "bronze",
-    durationMonths: Number(ticket.duration_months || 1),
+    durationMonths,
     status: "active",
     startAt: startedAt,
     endAt: endedAt,
@@ -100,7 +159,9 @@ export async function confirmPaymentAndActivateSubscription(env, ticketId, actor
     sourceType: "payment_ticket",
     sourceRefId: String(ticket.id),
     notes: adminNote,
-    metadataJson: null,
+    metadataJson: JSON.stringify({
+      duration_code: durationCode,
+    }),
   });
 
   const statusRes = await markPaymentConfirmedAndActivate(env, partnerId, actorId, adminNote);
@@ -108,7 +169,8 @@ export async function confirmPaymentAndActivateSubscription(env, ticketId, actor
   const subscription = {
     start_at: startedAt,
     end_at: endedAt,
-    duration_months: Number(ticket.duration_months || 1),
+    duration_months: durationMonths,
+    duration_code: durationCode,
     class_id: ticket.class_id || profile.class_id || "bronze",
   };
 
