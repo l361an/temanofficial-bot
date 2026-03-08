@@ -19,15 +19,52 @@ import {
 import { deleteSetting, escapeHtml } from "./shared.js";
 import { CALLBACKS, CALLBACK_PREFIX, SESSION_MODES } from "../telegram.constants.js";
 
-function buildPaymentConfirmSummary(ticket) {
+function formatClassLabel(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "bronze") return "Bronze";
+  if (raw === "gold") return "Gold";
+  if (raw === "platinum") return "Platinum";
+  return raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : "-";
+}
+
+function formatMoney(value) {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n)) return "Rp. 0";
+  return `Rp. ${n.toLocaleString("en-US")}`;
+}
+
+function pad2(value) {
+  return String(value).padStart(2, "0");
+}
+
+function formatDateTime(value) {
+  if (!value) return "-";
+
+  const raw = String(value).trim();
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$/);
+  if (m) {
+    const [, yyyy, mm, dd, hh = "00", mi = "00"] = m;
+    return `${dd}-${mm}-${yyyy} ${hh}:${mi}`;
+  }
+
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return raw;
+
+  return `${pad2(d.getDate())}-${pad2(d.getMonth() + 1)}-${d.getFullYear()} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+function buildPaymentConfirmSummary(ticket, profile = null, subscription = null) {
+  const username = String(profile?.username || "").trim().replace(/^@/, "");
   const lines = [
     "💳 <b>Payment Confirmed</b>",
     "",
-    `Ticket ID: <code>${escapeHtml(String(ticket.id || "-"))}</code>`,
-    `Partner ID: <code>${escapeHtml(String(ticket.partner_id || "-"))}</code>`,
-    `Class ID: <b>${escapeHtml(String(ticket.class_id || "-"))}</b>`,
-    `Durasi: <b>${escapeHtml(String(ticket.duration_months || "-"))}</b> bulan`,
-    `Nominal: <b>${escapeHtml(String(ticket.final_amount || 0))}</b>`,
+    `Kode Tiket: <code>${escapeHtml(String(ticket?.ticket_code || "-"))}</code>`,
+    `Partner ID: <code>${escapeHtml(String(ticket?.partner_id || "-"))}</code>`,
+    `Username: <b>${escapeHtml(username ? `@${username}` : "-")}</b>`,
+    `Class ID: <b>${escapeHtml(formatClassLabel(ticket?.class_id))}</b>`,
+    `Durasi: <b>${escapeHtml(String(ticket?.duration_months || "-"))}</b> bulan`,
+    `Periode Aktif: <b>${escapeHtml(formatDateTime(subscription?.start_at))}</b> s.d <b>${escapeHtml(formatDateTime(subscription?.end_at))}</b>`,
+    `Nominal: <b>${escapeHtml(formatMoney(ticket?.amount_final))}</b>`,
   ];
   return lines.join("\n");
 }
@@ -276,10 +313,15 @@ export function buildSuperadminHandlers() {
           return true;
         }
 
-        await sendMessage(env, adminId, buildPaymentConfirmSummary(ticket), {
-          parse_mode: "HTML",
-          reply_markup: buildFinanceKeyboard(true),
-        });
+        await sendMessage(
+          env,
+          adminId,
+          buildPaymentConfirmSummary(ticket, res.profile, res.subscription),
+          {
+            parse_mode: "HTML",
+            reply_markup: buildFinanceKeyboard(true),
+          }
+        );
 
         await sendMessage(
           env,
