@@ -29,8 +29,8 @@ function formatClassLabel(value) {
 
 function formatMoney(value) {
   const n = Number(value || 0);
-  if (!Number.isFinite(n)) return "Rp. 0";
-  return `Rp. ${n.toLocaleString("en-US")}`;
+  if (!Number.isFinite(n)) return "Rp 0";
+  return `Rp ${n.toLocaleString("id-ID")}`;
 }
 
 function pad2(value) {
@@ -51,6 +51,48 @@ function formatDateTime(value) {
   if (Number.isNaN(d.getTime())) return raw;
 
   return `${pad2(d.getDate())}-${pad2(d.getMonth() + 1)}-${d.getFullYear()} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+async function getFinanceState(env) {
+  const manualRaw = (await getSetting(env, "payment_manual_enabled")) ?? "1";
+  const manualOn = String(manualRaw) !== "0";
+
+  const bronze = await getSetting(env, "payment_price_bronze_1m");
+  const gold = await getSetting(env, "payment_price_gold_1m");
+  const platinum = await getSetting(env, "payment_price_platinum_1m");
+
+  return {
+    manualOn,
+    prices: {
+      bronze: Number(bronze || 0),
+      gold: Number(gold || 0),
+      platinum: Number(platinum || 0),
+    },
+  };
+}
+
+function buildFinanceText(state) {
+  return [
+    "💰 <b>Finance</b>",
+    "",
+    `Manual payment: <b>${state.manualOn ? "ON" : "OFF"}</b>`,
+    "Provider: <i>manual</i>",
+    "",
+    `Harga Bronze: <b>${escapeHtml(formatMoney(state.prices.bronze))}</b>`,
+    `Harga Gold: <b>${escapeHtml(formatMoney(state.prices.gold))}</b>`,
+    `Harga Platinum: <b>${escapeHtml(formatMoney(state.prices.platinum))}</b>`,
+  ].join("\n");
+}
+
+function buildFinancePromptText(classId) {
+  return [
+    `💰 <b>Set Harga ${escapeHtml(formatClassLabel(classId))}</b>`,
+    "",
+    "Kirim nominal harga untuk durasi 1 bulan.",
+    "Contoh: <code>150000</code>",
+    "",
+    "Ketik <b>batal</b> untuk keluar.",
+  ].join("\n");
 }
 
 function buildPaymentConfirmSummary(ticket, profile = null, subscription = null) {
@@ -249,15 +291,10 @@ export function buildSuperadminHandlers() {
     const { env, adminId, msgChatId, msgId } = ctx;
     await clearSession(env, `state:${adminId}`).catch(() => {});
     if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
-    const raw = (await getSetting(env, "payment_manual_enabled")) ?? "1";
-    const manualOn = String(raw) !== "0";
-    const text =
-      "💰 <b>Finance</b>\n\n" +
-      `Manual payment: <b>${manualOn ? "ON" : "OFF"}</b>\n` +
-      "Provider: <i>manual</i>\n";
-    await sendMessage(env, adminId, text, {
+    const state = await getFinanceState(env);
+    await sendMessage(env, adminId, buildFinanceText(state), {
       parse_mode: "HTML",
-      reply_markup: buildFinanceKeyboard(manualOn),
+      reply_markup: buildFinanceKeyboard(state.manualOn, state.prices),
     });
     return true;
   };
@@ -268,12 +305,39 @@ export function buildSuperadminHandlers() {
     const manualOn = String(raw) !== "0";
     const next = manualOn ? "0" : "1";
     await upsertSetting(env, "payment_manual_enabled", next);
-    const nowOn = next !== "0";
-    await sendMessage(env, adminId, `✅ Manual payment sekarang: ${nowOn ? "ON" : "OFF"}`, {
-      reply_markup: buildFinanceKeyboard(nowOn),
+
+    const state = await getFinanceState(env);
+    await sendMessage(env, adminId, `✅ Manual payment sekarang: ${state.manualOn ? "ON" : "OFF"}`, {
+      reply_markup: buildFinanceKeyboard(state.manualOn, state.prices),
     });
     return true;
   };
+
+  const financePriceActions = [
+    [CALLBACKS.SUPERADMIN_FINANCE_PRICE_BRONZE, "bronze"],
+    [CALLBACKS.SUPERADMIN_FINANCE_PRICE_GOLD, "gold"],
+    [CALLBACKS.SUPERADMIN_FINANCE_PRICE_PLATINUM, "platinum"],
+  ];
+
+  for (const [callbackKey, classId] of financePriceActions) {
+    EXACT[callbackKey] = async (ctx) => {
+      const { env, adminId, msgChatId, msgId } = ctx;
+      await saveSession(env, `state:${adminId}`, {
+        mode: SESSION_MODES.SA_FINANCE,
+        area: "price",
+        class_id: classId,
+        step: "await_text",
+      });
+      if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+      await sendMessage(env, adminId, buildFinancePromptText(classId), {
+        parse_mode: "HTML",
+        reply_markup: {
+          inline_keyboard: [[{ text: "⬅️ Back", callback_data: CALLBACKS.SUPERADMIN_FINANCE_MENU }]],
+        },
+      });
+      return true;
+    };
+  }
 
   const CONFIRM_PREFIX = [
     CALLBACK_PREFIX.SETWELCOME_CONFIRM,
@@ -313,13 +377,15 @@ export function buildSuperadminHandlers() {
           return true;
         }
 
+        const state = await getFinanceState(env);
+
         await sendMessage(
           env,
           adminId,
           buildPaymentConfirmSummary(ticket, res.profile, res.subscription),
           {
             parse_mode: "HTML",
-            reply_markup: buildFinanceKeyboard(true),
+            reply_markup: buildFinanceKeyboard(state.manualOn, state.prices),
           }
         );
 
@@ -348,12 +414,13 @@ export function buildSuperadminHandlers() {
         }
 
         await rejectPaymentTicket(env, ticketId, adminId, "Rejected by superadmin callback");
+        const state = await getFinanceState(env);
 
         await sendMessage(
           env,
           adminId,
           `❌ Payment ticket direject.\nTicket ID: ${ticketId}\nPartner ID: ${ticket.partner_id}`,
-          { reply_markup: buildFinanceKeyboard(true) }
+          { reply_markup: buildFinanceKeyboard(state.manualOn, state.prices) }
         );
 
         await sendMessage(
