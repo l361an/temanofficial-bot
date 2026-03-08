@@ -4,10 +4,15 @@ import { CALLBACKS, cb } from "../telegram.constants.js";
 
 // Officer Home
 export function buildOfficerHomeKeyboard(role) {
-  const rows = [[{ text: "🧰 Partner Tools", callback_data: CALLBACKS.PARTNER_TOOLS_MENU }]];
+  const rows = [];
 
   if (isSuperadminRole(role)) {
-    rows.push([{ text: "⚙️ Superadmin Tools", callback_data: CALLBACKS.SUPERADMIN_TOOLS_MENU }]);
+    rows.push([
+      { text: "🧰 Partner Tools", callback_data: CALLBACKS.PARTNER_TOOLS_MENU },
+      { text: "⚙️ Superadmin Tools", callback_data: CALLBACKS.SUPERADMIN_TOOLS_MENU },
+    ]);
+  } else {
+    rows.push([{ text: "🧰 Partner Tools", callback_data: CALLBACKS.PARTNER_TOOLS_MENU }]);
   }
 
   return { inline_keyboard: rows };
