@@ -38,7 +38,7 @@ export async function handleSelfProfileInlineCallback(update, env) {
     const existing = await getProfileByTelegramId(env, telegramId).catch(() => null);
 
     if (existing?.telegram_id) {
-      await sendSelfMenu(env, chatId, telegramId);
+      await sendSelfMenu(env, chatId, telegramId, { sourceMessage: msg });
       return true;
     }
 
@@ -76,6 +76,7 @@ export async function handleSelfProfileInlineCallback(update, env) {
       telegramId,
       STATE_KEY,
       data,
+      sourceMessage: msg,
     });
   }
 
