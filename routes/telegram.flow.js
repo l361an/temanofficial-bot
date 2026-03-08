@@ -21,18 +21,20 @@ import {
 } from "../utils/categoryFlow.js";
 
 function statusMessage(status) {
-  if (status === "pending_approval") {
+  const raw = String(status || "").trim().toLowerCase();
+
+  if (raw === "pending_approval") {
     return "⏳ Kamu sudah pernah daftar dan saat ini masih *menunggu review superadmin*.";
   }
-  if (status === "approved") {
-    return "✅ Kamu sudah terdaftar dan status kamu *APPROVED*.";
+
+  if (raw === "approved") {
+    return "✅ Kamu sudah terdaftar dan status partner kamu *APPROVED*.\n\nKalau ingin akses Premium, silakan lanjut dari menu Payment.";
   }
-  if (status === "active") {
-    return "✅ Akun premium kamu saat ini *ACTIVE*.";
-  }
-  if (status === "suspended") {
+
+  if (raw === "suspended") {
     return "⛔ Akun kamu saat ini *SUSPENDED*. Silakan hubungi admin.";
   }
+
   return "ℹ️ Kamu sudah pernah terdaftar.";
 }
 
@@ -133,7 +135,7 @@ export async function handleRegistrationFlow({
       await sendMessage(
         env,
         chatId,
-        `Input tidak valid. Pilih minimal 1.\nKetik nomor dipisah koma.\nContoh: 1,3`
+        "Input tidak valid. Pilih minimal 1.\nKetik nomor dipisah koma.\nContoh: 1,3"
       );
       return true;
     }
