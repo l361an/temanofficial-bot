@@ -7,6 +7,7 @@ import {
   createPaymentTicket,
 } from "../repositories/paymentTicketsRepo.js";
 import { getProfileFullByTelegramId } from "../repositories/profilesRepo.js";
+import { getSubscriptionInfoByTelegramId } from "../repositories/partnerSubscriptionsRepo.js";
 import { fmtClassId } from "../utils/partnerHelpers.js";
 
 import {
@@ -23,16 +24,52 @@ import {
   buildTeManMenuKeyboard,
 } from "./telegram.user.shared.js";
 
-function buildPaymentMenuKeyboard() {
-  return {
-    inline_keyboard: [
-      [{ text: "🧾 Ajukan Tiket Payment", callback_data: "self:payment:create" }],
-      [{ text: "📄 Status Tiket Payment", callback_data: "self:payment:status" }],
-      [{ text: "📤 Upload Bukti Transfer", callback_data: "self:payment:upload_info" }],
-      [{ text: "⬅️ Kembali", callback_data: "teman:menu" }],
-      [{ text: "📋 Menu TeMan", callback_data: "teman:menu" }],
-    ],
-  };
+function buildPaymentMenuKeyboard({ hasOpenTicket = false } = {}) {
+  const rows = [];
+
+  if (!hasOpenTicket) {
+    rows.push([{ text: "🧾 Ajukan Tiket Payment", callback_data: "self:payment:create" }]);
+  }
+
+  rows.push([{ text: "📄 Status Tiket Payment", callback_data: "self:payment:status" }]);
+  rows.push([{ text: "📤 Upload Bukti Transfer", callback_data: "self:payment:upload_info" }]);
+  rows.push([{ text: "📋 Menu TeMan", callback_data: "teman:menu" }]);
+
+  return { inline_keyboard: rows };
+}
+
+function fmtPartnerStatusLabel(status) {
+  const raw = String(status || "").trim().toLowerCase();
+  if (raw === "pending_approval") return "Menunggu Persetujuan";
+  if (raw === "approved") return "Approved";
+  if (raw === "active") return "Premium Active";
+  if (raw === "suspended") return "Suspended";
+  return raw ? raw.replaceAll("_", " ") : "-";
+}
+
+function fmtTicketStatusLabel(status) {
+  const raw = String(status || "").trim().toLowerCase();
+  if (raw === "waiting_payment") return "Menunggu Pembayaran";
+  if (raw === "waiting_confirmation") return "Menunggu Konfirmasi Superadmin";
+  if (raw === "confirmed") return "Terkonfirmasi";
+  if (raw === "rejected") return "Ditolak";
+  if (raw === "expired") return "Kedaluwarsa";
+  if (raw === "cancelled") return "Dibatalkan";
+  return raw ? raw.replaceAll("_", " ") : "-";
+}
+
+function fmtPremiumStatusLabel(profile, subInfo) {
+  if (subInfo?.is_active && subInfo?.row) return "Active";
+
+  const latestSubStatus = String(subInfo?.row?.status || "").trim().toLowerCase();
+  if (latestSubStatus === "expired") return "Expired";
+  if (latestSubStatus === "cancelled") return "Cancelled";
+
+  const partnerStatus = String(profile?.status || "").trim().toLowerCase();
+  if (partnerStatus === "active") return "Active";
+  if (partnerStatus === "suspended") return "Suspended";
+
+  return "Belum Aktif";
 }
 
 async function getLatestPaymentTicket(env, partnerId) {
@@ -100,15 +137,19 @@ function buildPaymentTicketSummary(ticket) {
 
   const classLabel = fmtClassId(ticket.class_id);
   const lines = [
-    "💳 <b>Payment Ticket</b>",
+    "💳 <b>STATUS TIKET PAYMENT</b>",
     "",
     `Kode Tiket: <code>${escapeHtml(String(ticket.ticket_code || "-"))}</code>`,
-    `Status: <b>${escapeHtml(String(ticket.status || "-"))}</b>`,
-    `Class ID: <b>${escapeHtml(classLabel)}</b>`,
+    `Status: <b>${escapeHtml(fmtTicketStatusLabel(ticket.status))}</b>`,
+    `Class Partner: <b>${escapeHtml(classLabel)}</b>`,
     `Durasi: <b>${escapeHtml(String(ticket.duration_months || "-"))}</b> bulan`,
-    `Nominal: <b>${escapeHtml(formatMoney(ticket.amount_final))}</b>`,
-    `Expired: <b>${escapeHtml(formatDateTime(ticket.expires_at))}</b>`,
+    `Nominal Transfer: <b>${escapeHtml(formatMoney(ticket.amount_final))}</b>`,
+    `Batas Waktu: <b>${escapeHtml(formatDateTime(ticket.expires_at))}</b>`,
   ];
+
+  if (ticket.proof_uploaded_at) {
+    lines.push(`Upload Bukti: <b>${escapeHtml(formatDateTime(ticket.proof_uploaded_at))}</b>`);
+  }
 
   return lines.join("\n");
 }
@@ -116,10 +157,10 @@ function buildPaymentTicketSummary(ticket) {
 function buildPaymentInstructionMessage(ticket) {
   const classLabel = fmtClassId(ticket?.class_id);
   const lines = [
-    "💳 <b>Tiket Payment Berhasil Dibuat</b>",
+    "✅ <b>TIKET PAYMENT BERHASIL DIBUAT</b>",
     "",
     `Kode Tiket: <code>${escapeHtml(String(ticket?.ticket_code || "-"))}</code>`,
-    `Class ID: <b>${escapeHtml(classLabel)}</b>`,
+    `Class Partner: <b>${escapeHtml(classLabel)}</b>`,
     `Durasi: <b>${escapeHtml(String(ticket?.duration_months || "-"))}</b> bulan`,
     `Total Bayar: <b>${escapeHtml(formatMoney(ticket?.amount_final))}</b>`,
     `Batas Waktu: <b>${escapeHtml(formatDateTime(ticket?.expires_at))}</b>`,
@@ -129,8 +170,9 @@ function buildPaymentInstructionMessage(ticket) {
     "",
     "Catatan:",
     "• 1 partner hanya boleh punya 1 tiket aktif",
-    "• upload bukti hanya saat status waiting_payment",
-    "• setelah upload, status jadi waiting_confirmation",
+    "• upload bukti hanya saat status <b>Menunggu Pembayaran</b>",
+    "• setelah upload, status jadi <b>Menunggu Konfirmasi Superadmin</b>",
+    "• tiket expired tetap tersimpan di sistem",
     "• jika tiket expired dan transfer sudah terlanjur dilakukan, hubungi Superadmin untuk manual check",
   ];
 
@@ -139,26 +181,51 @@ function buildPaymentInstructionMessage(ticket) {
 
 function buildPaymentUploadInfoMessage(ticket = null) {
   const lines = [
-    "📤 <b>Upload Bukti Payment</b>",
+    "📤 <b>UPLOAD BUKTI PAYMENT</b>",
     "",
     "Kirim <b>foto bukti transfer</b> langsung di chat ini.",
-    "Bukan file, bukan dokumen.",
+    "Format yang diproses hanya <b>photo</b>, bukan file atau dokumen.",
     "",
     "Rule:",
-    "• upload bukti hanya saat tiket status <b>waiting_payment</b>",
-    "• setelah upload, tiket jadi <b>waiting_confirmation</b>",
+    "• upload bukti hanya saat tiket status <b>Menunggu Pembayaran</b>",
+    "• setelah upload, tiket jadi <b>Menunggu Konfirmasi Superadmin</b>",
     "• kalau tiket sudah expired, sistem tidak proses otomatis",
   ];
 
   if (ticket) {
     lines.push("");
-    lines.push(`Tiket aktif: <code>${escapeHtml(String(ticket.ticket_code || "-"))}</code>`);
-    lines.push(`Status: <b>${escapeHtml(String(ticket.status || "-"))}</b>`);
+    lines.push(`Tiket Aktif: <code>${escapeHtml(String(ticket.ticket_code || "-"))}</code>`);
+    lines.push(`Status: <b>${escapeHtml(fmtTicketStatusLabel(ticket.status))}</b>`);
     lines.push(`Nominal: <b>${escapeHtml(formatMoney(ticket.amount_final))}</b>`);
-    lines.push(`Expired: <b>${escapeHtml(formatDateTime(ticket.expires_at))}</b>`);
+    lines.push(`Batas Waktu: <b>${escapeHtml(formatDateTime(ticket.expires_at))}</b>`);
+  } else {
+    lines.push("", "Saat ini belum ada tiket aktif.");
   }
 
   return lines.join("\n");
+}
+
+function buildOpenTicketWarningMessage(ticket) {
+  return [
+    "⚠️ <b>KAMU MASIH PUNYA TIKET AKTIF</b>",
+    "",
+    "Sesuai rule, 1 partner hanya boleh punya 1 tiket aktif.",
+    "",
+    buildPaymentTicketSummary(ticket),
+  ].join("\n");
+}
+
+function buildExpiredTicketHelpMessage(ticket) {
+  return [
+    "⚠️ <b>TIKET SUDAH KEDALUWARSA</b>",
+    "",
+    `Kode Tiket: <code>${escapeHtml(String(ticket?.ticket_code || "-"))}</code>`,
+    `Status: <b>${escapeHtml(fmtTicketStatusLabel(ticket?.status))}</b>`,
+    `Nominal: <b>${escapeHtml(formatMoney(ticket?.amount_final))}</b>`,
+    "",
+    "Kalau belum transfer, silakan buat tiket baru.",
+    "Kalau sudah terlanjur transfer, hubungi Superadmin untuk manual check.",
+  ].join("\n");
 }
 
 async function sendPaymentMenu(env, chatId, telegramId) {
@@ -170,24 +237,39 @@ async function sendPaymentMenu(env, chatId, telegramId) {
     return;
   }
 
-  const latestTicket = await getLatestPaymentTicket(env, telegramId);
+  const subInfo = await getSubscriptionInfoByTelegramId(env, telegramId).catch(() => ({
+    found: false,
+    is_active: false,
+    row: null,
+  }));
+
+  const openTicket = await getOpenPaymentTicketByPartnerId(env, telegramId);
+  const latestTicket = openTicket || (await getLatestPaymentTicket(env, telegramId));
+
   const lines = [
-    "💳 <b>Payment Menu</b>",
+    "💎 <b>PREMIUM PARTNER</b>",
     "",
-    `Status Partner: <b>${escapeHtml(String(profile.status || "-"))}</b>`,
-    `Class ID: <b>${escapeHtml(fmtClassId(profile.class_id))}</b>`,
+    `Status Partner: <b>${escapeHtml(fmtPartnerStatusLabel(profile.status))}</b>`,
+    `Status Premium: <b>${escapeHtml(fmtPremiumStatusLabel(profile, subInfo))}</b>`,
+    `Class Partner: <b>${escapeHtml(fmtClassId(profile.class_id || "bronze"))}</b>`,
   ];
+
+  if (subInfo?.row?.end_at) {
+    lines.push(`Masa Aktif Premium: <b>${escapeHtml(formatDateTime(subInfo.row.end_at))}</b>`);
+  }
+
+  lines.push("");
 
   if (latestTicket) {
     lines.push(`Tiket Terakhir: <code>${escapeHtml(String(latestTicket.ticket_code || "-"))}</code>`);
-    lines.push(`Status Tiket: <b>${escapeHtml(String(latestTicket.status || "-"))}</b>`);
+    lines.push(`Status Tiket: <b>${escapeHtml(fmtTicketStatusLabel(latestTicket.status))}</b>`);
   } else {
     lines.push("Tiket Terakhir: <b>-</b>");
   }
 
   await sendMessage(env, chatId, lines.join("\n"), {
     parse_mode: "HTML",
-    reply_markup: buildPaymentMenuKeyboard(),
+    reply_markup: buildPaymentMenuKeyboard({ hasOpenTicket: Boolean(openTicket) }),
     disable_web_page_preview: true,
   });
 }
@@ -206,7 +288,7 @@ async function createPartnerPaymentTicket(env, chatId, telegramId) {
     await sendHtml(
       env,
       chatId,
-      "⚠️ Akun kamu masih <b>pending_approval</b>.\nTiket payment baru bisa diajukan setelah registrasi disetujui.",
+      "⚠️ Akun kamu masih <b>Menunggu Persetujuan</b>.\nTiket payment baru bisa diajukan setelah registrasi disetujui.",
       { reply_markup: buildPaymentMenuKeyboard() }
     );
     return;
@@ -225,9 +307,9 @@ async function createPartnerPaymentTicket(env, chatId, telegramId) {
 
   const openTicket = await getOpenPaymentTicketByPartnerId(env, telegramId);
   if (openTicket) {
-    await sendMessage(env, chatId, buildPaymentTicketSummary(openTicket), {
+    await sendMessage(env, chatId, buildOpenTicketWarningMessage(openTicket), {
       parse_mode: "HTML",
-      reply_markup: buildPaymentMenuKeyboard(),
+      reply_markup: buildPaymentMenuKeyboard({ hasOpenTicket: true }),
       disable_web_page_preview: true,
     });
     return;
@@ -283,7 +365,7 @@ async function createPartnerPaymentTicket(env, chatId, telegramId) {
 
   await sendMessage(env, chatId, buildPaymentInstructionMessage(created), {
     parse_mode: "HTML",
-    reply_markup: buildPaymentMenuKeyboard(),
+    reply_markup: buildPaymentMenuKeyboard({ hasOpenTicket: true }),
     disable_web_page_preview: true,
   });
 }
@@ -293,7 +375,7 @@ async function sendPaymentTicketStatus(env, chatId, telegramId) {
   if (openTicket) {
     await sendMessage(env, chatId, buildPaymentTicketSummary(openTicket), {
       parse_mode: "HTML",
-      reply_markup: buildPaymentMenuKeyboard(),
+      reply_markup: buildPaymentMenuKeyboard({ hasOpenTicket: true }),
       disable_web_page_preview: true,
     });
     return;
@@ -303,6 +385,15 @@ async function sendPaymentTicketStatus(env, chatId, telegramId) {
   if (!latestTicket) {
     await sendHtml(env, chatId, "Belum ada tiket payment.", {
       reply_markup: buildPaymentMenuKeyboard(),
+    });
+    return;
+  }
+
+  if (normalizeStatus(latestTicket.status) === "expired") {
+    await sendMessage(env, chatId, buildExpiredTicketHelpMessage(latestTicket), {
+      parse_mode: "HTML",
+      reply_markup: buildPaymentMenuKeyboard(),
+      disable_web_page_preview: true,
     });
     return;
   }
@@ -364,7 +455,7 @@ export async function handleSelfPaymentInlineCallback(update, env) {
     const openTicket = await getOpenPaymentTicketByPartnerId(env, telegramId);
     await sendMessage(env, chatId, buildPaymentUploadInfoMessage(openTicket), {
       parse_mode: "HTML",
-      reply_markup: buildPaymentMenuKeyboard(),
+      reply_markup: buildPaymentMenuKeyboard({ hasOpenTicket: Boolean(openTicket) }),
       disable_web_page_preview: true,
     });
     return true;
