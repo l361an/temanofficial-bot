@@ -19,7 +19,44 @@ export function fmtTicketStatusLabel(status) {
   return raw ? raw.replaceAll("_", " ") : "-";
 }
 
-export function buildPaymentMenuKeyboard({ hasOpenTicket = false, primaryActionText = "🧾 Upgrade Premium" } = {}) {
+export function fmtDurationLabel(durationCode, durationMonths) {
+  const raw = String(durationCode || "").trim().toLowerCase();
+  if (raw === "1d") return "1 Hari";
+  if (raw === "1m") return "1 Bulan";
+
+  const months = Number(durationMonths || 0);
+  if (months === 1) return "1 Bulan";
+
+  return months > 0 ? `${months} Bulan` : "-";
+}
+
+function readDurationCodeFromTicket(ticket) {
+  const pricingSnapshot = String(ticket?.pricing_snapshot_json || "").trim();
+  if (pricingSnapshot) {
+    try {
+      const parsed = JSON.parse(pricingSnapshot);
+      const raw = String(parsed?.duration_code || "").trim().toLowerCase();
+      if (raw === "1d" || raw === "1m") return raw;
+    } catch {}
+  }
+
+  const metadata = String(ticket?.metadata_json || "").trim();
+  if (metadata) {
+    try {
+      const parsed = JSON.parse(metadata);
+      const raw = String(parsed?.duration_code || "").trim().toLowerCase();
+      if (raw === "1d" || raw === "1m") return raw;
+    } catch {}
+  }
+
+  if (Number(ticket?.duration_months || 0) === 1) return "1m";
+  return "";
+}
+
+export function buildPaymentMenuKeyboard({
+  hasOpenTicket = false,
+  primaryActionText = "🧾 Upgrade Premium",
+} = {}) {
   const rows = [];
 
   if (!hasOpenTicket) {
@@ -36,6 +73,16 @@ export function buildPaymentMenuKeyboard({ hasOpenTicket = false, primaryActionT
   return { inline_keyboard: rows };
 }
 
+export function buildPaymentDurationKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "1 Hari", callback_data: "self:payment:create:1d" }],
+      [{ text: "1 Bulan", callback_data: "self:payment:create:1m" }],
+      [{ text: "⬅️ Kembali", callback_data: "self:payment" }],
+    ],
+  };
+}
+
 export function buildPaymentHomeMessage(ctx) {
   return [
     "💎 <b>PREMIUM PARTNER</b>",
@@ -46,17 +93,33 @@ export function buildPaymentHomeMessage(ctx) {
   ].join("\n");
 }
 
+export function buildChooseDurationMessage(ctx) {
+  return [
+    "💎 <b>PILIH DURASI PREMIUM</b>",
+    "",
+    `Status Partner: <b>${escapeHtml(ctx.partnerStatusLabel)}</b>`,
+    `Akses Premium: <b>${escapeHtml(ctx.premiumAccessLabel)}</b>`,
+    `Class Partner: <b>${escapeHtml(fmtClassId(ctx.profile?.class_id || "bronze"))}</b>`,
+    "",
+    "Pilih durasi yang ingin kamu aktifkan:",
+    "• 1 Hari",
+    "• 1 Bulan",
+  ].join("\n");
+}
+
 export function buildPaymentTicketSummary(ticket) {
   if (!ticket) return "Belum ada tiket pembayaran.";
 
   const classLabel = fmtClassId(ticket.class_id);
+  const durationCode = readDurationCodeFromTicket(ticket);
+
   const lines = [
     "💳 <b>STATUS TIKET PEMBAYARAN</b>",
     "",
     `Kode Tiket: <code>${escapeHtml(String(ticket.ticket_code || "-"))}</code>`,
     `Status Tiket: <b>${escapeHtml(fmtTicketStatusLabel(ticket.status))}</b>`,
     `Class Partner: <b>${escapeHtml(classLabel)}</b>`,
-    `Durasi: <b>${escapeHtml(String(ticket.duration_months || "-"))}</b> bulan`,
+    `Durasi: <b>${escapeHtml(fmtDurationLabel(durationCode, ticket.duration_months))}</b>`,
     `Nominal Transfer: <b>${escapeHtml(formatMoney(ticket.amount_final))}</b>`,
     `Batas Waktu: <b>${escapeHtml(formatDateTime(ticket.expires_at))}</b>`,
   ];
@@ -68,14 +131,17 @@ export function buildPaymentTicketSummary(ticket) {
   return lines.join("\n");
 }
 
-export function buildPaymentInstructionMessage(ticket) {
+export function buildPaymentInstructionMessage(ticket, durationLabel = null) {
   const classLabel = fmtClassId(ticket?.class_id);
+  const durationCode = readDurationCodeFromTicket(ticket);
+  const finalDurationLabel = durationLabel || fmtDurationLabel(durationCode, ticket?.duration_months);
+
   const lines = [
     "✅ <b>TIKET PEMBAYARAN BERHASIL DIBUAT</b>",
     "",
     `Kode Tiket: <code>${escapeHtml(String(ticket?.ticket_code || "-"))}</code>`,
     `Class Partner: <b>${escapeHtml(classLabel)}</b>`,
-    `Durasi: <b>${escapeHtml(String(ticket?.duration_months || "-"))}</b> bulan`,
+    `Durasi: <b>${escapeHtml(finalDurationLabel)}</b>`,
     `Total Bayar: <b>${escapeHtml(formatMoney(ticket?.amount_final))}</b>`,
     `Batas Waktu: <b>${escapeHtml(formatDateTime(ticket?.expires_at))}</b>`,
     "",
