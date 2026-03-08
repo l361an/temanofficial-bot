@@ -33,12 +33,50 @@ export function resolvePrimaryActionText(profile, subInfo) {
   return hasPremiumAccess(profile, subInfo) ? "🔄 Renew Premium" : "🧾 Upgrade Premium";
 }
 
+export function resolveDurationMeta(durationCode) {
+  const raw = String(durationCode || "").trim().toLowerCase();
+
+  if (raw === "1d") {
+    return {
+      durationCode: "1d",
+      durationLabel: "1 Hari",
+      durationDays: 1,
+      durationMonths: 0,
+    };
+  }
+
+  if (raw === "3d") {
+    return {
+      durationCode: "3d",
+      durationLabel: "3 Hari",
+      durationDays: 3,
+      durationMonths: 0,
+    };
+  }
+
+  if (raw === "7d") {
+    return {
+      durationCode: "7d",
+      durationLabel: "7 Hari",
+      durationDays: 7,
+      durationMonths: 0,
+    };
+  }
+
+  return {
+    durationCode: "1m",
+    durationLabel: "1 Bulan",
+    durationDays: 30,
+    durationMonths: 1,
+  };
+}
+
 export function resolveDurationLabel(durationCode) {
-  return String(durationCode || "").trim().toLowerCase() === "1d" ? "1 Hari" : "1 Bulan";
+  return resolveDurationMeta(durationCode).durationLabel;
 }
 
 export function resolveDurationMonths(durationCode) {
-  return String(durationCode || "").trim().toLowerCase() === "1d" ? 0 : 1;
+  return resolveDurationMeta(durationCode).durationMonths;
 }
 
 export async function getLatestPaymentTicket(env, partnerId) {
@@ -80,13 +118,13 @@ export async function getUniqueCodeRange(env) {
 
 export async function resolvePriceByClassAndDuration(env, classId, durationCode) {
   const normalizedClassId = normalizeClassId(classId || "bronze");
-  const normalizedDurationCode = String(durationCode || "1m").trim().toLowerCase() === "1d" ? "1d" : "1m";
+  const duration = resolveDurationMeta(durationCode);
 
   const keyCandidates = [
-    `payment_price_${normalizedClassId}_${normalizedDurationCode}`,
-    `payment_${normalizedClassId}_${normalizedDurationCode}`,
-    `pp_price_${normalizedClassId}_${normalizedDurationCode}`,
-    `${normalizedClassId}_price_${normalizedDurationCode}`,
+    `payment_price_${normalizedClassId}_${duration.durationCode}`,
+    `payment_${normalizedClassId}_${duration.durationCode}`,
+    `pp_price_${normalizedClassId}_${duration.durationCode}`,
+    `${normalizedClassId}_price_${duration.durationCode}`,
   ];
 
   for (const key of keyCandidates) {
@@ -97,9 +135,10 @@ export async function resolvePriceByClassAndDuration(env, classId, durationCode)
         amount: num,
         key,
         classId: normalizedClassId,
-        durationCode: normalizedDurationCode,
-        durationLabel: resolveDurationLabel(normalizedDurationCode),
-        durationMonths: resolveDurationMonths(normalizedDurationCode),
+        durationCode: duration.durationCode,
+        durationLabel: duration.durationLabel,
+        durationDays: duration.durationDays,
+        durationMonths: duration.durationMonths,
       };
     }
   }
@@ -108,9 +147,10 @@ export async function resolvePriceByClassAndDuration(env, classId, durationCode)
     amount: 0,
     key: null,
     classId: normalizedClassId,
-    durationCode: normalizedDurationCode,
-    durationLabel: resolveDurationLabel(normalizedDurationCode),
-    durationMonths: resolveDurationMonths(normalizedDurationCode),
+    durationCode: duration.durationCode,
+    durationLabel: duration.durationLabel,
+    durationDays: duration.durationDays,
+    durationMonths: duration.durationMonths,
   };
 }
 
