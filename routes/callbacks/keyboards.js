@@ -140,7 +140,6 @@ export function buildSuperadminToolsKeyboard() {
     inline_keyboard: [
       [{ text: "🧩 Config", callback_data: CALLBACKS.SUPERADMIN_CONFIG_MENU }],
       [{ text: "⚙️ Settings", callback_data: CALLBACKS.SUPERADMIN_SETTINGS_MENU }],
-      [{ text: "💰 Finance", callback_data: CALLBACKS.SUPERADMIN_FINANCE_MENU }],
       [{ text: "⬅️ Officer Home", callback_data: CALLBACKS.OFFICER_HOME }],
     ],
   };
@@ -178,6 +177,7 @@ export function buildSettingsKeyboard() {
   return {
     inline_keyboard: [
       [{ text: "🗂️ Category", callback_data: CALLBACKS.SUPERADMIN_CATEGORY_MENU }],
+      [{ text: "💰 Finance", callback_data: CALLBACKS.SUPERADMIN_FINANCE_MENU }],
       [{ text: "⬅️ Back", callback_data: CALLBACKS.SUPERADMIN_TOOLS_MENU }],
     ],
   };
@@ -199,23 +199,33 @@ export function buildFinanceKeyboard(manualOn) {
     inline_keyboard: [
       [
         {
-          text: manualOn ? "🛑 Set Manual Payment: OFF" : "✅ Set Manual Payment: ON",
+          text: manualOn ? "🛑 Set Manual : OFF" : "✅ Set Manual : ON",
           callback_data: CALLBACKS.SUPERADMIN_FINANCE_MANUAL_TOGGLE,
         },
       ],
-      [
-        { text: "🥉 Bronze 1 Hari", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_BRONZE_1D },
-        { text: "🥉 Bronze 1 Bulan", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_BRONZE_1M },
-      ],
-      [
-        { text: "🥇 Gold 1 Hari", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_GOLD_1D },
-        { text: "🥇 Gold 1 Bulan", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_GOLD_1M },
-      ],
-      [
-        { text: "💠 Platinum 1 Hari", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_PLATINUM_1D },
-        { text: "💠 Platinum 1 Bulan", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_PLATINUM_1M },
-      ],
-      [{ text: "⬅️ Back", callback_data: CALLBACKS.SUPERADMIN_TOOLS_MENU }],
+      [{ text: "🏷️ Pricing", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICING_MENU }],
+      [{ text: "⬅️ Back", callback_data: CALLBACKS.SUPERADMIN_SETTINGS_MENU }],
+    ],
+  };
+}
+
+export function buildFinancePricingKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "🥉 Bronze", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICING_BRONZE_MENU }],
+      [{ text: "🥇 Gold", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICING_GOLD_MENU }],
+      [{ text: "💠 Platinum", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICING_PLATINUM_MENU }],
+      [{ text: "⬅️ Back", callback_data: CALLBACKS.SUPERADMIN_FINANCE_MENU }],
+    ],
+  };
+}
+
+export function buildFinanceClassPricingKeyboard(classId) {
+  return {
+    inline_keyboard: [
+      [{ text: "1 Hari", callback_data: `sa:fin:price:${classId}:1d` }],
+      [{ text: "1 Bulan", callback_data: `sa:fin:price:${classId}:1m` }],
+      [{ text: "⬅️ Back", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICING_MENU }],
     ],
   };
 }
