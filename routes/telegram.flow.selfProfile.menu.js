@@ -7,9 +7,8 @@ import { sendHtml, buildTeManMenuKeyboard, escapeHtml } from "./telegram.user.sh
 function fmtPartnerStatusLabel(status) {
   const raw = String(status || "").trim().toLowerCase();
 
-  if (raw === "pending_approval") return "Pending Approval";
+  if (raw === "pending_approval") return "Pending";
   if (raw === "approved") return "Approved";
-  if (raw === "active") return "Active";
   if (raw === "suspended") return "Suspended";
 
   return raw ? raw.replaceAll("_", " ") : "-";
