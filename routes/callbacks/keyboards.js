@@ -191,7 +191,7 @@ export function buildCategoryKeyboard() {
   };
 }
 
-export function buildFinanceKeyboard(manualOn) {
+export function buildFinanceKeyboard(manualOn, prices = {}) {
   return {
     inline_keyboard: [
       [
@@ -200,6 +200,9 @@ export function buildFinanceKeyboard(manualOn) {
           callback_data: CALLBACKS.SUPERADMIN_FINANCE_MANUAL_TOGGLE,
         },
       ],
+      [{ text: `🥉 Set Harga Bronze`, callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_BRONZE }],
+      [{ text: `🥇 Set Harga Gold`, callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_GOLD }],
+      [{ text: `💠 Set Harga Platinum`, callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_PLATINUM }],
       [{ text: "⬅️ Back", callback_data: CALLBACKS.SUPERADMIN_TOOLS_MENU }],
     ],
   };
