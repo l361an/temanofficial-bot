@@ -35,6 +35,11 @@ import {
 } from "./telegram.messages.js";
 import { SESSION_MODES } from "./telegram.constants.js";
 
+function isRegistrationPhotoStep(session) {
+  const step = String(session?.step || "").trim().toLowerCase();
+  return ["upload_closeup", "upload_fullbody", "upload_ktp"].includes(step);
+}
+
 export async function handleTelegramWebhook(request, env) {
   try {
     const update = await request.json();
@@ -76,19 +81,6 @@ export async function handleTelegramWebhook(request, env) {
     }
 
     const session = await loadSession(env, STATE_KEY);
-
-    if (!isAdminRole(role) && update?.message?.photo) {
-      const handledPaymentProof = await handlePaymentProofUpload({
-        env,
-        chatId,
-        telegramId,
-        update,
-      });
-
-      if (handledPaymentProof) {
-        return json({ ok: true });
-      }
-    }
 
     if (isAdminRole(role)) {
       if (session?.mode === SESSION_MODES.PARTNER_MODERATION) {
@@ -132,21 +124,58 @@ export async function handleTelegramWebhook(request, env) {
       }
     }
 
-    if (!session && !isAdminRole(role)) {
-      const profile = await getProfileFullByTelegramId(env, telegramId);
-      if (profile) {
-        await sendMessage(env, chatId, buildSelfMenuMessage(profile), {
-          parse_mode: "HTML",
-          reply_markup: buildSelfMenuKeyboard(),
-        });
+    if (!isAdminRole(role)) {
+      if (session?.mode === SESSION_MODES.EDIT_PROFILE) {
+        await handleUserEditFlow({ env, chatId, telegramId, username, text, session, STATE_KEY, update });
         return json({ ok: true });
       }
 
-      await sendMessage(env, chatId, "Klik <b>Menu TeMan</b> untuk mulai ya.", {
-        parse_mode: "HTML",
-        reply_markup: buildTeManMenuKeyboard(),
-      });
-      return json({ ok: true });
+      if (session) {
+        const handledRegistration = await handleRegistrationFlow({
+          update,
+          env,
+          chatId,
+          telegramId,
+          username,
+          text,
+          session,
+          STATE_KEY,
+        });
+
+        if (handledRegistration) {
+          return json({ ok: true });
+        }
+      }
+
+      if (update?.message?.photo && !isRegistrationPhotoStep(session)) {
+        const handledPaymentProof = await handlePaymentProofUpload({
+          env,
+          chatId,
+          telegramId,
+          update,
+        });
+
+        if (handledPaymentProof) {
+          return json({ ok: true });
+        }
+      }
+
+      if (!session) {
+        const profile = await getProfileFullByTelegramId(env, telegramId);
+        if (profile) {
+          await sendMessage(env, chatId, buildSelfMenuMessage(profile), {
+            parse_mode: "HTML",
+            reply_markup: buildSelfMenuKeyboard(),
+          });
+          return json({ ok: true });
+        }
+
+        await sendMessage(env, chatId, "Klik <b>Menu TeMan</b> untuk mulai ya.", {
+          parse_mode: "HTML",
+          reply_markup: buildTeManMenuKeyboard(),
+        });
+        return json({ ok: true });
+      }
     }
 
     if (session?.mode === SESSION_MODES.EDIT_PROFILE) {
