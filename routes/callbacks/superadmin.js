@@ -63,7 +63,7 @@ function buildPaymentConfirmSummary(ticket, profile = null, subscription = null)
     `Username: <b>${escapeHtml(username ? `@${username}` : "-")}</b>`,
     `Class ID: <b>${escapeHtml(formatClassLabel(ticket?.class_id))}</b>`,
     `Durasi: <b>${escapeHtml(String(ticket?.duration_months || "-"))}</b> bulan`,
-    `Periode Aktif: <b>${escapeHtml(formatDateTime(subscription?.start_at))}</b> s.d <b>${escapeHtml(formatDateTime(subscription?.end_at))}</b>`,
+    `Masa Aktif: <b>${escapeHtml(formatDateTime(subscription?.start_at))}</b> s.d <b>${escapeHtml(formatDateTime(subscription?.end_at))}</b>`,
     `Nominal: <b>${escapeHtml(formatMoney(ticket?.amount_final))}</b>`,
   ];
   return lines.join("\n");
