@@ -258,14 +258,26 @@ export function buildFinancePricingKeyboard() {
     inline_keyboard: [
       [
         { text: "🥉 Bronze 1 Hari", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_BRONZE_1D },
+        { text: "🥉 Bronze 3 Hari", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_BRONZE_3D },
+      ],
+      [
+        { text: "🥉 Bronze 7 Hari", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_BRONZE_7D },
         { text: "🥉 Bronze 1 Bulan", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_BRONZE_1M },
       ],
       [
         { text: "🥇 Gold 1 Hari", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_GOLD_1D },
+        { text: "🥇 Gold 3 Hari", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_GOLD_3D },
+      ],
+      [
+        { text: "🥇 Gold 7 Hari", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_GOLD_7D },
         { text: "🥇 Gold 1 Bulan", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_GOLD_1M },
       ],
       [
         { text: "💠 Platinum 1 Hari", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_PLATINUM_1D },
+        { text: "💠 Platinum 3 Hari", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_PLATINUM_3D },
+      ],
+      [
+        { text: "💠 Platinum 7 Hari", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_PLATINUM_7D },
         { text: "💠 Platinum 1 Bulan", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_PLATINUM_1M },
       ],
       [
@@ -279,8 +291,14 @@ export function buildFinancePricingKeyboard() {
 export function buildFinanceClassPricingKeyboard(classId) {
   return {
     inline_keyboard: [
-      [{ text: "1 Hari", callback_data: `sa:fin:price:${classId}:1d` }],
-      [{ text: "1 Bulan", callback_data: `sa:fin:price:${classId}:1m` }],
+      [
+        { text: "1 Hari", callback_data: `sa:fin:price:${classId}:1d` },
+        { text: "3 Hari", callback_data: `sa:fin:price:${classId}:3d` },
+      ],
+      [
+        { text: "7 Hari", callback_data: `sa:fin:price:${classId}:7d` },
+        { text: "1 Bulan", callback_data: `sa:fin:price:${classId}:1m` },
+      ],
       [
         { text: "⬅️ Back", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICING_MENU },
         { text: "🏠 Officer Home", callback_data: CALLBACKS.OFFICER_HOME },
