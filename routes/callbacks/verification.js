@@ -15,6 +15,7 @@ import { buildMainKeyboard, buildVerificatorKeyboard, buildApproveRejectKeyboard
 import { buildTeManMenuKeyboard } from "../telegram.commands.user.js";
 import { CALLBACK_PREFIX, CALLBACKS } from "../telegram.constants.js";
 import { markRegistrationApproved } from "../../services/partnerStatusService.js";
+import { fmtClassId } from "../../utils/partnerHelpers.js";
 
 function upsertVerificatorLine(caption, label) {
   const raw = String(caption || "");
@@ -202,6 +203,7 @@ export function buildVerificationHandlers() {
 
         const vRow = await getAdminByTelegramId(env, verificatorId);
         const vLabel = vRow?.label || "-";
+        const classLabel = fmtClassId(profile.class_id);
 
         await sendMessage(
           env,
@@ -213,7 +215,7 @@ export function buildVerificationHandlers() {
         await sendMessage(
           env,
           adminId,
-          `✅ APPROVED\nTelegram ID: ${telegramId}\nStatus akhir: approved\nClass ID: ${profile.class_id ?? "-"}\nVerificator: ${vLabel}`,
+          `✅ APPROVED\nTelegram ID: ${telegramId}\nStatus akhir: approved\nClass ID: ${classLabel}\nVerificator: ${vLabel}`,
           {
             reply_markup: buildOfficerHomeOnlyKeyboard(),
           }
