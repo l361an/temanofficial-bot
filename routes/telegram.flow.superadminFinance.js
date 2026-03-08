@@ -4,6 +4,10 @@ import { clearSession } from "../utils/session.js";
 import { sendMessage } from "../services/telegramApi.js";
 import { upsertSetting } from "../repositories/settingsRepo.js";
 import { CALLBACKS } from "./telegram.constants.js";
+import {
+  buildFinanceKeyboard,
+  buildFinancePricingKeyboard,
+} from "./callbacks/keyboards.js";
 
 function formatMoney(value) {
   const n = Number(value || 0);
@@ -43,7 +47,7 @@ export async function handleSuperadminFinanceInput({ env, chatId, text, session,
   if (/^(batal|cancel|keluar)$/i.test(raw)) {
     await clearSession(env, STATE_KEY);
     await sendMessage(env, chatId, "✅ Oke, input harga dibatalkan.", {
-      reply_markup: buildBackKeyboard(),
+      reply_markup: buildFinancePricingKeyboard(),
     });
     return true;
   }
@@ -59,7 +63,7 @@ export async function handleSuperadminFinanceInput({ env, chatId, text, session,
   ) {
     await clearSession(env, STATE_KEY);
     await sendMessage(env, chatId, "⚠️ Mode Finance tidak dikenal. Balik ke menu.", {
-      reply_markup: buildBackKeyboard(),
+      reply_markup: buildFinanceKeyboard(true),
     });
     return true;
   }
@@ -71,7 +75,10 @@ export async function handleSuperadminFinanceInput({ env, chatId, text, session,
     await sendMessage(
       env,
       chatId,
-      "⚠️ Nominal tidak valid.\nKirim angka harga tanpa simbol.\nContoh: 150000\n\nKetik batal untuk keluar."
+      "⚠️ Nominal tidak valid.\nKirim angka harga tanpa simbol.\nContoh: 150000\n\nKetik batal untuk keluar.",
+      {
+        reply_markup: buildFinancePricingKeyboard(),
+      }
     );
     return true;
   }
@@ -85,7 +92,7 @@ export async function handleSuperadminFinanceInput({ env, chatId, text, session,
     chatId,
     `✅ Harga class ${getPriceLabel(classId)} untuk ${getDurationLabel(durationCode)} berhasil diupdate menjadi ${formatMoney(amount)}.`,
     {
-      reply_markup: buildBackKeyboard(),
+      reply_markup: buildFinancePricingKeyboard(),
     }
   );
   return true;
