@@ -14,6 +14,8 @@ import {
   buildSettingsKeyboard,
   buildCategoryKeyboard,
   buildFinanceKeyboard,
+  buildFinancePricingKeyboard,
+  buildFinanceClassPricingKeyboard,
 } from "./keyboards.js";
 
 import { deleteSetting, escapeHtml } from "./shared.js";
@@ -25,6 +27,10 @@ function formatClassLabel(value) {
   if (raw === "gold") return "Gold";
   if (raw === "platinum") return "Platinum";
   return raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : "-";
+}
+
+function formatDurationLabel(value) {
+  return String(value || "").trim().toLowerCase() === "1d" ? "1 Hari" : "1 Bulan";
 }
 
 function formatMoney(value) {
@@ -57,17 +63,23 @@ async function getFinanceState(env) {
   const manualRaw = (await getSetting(env, "payment_manual_enabled")) ?? "1";
   const manualOn = String(manualRaw) !== "0";
 
-  const bronze = await getSetting(env, "payment_price_bronze_1m");
-  const gold = await getSetting(env, "payment_price_gold_1m");
-  const platinum = await getSetting(env, "payment_price_platinum_1m");
+  const keys = [
+    "payment_price_bronze_1d",
+    "payment_price_bronze_1m",
+    "payment_price_gold_1d",
+    "payment_price_gold_1m",
+    "payment_price_platinum_1d",
+    "payment_price_platinum_1m",
+  ];
+
+  const values = {};
+  for (const key of keys) {
+    values[key] = Number((await getSetting(env, key)) || 0);
+  }
 
   return {
     manualOn,
-    prices: {
-      bronze: Number(bronze || 0),
-      gold: Number(gold || 0),
-      platinum: Number(platinum || 0),
-    },
+    prices: values,
   };
 }
 
@@ -75,20 +87,51 @@ function buildFinanceText(state) {
   return [
     "💰 <b>Finance</b>",
     "",
-    `Manual payment: <b>${state.manualOn ? "ON" : "OFF"}</b>`,
-    "Provider: <i>manual</i>",
+    `Set Manual: <b>${state.manualOn ? "ON" : "OFF"}</b>`,
     "",
-    `Harga Bronze: <b>${escapeHtml(formatMoney(state.prices.bronze))}</b>`,
-    `Harga Gold: <b>${escapeHtml(formatMoney(state.prices.gold))}</b>`,
-    `Harga Platinum: <b>${escapeHtml(formatMoney(state.prices.platinum))}</b>`,
+    `Bronze 1 Hari: <b>${escapeHtml(formatMoney(state.prices.payment_price_bronze_1d))}</b>`,
+    `Bronze 1 Bulan: <b>${escapeHtml(formatMoney(state.prices.payment_price_bronze_1m))}</b>`,
+    "",
+    `Gold 1 Hari: <b>${escapeHtml(formatMoney(state.prices.payment_price_gold_1d))}</b>`,
+    `Gold 1 Bulan: <b>${escapeHtml(formatMoney(state.prices.payment_price_gold_1m))}</b>`,
+    "",
+    `Platinum 1 Hari: <b>${escapeHtml(formatMoney(state.prices.payment_price_platinum_1d))}</b>`,
+    `Platinum 1 Bulan: <b>${escapeHtml(formatMoney(state.prices.payment_price_platinum_1m))}</b>`,
   ].join("\n");
 }
 
-function buildFinancePromptText(classId) {
+function buildFinancePricingText(state) {
   return [
-    `💰 <b>Set Harga ${escapeHtml(formatClassLabel(classId))}</b>`,
+    "🏷️ <b>Pricing</b>",
     "",
-    "Kirim nominal harga untuk durasi 1 bulan.",
+    `Bronze 1 Hari: <b>${escapeHtml(formatMoney(state.prices.payment_price_bronze_1d))}</b>`,
+    `Bronze 1 Bulan: <b>${escapeHtml(formatMoney(state.prices.payment_price_bronze_1m))}</b>`,
+    "",
+    `Gold 1 Hari: <b>${escapeHtml(formatMoney(state.prices.payment_price_gold_1d))}</b>`,
+    `Gold 1 Bulan: <b>${escapeHtml(formatMoney(state.prices.payment_price_gold_1m))}</b>`,
+    "",
+    `Platinum 1 Hari: <b>${escapeHtml(formatMoney(state.prices.payment_price_platinum_1d))}</b>`,
+    `Platinum 1 Bulan: <b>${escapeHtml(formatMoney(state.prices.payment_price_platinum_1m))}</b>`,
+  ].join("\n");
+}
+
+function buildFinanceClassText(state, classId) {
+  const key1d = `payment_price_${classId}_1d`;
+  const key1m = `payment_price_${classId}_1m`;
+
+  return [
+    `🏷️ <b>Pricing ${escapeHtml(formatClassLabel(classId))}</b>`,
+    "",
+    `1 Hari: <b>${escapeHtml(formatMoney(state.prices[key1d]))}</b>`,
+    `1 Bulan: <b>${escapeHtml(formatMoney(state.prices[key1m]))}</b>`,
+  ].join("\n");
+}
+
+function buildFinancePromptText(classId, durationCode) {
+  return [
+    `💰 <b>Set Harga ${escapeHtml(formatClassLabel(classId))} - ${escapeHtml(formatDurationLabel(durationCode))}</b>`,
+    "",
+    `Kirim nominal harga untuk ${escapeHtml(formatDurationLabel(durationCode))}.`,
     "Contoh: <code>150000</code>",
     "",
     "Ketik <b>batal</b> untuk keluar.",
@@ -97,6 +140,8 @@ function buildFinancePromptText(classId) {
 
 function buildPaymentConfirmSummary(ticket, profile = null, subscription = null) {
   const username = String(profile?.username || "").trim().replace(/^@/, "");
+  const durationCode = String(subscription?.duration_code || "").trim().toLowerCase();
+
   const lines = [
     "💳 <b>Payment Confirmed</b>",
     "",
@@ -104,7 +149,7 @@ function buildPaymentConfirmSummary(ticket, profile = null, subscription = null)
     `Partner ID: <code>${escapeHtml(String(ticket?.partner_id || "-"))}</code>`,
     `Username: <b>${escapeHtml(username ? `@${username}` : "-")}</b>`,
     `Class ID: <b>${escapeHtml(formatClassLabel(ticket?.class_id))}</b>`,
-    `Durasi: <b>${escapeHtml(String(ticket?.duration_months || "-"))}</b> bulan`,
+    `Durasi: <b>${escapeHtml(formatDurationLabel(durationCode))}</b>`,
     `Masa Aktif: <b>${escapeHtml(formatDateTime(subscription?.start_at))}</b> s.d <b>${escapeHtml(formatDateTime(subscription?.end_at))}</b>`,
     `Nominal: <b>${escapeHtml(formatMoney(ticket?.amount_final))}</b>`,
   ];
@@ -294,7 +339,7 @@ export function buildSuperadminHandlers() {
     const state = await getFinanceState(env);
     await sendMessage(env, adminId, buildFinanceText(state), {
       parse_mode: "HTML",
-      reply_markup: buildFinanceKeyboard(state.manualOn, state.prices),
+      reply_markup: buildFinanceKeyboard(state.manualOn),
     });
     return true;
   };
@@ -307,32 +352,80 @@ export function buildSuperadminHandlers() {
     await upsertSetting(env, "payment_manual_enabled", next);
 
     const state = await getFinanceState(env);
-    await sendMessage(env, adminId, `✅ Manual payment sekarang: ${state.manualOn ? "ON" : "OFF"}`, {
-      reply_markup: buildFinanceKeyboard(state.manualOn, state.prices),
+    await sendMessage(env, adminId, `✅ Set Manual sekarang: ${state.manualOn ? "ON" : "OFF"}`, {
+      reply_markup: buildFinanceKeyboard(state.manualOn),
+    });
+    return true;
+  };
+
+  EXACT[CALLBACKS.SUPERADMIN_FINANCE_PRICING_MENU] = async (ctx) => {
+    const { env, adminId, msgChatId, msgId } = ctx;
+    if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+    const state = await getFinanceState(env);
+    await sendMessage(env, adminId, buildFinancePricingText(state), {
+      parse_mode: "HTML",
+      reply_markup: buildFinancePricingKeyboard(),
+    });
+    return true;
+  };
+
+  EXACT[CALLBACKS.SUPERADMIN_FINANCE_PRICING_BRONZE_MENU] = async (ctx) => {
+    const { env, adminId, msgChatId, msgId } = ctx;
+    if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+    const state = await getFinanceState(env);
+    await sendMessage(env, adminId, buildFinanceClassText(state, "bronze"), {
+      parse_mode: "HTML",
+      reply_markup: buildFinanceClassPricingKeyboard("bronze"),
+    });
+    return true;
+  };
+
+  EXACT[CALLBACKS.SUPERADMIN_FINANCE_PRICING_GOLD_MENU] = async (ctx) => {
+    const { env, adminId, msgChatId, msgId } = ctx;
+    if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+    const state = await getFinanceState(env);
+    await sendMessage(env, adminId, buildFinanceClassText(state, "gold"), {
+      parse_mode: "HTML",
+      reply_markup: buildFinanceClassPricingKeyboard("gold"),
+    });
+    return true;
+  };
+
+  EXACT[CALLBACKS.SUPERADMIN_FINANCE_PRICING_PLATINUM_MENU] = async (ctx) => {
+    const { env, adminId, msgChatId, msgId } = ctx;
+    if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+    const state = await getFinanceState(env);
+    await sendMessage(env, adminId, buildFinanceClassText(state, "platinum"), {
+      parse_mode: "HTML",
+      reply_markup: buildFinanceClassPricingKeyboard("platinum"),
     });
     return true;
   };
 
   const financePriceActions = [
-    [CALLBACKS.SUPERADMIN_FINANCE_PRICE_BRONZE, "bronze"],
-    [CALLBACKS.SUPERADMIN_FINANCE_PRICE_GOLD, "gold"],
-    [CALLBACKS.SUPERADMIN_FINANCE_PRICE_PLATINUM, "platinum"],
+    [CALLBACKS.SUPERADMIN_FINANCE_PRICE_BRONZE_1D, "bronze", "1d"],
+    [CALLBACKS.SUPERADMIN_FINANCE_PRICE_BRONZE_1M, "bronze", "1m"],
+    [CALLBACKS.SUPERADMIN_FINANCE_PRICE_GOLD_1D, "gold", "1d"],
+    [CALLBACKS.SUPERADMIN_FINANCE_PRICE_GOLD_1M, "gold", "1m"],
+    [CALLBACKS.SUPERADMIN_FINANCE_PRICE_PLATINUM_1D, "platinum", "1d"],
+    [CALLBACKS.SUPERADMIN_FINANCE_PRICE_PLATINUM_1M, "platinum", "1m"],
   ];
 
-  for (const [callbackKey, classId] of financePriceActions) {
+  for (const [callbackKey, classId, durationCode] of financePriceActions) {
     EXACT[callbackKey] = async (ctx) => {
       const { env, adminId, msgChatId, msgId } = ctx;
       await saveSession(env, `state:${adminId}`, {
         mode: SESSION_MODES.SA_FINANCE,
         area: "price",
         class_id: classId,
+        duration_code: durationCode,
         step: "await_text",
       });
       if (msgChatId && msgId) await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
-      await sendMessage(env, adminId, buildFinancePromptText(classId), {
+      await sendMessage(env, adminId, buildFinancePromptText(classId, durationCode), {
         parse_mode: "HTML",
         reply_markup: {
-          inline_keyboard: [[{ text: "⬅️ Back", callback_data: CALLBACKS.SUPERADMIN_FINANCE_MENU }]],
+          inline_keyboard: [[{ text: "⬅️ Back", callback_data: `sa:fin:pricing:${classId}` }]],
         },
       });
       return true;
@@ -385,7 +478,7 @@ export function buildSuperadminHandlers() {
           buildPaymentConfirmSummary(ticket, res.profile, res.subscription),
           {
             parse_mode: "HTML",
-            reply_markup: buildFinanceKeyboard(state.manualOn, state.prices),
+            reply_markup: buildFinanceKeyboard(state.manualOn),
           }
         );
 
@@ -420,7 +513,7 @@ export function buildSuperadminHandlers() {
           env,
           adminId,
           `❌ Payment ticket direject.\nTicket ID: ${ticketId}\nPartner ID: ${ticket.partner_id}`,
-          { reply_markup: buildFinanceKeyboard(state.manualOn, state.prices) }
+          { reply_markup: buildFinanceKeyboard(state.manualOn) }
         );
 
         await sendMessage(
