@@ -30,7 +30,11 @@ function formatClassLabel(value) {
 }
 
 function formatDurationLabel(value) {
-  return String(value || "").trim().toLowerCase() === "1d" ? "1 Hari" : "1 Bulan";
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "1d") return "1 Hari";
+  if (raw === "3d") return "3 Hari";
+  if (raw === "7d") return "7 Hari";
+  return "1 Bulan";
 }
 
 function formatMoney(value) {
@@ -65,10 +69,18 @@ async function getFinanceState(env) {
 
   const keys = [
     "payment_price_bronze_1d",
+    "payment_price_bronze_3d",
+    "payment_price_bronze_7d",
     "payment_price_bronze_1m",
+
     "payment_price_gold_1d",
+    "payment_price_gold_3d",
+    "payment_price_gold_7d",
     "payment_price_gold_1m",
+
     "payment_price_platinum_1d",
+    "payment_price_platinum_3d",
+    "payment_price_platinum_7d",
     "payment_price_platinum_1m",
   ];
 
@@ -93,27 +105,37 @@ function buildFinanceText(state) {
 
 function buildFinancePricingText(state) {
   return [
-    "🏷️ <b>Pricing</b>",
+    "🏷️ <b>Set Pricing</b>",
     "",
     `Bronze 1 Hari: <b>${escapeHtml(formatMoney(state.prices.payment_price_bronze_1d))}</b>`,
+    `Bronze 3 Hari: <b>${escapeHtml(formatMoney(state.prices.payment_price_bronze_3d))}</b>`,
+    `Bronze 7 Hari: <b>${escapeHtml(formatMoney(state.prices.payment_price_bronze_7d))}</b>`,
     `Bronze 1 Bulan: <b>${escapeHtml(formatMoney(state.prices.payment_price_bronze_1m))}</b>`,
     "",
     `Gold 1 Hari: <b>${escapeHtml(formatMoney(state.prices.payment_price_gold_1d))}</b>`,
+    `Gold 3 Hari: <b>${escapeHtml(formatMoney(state.prices.payment_price_gold_3d))}</b>`,
+    `Gold 7 Hari: <b>${escapeHtml(formatMoney(state.prices.payment_price_gold_7d))}</b>`,
     `Gold 1 Bulan: <b>${escapeHtml(formatMoney(state.prices.payment_price_gold_1m))}</b>`,
     "",
     `Platinum 1 Hari: <b>${escapeHtml(formatMoney(state.prices.payment_price_platinum_1d))}</b>`,
+    `Platinum 3 Hari: <b>${escapeHtml(formatMoney(state.prices.payment_price_platinum_3d))}</b>`,
+    `Platinum 7 Hari: <b>${escapeHtml(formatMoney(state.prices.payment_price_platinum_7d))}</b>`,
     `Platinum 1 Bulan: <b>${escapeHtml(formatMoney(state.prices.payment_price_platinum_1m))}</b>`,
   ].join("\n");
 }
 
 function buildFinanceClassText(state, classId) {
   const key1d = `payment_price_${classId}_1d`;
+  const key3d = `payment_price_${classId}_3d`;
+  const key7d = `payment_price_${classId}_7d`;
   const key1m = `payment_price_${classId}_1m`;
 
   return [
     `🏷️ <b>Pricing ${escapeHtml(formatClassLabel(classId))}</b>`,
     "",
     `1 Hari: <b>${escapeHtml(formatMoney(state.prices[key1d]))}</b>`,
+    `3 Hari: <b>${escapeHtml(formatMoney(state.prices[key3d]))}</b>`,
+    `7 Hari: <b>${escapeHtml(formatMoney(state.prices[key7d]))}</b>`,
     `1 Bulan: <b>${escapeHtml(formatMoney(state.prices[key1m]))}</b>`,
   ].join("\n");
 }
@@ -395,10 +417,18 @@ export function buildSuperadminHandlers() {
 
   const financePriceActions = [
     [CALLBACKS.SUPERADMIN_FINANCE_PRICE_BRONZE_1D, "bronze", "1d"],
+    [CALLBACKS.SUPERADMIN_FINANCE_PRICE_BRONZE_3D, "bronze", "3d"],
+    [CALLBACKS.SUPERADMIN_FINANCE_PRICE_BRONZE_7D, "bronze", "7d"],
     [CALLBACKS.SUPERADMIN_FINANCE_PRICE_BRONZE_1M, "bronze", "1m"],
+
     [CALLBACKS.SUPERADMIN_FINANCE_PRICE_GOLD_1D, "gold", "1d"],
+    [CALLBACKS.SUPERADMIN_FINANCE_PRICE_GOLD_3D, "gold", "3d"],
+    [CALLBACKS.SUPERADMIN_FINANCE_PRICE_GOLD_7D, "gold", "7d"],
     [CALLBACKS.SUPERADMIN_FINANCE_PRICE_GOLD_1M, "gold", "1m"],
+
     [CALLBACKS.SUPERADMIN_FINANCE_PRICE_PLATINUM_1D, "platinum", "1d"],
+    [CALLBACKS.SUPERADMIN_FINANCE_PRICE_PLATINUM_3D, "platinum", "3d"],
+    [CALLBACKS.SUPERADMIN_FINANCE_PRICE_PLATINUM_7D, "platinum", "7d"],
     [CALLBACKS.SUPERADMIN_FINANCE_PRICE_PLATINUM_1M, "platinum", "1m"],
   ];
 
@@ -416,7 +446,7 @@ export function buildSuperadminHandlers() {
       await sendMessage(env, adminId, buildFinancePromptText(classId, durationCode), {
         parse_mode: "HTML",
         reply_markup: {
-          inline_keyboard: [[{ text: "⬅️ Back", callback_data: `sa:fin:pricing:${classId}` }]],
+          inline_keyboard: [[{ text: "⬅️ Back", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICING_MENU }]],
         },
       });
       return true;
