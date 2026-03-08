@@ -47,14 +47,6 @@ function normalizePartnerListKey(value) {
     };
   }
 
-  if (raw === "active") {
-    return {
-      queryStatus: "active",
-      title: "PARTNER ACTIVE",
-      showStatus: false,
-    };
-  }
-
   return null;
 }
 
