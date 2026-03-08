@@ -1,263 +1,213 @@
-// routes/callbacks/keyboards.js
-import { isSuperadminRole } from "../../utils/roles.js";
-import { CALLBACKS, cb } from "../telegram.constants.js";
+// services/partnerStatusService.js
 
-// Officer Home
-export function buildOfficerHomeKeyboard(role) {
-  const rows = [[{ text: "🧰 Partner Tools", callback_data: CALLBACKS.PARTNER_TOOLS_MENU }]];
+import {
+  getProfileFullByTelegramId,
+  setProfileStatusAuditFields,
+  markManualSuspendProfile,
+  clearManualSuspendProfile,
+} from "../repositories/profilesRepo.js";
+import { getActiveSubscriptionByTelegramId } from "../repositories/partnerSubscriptionsRepo.js";
 
-  if (isSuperadminRole(role)) {
-    rows.push([{ text: "⚙️ Superadmin Tools", callback_data: CALLBACKS.SUPERADMIN_TOOLS_MENU }]);
+export const STATUS_REASON = {
+  REGISTRATION_APPROVED: "registration_approved",
+  PAYMENT_CONFIRMED: "payment_confirmed",
+  SUBSCRIPTION_EXPIRED: "subscription_expired",
+  MANUAL_SUSPEND: "manual_suspend",
+  MANUAL_RESTORE: "manual_restore",
+};
+
+export const USER_REASON_TEXT = {
+  [STATUS_REASON.REGISTRATION_APPROVED]:
+    "Registrasi kamu sudah disetujui.\nUntuk menggunakan fitur Premium TeMan, silakan lakukan pembayaran di menu Payment.",
+
+  [STATUS_REASON.PAYMENT_CONFIRMED]:
+    "Pembayaran kamu sudah dikonfirmasi.\nFitur Premium TeMan sekarang sudah aktif. Selamat menggunakan layanan kami!",
+
+  [STATUS_REASON.SUBSCRIPTION_EXPIRED]:
+    "Keanggotaan Premium kamu sudah berakhir. Silakan lakukan pembayaran di menu Payment untuk mengaktifkan kembali fitur Premium TeMan.",
+
+  [STATUS_REASON.MANUAL_SUSPEND]:
+    "Status Premium kamu saat ini dinonaktifkan oleh admin. Silakan hubungi admin TeMan untuk informasi lebih lanjut.",
+
+  [STATUS_REASON.MANUAL_RESTORE]:
+    "Akun kamu sudah dipulihkan.",
+};
+
+export async function derivePartnerStatus(env, telegramId) {
+  const profile = await getProfileFullByTelegramId(env, telegramId);
+  if (!profile) return { ok: false, reason: "profile_not_found" };
+
+  const currentStatus = String(profile.status || "").trim().toLowerCase();
+
+  if (currentStatus === "pending_approval") {
+    return {
+      ok: true,
+      status: "pending_approval",
+      reason_code: profile.status_reason || null,
+      profile,
+      activeSubscription: null,
+    };
   }
 
-  return { inline_keyboard: rows };
-}
-
-// Partner Tools
-export function buildPartnerToolsKeyboard() {
-  return {
-    inline_keyboard: [
-      [{ text: "🗃️ Partner Database", callback_data: CALLBACKS.PARTNER_DATABASE_MENU }],
-      [{ text: "🛠️ Partner Moderation", callback_data: CALLBACKS.PARTNER_MODERATION_MENU }],
-      [{ text: "⬅️ Back", callback_data: CALLBACKS.OFFICER_HOME }],
-    ],
-  };
-}
-
-// Partner Database
-export function buildPartnerDatabaseKeyboard() {
-  return {
-    inline_keyboard: [
-      [{ text: "🔎 View Partner", callback_data: CALLBACKS.PARTNER_DATABASE_VIEW }],
-      [{ text: "👥 Partner", callback_data: cb.pmList("all") }],
-      [{ text: "🕒 Partner Pending", callback_data: cb.pmList("pending_approval") }],
-      [{ text: "✅ Partner Approved", callback_data: cb.pmList("approved") }],
-      [{ text: "⛔ Partner Suspended", callback_data: cb.pmList("suspended") }],
-      [{ text: "⬅️ Kembali", callback_data: CALLBACKS.PARTNER_TOOLS_MENU }],
-    ],
-  };
-}
-
-export function buildBackToPartnerDatabaseKeyboard() {
-  return {
-    inline_keyboard: [
-      [{ text: "⬅️ Kembali", callback_data: CALLBACKS.PARTNER_DATABASE_MENU }],
-      [{ text: "🧰 Partner Tools", callback_data: CALLBACKS.PARTNER_TOOLS_MENU }],
-      [{ text: "🏠 Officer Home", callback_data: CALLBACKS.OFFICER_HOME }],
-    ],
-  };
-}
-
-export function buildBackToPartnerDatabaseViewKeyboard() {
-  return {
-    inline_keyboard: [
-      [{ text: "⬅️ Kembali ke Partner Database", callback_data: CALLBACKS.PARTNER_DATABASE_MENU }],
-      [{ text: "🧰 Partner Tools", callback_data: CALLBACKS.PARTNER_TOOLS_MENU }],
-      [{ text: "🏠 Officer Home", callback_data: CALLBACKS.OFFICER_HOME }],
-    ],
-  };
-}
-
-export function buildPartnerDetailActionsKeyboard(telegramId, role) {
-  const rows = [];
-
-  if (isSuperadminRole(role)) {
-    rows.push([{ text: "🏷️ Ubah Class", callback_data: cb.pmClassStart(telegramId) }]);
-    rows.push([{ text: "👤 Ubah Verificator", callback_data: cb.pmVerStart(telegramId) }]);
-    rows.push([{ text: "📸 Ubah Foto CloseUp", callback_data: cb.pmPhotoStart(telegramId) }]);
+  if (Number(profile.is_manual_suspended || 0) === 1) {
+    return {
+      ok: true,
+      status: "suspended",
+      reason_code: STATUS_REASON.MANUAL_SUSPEND,
+      profile,
+      activeSubscription: null,
+    };
   }
 
-  rows.push([{ text: "⬅️ Kembali ke Partner Database", callback_data: CALLBACKS.PARTNER_DATABASE_MENU }]);
-  rows.push([{ text: "🧰 Partner Tools", callback_data: CALLBACKS.PARTNER_TOOLS_MENU }]);
-  rows.push([{ text: "🏠 Officer Home", callback_data: CALLBACKS.OFFICER_HOME }]);
-
-  return { inline_keyboard: rows };
-}
-
-export function buildPartnerClassPickerKeyboard(telegramId) {
-  return {
-    inline_keyboard: [
-      [{ text: "Bronze", callback_data: cb.pmClassSet(telegramId, "bronze") }],
-      [{ text: "Gold", callback_data: cb.pmClassSet(telegramId, "gold") }],
-      [{ text: "Platinum", callback_data: cb.pmClassSet(telegramId, "platinum") }],
-      [{ text: "⬅️ Kembali ke Detail Partner", callback_data: cb.pmClassBack(telegramId) }],
-      [{ text: "🗃️ Partner Database", callback_data: CALLBACKS.PARTNER_DATABASE_MENU }],
-      [{ text: "🧰 Partner Tools", callback_data: CALLBACKS.PARTNER_TOOLS_MENU }],
-    ],
-  };
-}
-
-export function buildPartnerVerificatorPickerKeyboard(telegramId, verificators) {
-  const rows = [];
-  const max = Math.min(verificators.length, 20);
-
-  for (let i = 0; i < max; i += 2) {
-    const a = verificators[i];
-    const b = verificators[i + 1];
-
-    const row = [{ text: a.label, callback_data: cb.pmVerSet(telegramId, a.telegram_id) }];
-    if (b) row.push({ text: b.label, callback_data: cb.pmVerSet(telegramId, b.telegram_id) });
-
-    rows.push(row);
+  const activeSubscription = await getActiveSubscriptionByTelegramId(env, telegramId).catch(() => null);
+  if (activeSubscription) {
+    return {
+      ok: true,
+      status: "approved",
+      reason_code: STATUS_REASON.PAYMENT_CONFIRMED,
+      profile,
+      activeSubscription,
+    };
   }
 
-  rows.push([{ text: "⬅️ Kembali ke Detail Partner", callback_data: cb.pmVerBack(telegramId) }]);
-  rows.push([{ text: "🗃️ Partner Database", callback_data: CALLBACKS.PARTNER_DATABASE_MENU }]);
-  rows.push([{ text: "🧰 Partner Tools", callback_data: CALLBACKS.PARTNER_TOOLS_MENU }]);
-
-  return { inline_keyboard: rows };
-}
-
-// Partner Moderation
-export function buildPartnerModerationKeyboard(role) {
-  const rows = [
-    [{ text: "✅ Activate Partner", callback_data: CALLBACKS.PARTNER_MOD_ACTIVATE }],
-    [{ text: "⛔ Suspend Partner", callback_data: CALLBACKS.PARTNER_MOD_SUSPEND }],
-  ];
-
-  if (isSuperadminRole(role)) {
-    rows.push([{ text: "❌ Delete Partner", callback_data: CALLBACKS.PARTNER_MOD_DELETE }]);
+  if (currentStatus === "suspended") {
+    return {
+      ok: true,
+      status: "approved",
+      reason_code: STATUS_REASON.MANUAL_RESTORE,
+      profile,
+      activeSubscription: null,
+    };
   }
 
-  rows.push([{ text: "⬅️ Kembali", callback_data: CALLBACKS.PARTNER_TOOLS_MENU }]);
-
-  return { inline_keyboard: rows };
-}
-
-export function buildBackToPartnerModerationKeyboard() {
   return {
-    inline_keyboard: [
-      [{ text: "⬅️ Kembali", callback_data: CALLBACKS.PARTNER_MODERATION_MENU }],
-      [{ text: "🧰 Partner Tools", callback_data: CALLBACKS.PARTNER_TOOLS_MENU }],
-      [{ text: "🏠 Officer Home", callback_data: CALLBACKS.OFFICER_HOME }],
-    ],
+    ok: true,
+    status: "approved",
+    reason_code: STATUS_REASON.REGISTRATION_APPROVED,
+    profile,
+    activeSubscription: null,
   };
 }
 
-// Superadmin Tools
-export function buildSuperadminToolsKeyboard() {
+export async function applyDerivedPartnerStatus(
+  env,
+  telegramId,
+  {
+    actorId = null,
+    fallbackReasonCode = null,
+    adminNote = null,
+  } = {}
+) {
+  const derived = await derivePartnerStatus(env, telegramId);
+  if (!derived.ok) return derived;
+
+  const reasonCode = derived.reason_code || fallbackReasonCode || null;
+
+  await setProfileStatusAuditFields(env, telegramId, {
+    status: derived.status,
+    statusReason: reasonCode,
+    statusChangedBy: actorId,
+    adminNote,
+  });
+
   return {
-    inline_keyboard: [
-      [{ text: "🧩 Config", callback_data: CALLBACKS.SUPERADMIN_CONFIG_MENU }],
-      [{ text: "⚙️ Settings", callback_data: CALLBACKS.SUPERADMIN_SETTINGS_MENU }],
-      [{ text: "💰 Finance", callback_data: CALLBACKS.SUPERADMIN_FINANCE_MENU }],
-      [{ text: "⬅️ Officer Home", callback_data: CALLBACKS.OFFICER_HOME }],
-    ],
+    ok: true,
+    status: derived.status,
+    reason_code: reasonCode,
+    profile: derived.profile,
+    activeSubscription: derived.activeSubscription,
   };
 }
 
-export function buildConfigKeyboard() {
+export async function markRegistrationApproved(env, telegramId, actorId) {
+  await setProfileStatusAuditFields(env, telegramId, {
+    status: "approved",
+    statusReason: STATUS_REASON.REGISTRATION_APPROVED,
+    statusChangedBy: actorId,
+    adminNote: null,
+  });
+
   return {
-    inline_keyboard: [
-      [{ text: "👋 Update Welcome Message", callback_data: CALLBACKS.SUPERADMIN_CONFIG_WELCOME }],
-      [{ text: "🔗 Update Link Aturan", callback_data: CALLBACKS.SUPERADMIN_CONFIG_ATURAN }],
-      [{ text: "⬅️ Back", callback_data: CALLBACKS.SUPERADMIN_TOOLS_MENU }],
-    ],
+    ok: true,
+    status: "approved",
+    reason_code: STATUS_REASON.REGISTRATION_APPROVED,
+    user_message: USER_REASON_TEXT[STATUS_REASON.REGISTRATION_APPROVED],
   };
 }
 
-export function buildConfigWelcomeKeyboard() {
+export async function markPaymentConfirmedAndActivate(env, telegramId, actorId, adminNote = null) {
+  await clearManualSuspendProfile(env, telegramId);
+
+  await setProfileStatusAuditFields(env, telegramId, {
+    status: "approved",
+    statusReason: STATUS_REASON.PAYMENT_CONFIRMED,
+    statusChangedBy: actorId,
+    adminNote,
+  });
+
   return {
-    inline_keyboard: [
-      [{ text: "✏️ Edit", callback_data: CALLBACKS.SUPERADMIN_CONFIG_WELCOME_EDIT }],
-      [{ text: "⬅️ Back", callback_data: CALLBACKS.SUPERADMIN_CONFIG_MENU }],
-    ],
+    ok: true,
+    status: "approved",
+    reason_code: STATUS_REASON.PAYMENT_CONFIRMED,
+    user_message: USER_REASON_TEXT[STATUS_REASON.PAYMENT_CONFIRMED],
   };
 }
 
-export function buildConfigAturanKeyboard() {
+export async function markSubscriptionExpired(env, telegramId, actorId = null) {
+  await setProfileStatusAuditFields(env, telegramId, {
+    status: "suspended",
+    statusReason: STATUS_REASON.SUBSCRIPTION_EXPIRED,
+    statusChangedBy: actorId,
+    adminNote: null,
+  });
+
   return {
-    inline_keyboard: [
-      [{ text: "✏️ Edit", callback_data: CALLBACKS.SUPERADMIN_CONFIG_ATURAN_EDIT }],
-      [{ text: "⬅️ Back", callback_data: CALLBACKS.SUPERADMIN_CONFIG_MENU }],
-    ],
+    ok: true,
+    status: "suspended",
+    reason_code: STATUS_REASON.SUBSCRIPTION_EXPIRED,
+    user_message: USER_REASON_TEXT[STATUS_REASON.SUBSCRIPTION_EXPIRED],
   };
 }
 
-export function buildSettingsKeyboard() {
+export async function manualSuspendPartner(env, telegramId, actorId, adminNote = null) {
+  await markManualSuspendProfile(env, telegramId, {
+    adminId: actorId,
+    statusReason: STATUS_REASON.MANUAL_SUSPEND,
+    adminNote,
+  });
+
   return {
-    inline_keyboard: [
-      [{ text: "🗂️ Category", callback_data: CALLBACKS.SUPERADMIN_CATEGORY_MENU }],
-      [{ text: "⬅️ Back", callback_data: CALLBACKS.SUPERADMIN_TOOLS_MENU }],
-    ],
+    ok: true,
+    status: "suspended",
+    reason_code: STATUS_REASON.MANUAL_SUSPEND,
+    user_message: USER_REASON_TEXT[STATUS_REASON.MANUAL_SUSPEND],
   };
 }
 
-export function buildCategoryKeyboard() {
+export async function manualRestorePartner(env, telegramId, actorId, adminNote = null) {
+  await clearManualSuspendProfile(env, telegramId);
+
+  const applied = await applyDerivedPartnerStatus(env, telegramId, {
+    actorId,
+    fallbackReasonCode: STATUS_REASON.MANUAL_RESTORE,
+    adminNote,
+  });
+
+  if (!applied.ok) return applied;
+
+  const hasPremiumAccess = Boolean(applied.activeSubscription);
+  const userMessage = hasPremiumAccess
+    ? "Akun kamu sudah dipulihkan.\nAkses Premium kamu juga kembali aktif."
+    : "Akun kamu sudah dipulihkan.\nUntuk menggunakan fitur Premium, silakan lakukan pembayaran di menu Payment.";
+
   return {
-    inline_keyboard: [
-      [{ text: "📚 Category List", callback_data: CALLBACKS.SUPERADMIN_CATEGORY_LIST }],
-      [{ text: "➕ Add Category", callback_data: CALLBACKS.SUPERADMIN_CATEGORY_ADD }],
-      [{ text: "➖ Delete Category", callback_data: CALLBACKS.SUPERADMIN_CATEGORY_DEL }],
-      [{ text: "⬅️ Back", callback_data: CALLBACKS.SUPERADMIN_SETTINGS_MENU }],
-    ],
+    ok: true,
+    status: applied.status,
+    reason_code: applied.reason_code,
+    user_message: userMessage,
   };
 }
 
-export function buildFinanceKeyboard(manualOn) {
-  return {
-    inline_keyboard: [
-      [
-        {
-          text: manualOn ? "🛑 Set Manual Payment: OFF" : "✅ Set Manual Payment: ON",
-          callback_data: CALLBACKS.SUPERADMIN_FINANCE_MANUAL_TOGGLE,
-        },
-      ],
-      [
-        { text: "🥉 Bronze 1 Hari", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_BRONZE_1D },
-        { text: "🥉 Bronze 1 Bulan", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_BRONZE_1M },
-      ],
-      [
-        { text: "🥇 Gold 1 Hari", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_GOLD_1D },
-        { text: "🥇 Gold 1 Bulan", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_GOLD_1M },
-      ],
-      [
-        { text: "💠 Platinum 1 Hari", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_PLATINUM_1D },
-        { text: "💠 Platinum 1 Bulan", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_PLATINUM_1M },
-      ],
-      [{ text: "⬅️ Back", callback_data: CALLBACKS.SUPERADMIN_TOOLS_MENU }],
-    ],
-  };
-}
-
-export function buildPaymentReviewKeyboard(ticketId) {
-  return {
-    inline_keyboard: [
-      [
-        { text: "✅ Confirm Payment", callback_data: cb.payConfirmOk(ticketId) },
-        { text: "❌ Reject Payment", callback_data: cb.payConfirmReject(ticketId) },
-      ],
-      [{ text: "💰 Finance", callback_data: CALLBACKS.SUPERADMIN_FINANCE_MENU }],
-    ],
-  };
-}
-
-// Verificator / Approve
-export function buildMainKeyboard(telegramId) {
-  return { inline_keyboard: [[{ text: "👤 Pilih Verificator", callback_data: cb.pickVer(telegramId) }]] };
-}
-
-export function buildApproveRejectKeyboard(telegramId) {
-  return {
-    inline_keyboard: [[
-      { text: "✅ Approve", callback_data: cb.approve(telegramId) },
-      { text: "❌ Reject", callback_data: cb.reject(telegramId) },
-    ]],
-  };
-}
-
-export function buildVerificatorKeyboard(telegramId, verificators) {
-  const rows = [];
-  const max = Math.min(verificators.length, 20);
-
-  for (let i = 0; i < max; i += 2) {
-    const a = verificators[i];
-    const b = verificators[i + 1];
-    const row = [{ text: a.label, callback_data: cb.setVer(telegramId, a.telegram_id) }];
-    if (b) row.push({ text: b.label, callback_data: cb.setVer(telegramId, b.telegram_id) });
-    rows.push(row);
-  }
-
-  rows.push([{ text: "⬅️ Kembali", callback_data: cb.backVer(telegramId) }]);
-  return { inline_keyboard: rows };
+export function getUserReasonText(reasonCode) {
+  return USER_REASON_TEXT[String(reasonCode || "")] || null;
 }
