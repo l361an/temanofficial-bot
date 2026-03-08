@@ -28,35 +28,17 @@ function buildPaymentMenuKeyboard({ hasOpenTicket = false } = {}) {
   const rows = [];
 
   if (!hasOpenTicket) {
-    rows.push([
-      { text: "🧾 Upgrade Premium", callback_data: "self:payment:create" }
-    ]);
+    rows.push([{ text: "🧾 Upgrade Premium", callback_data: "self:payment:create" }]);
   }
 
   if (hasOpenTicket) {
-    rows.push([
-      { text: "📄 Cek Status", callback_data: "self:payment:status" }
-    ]);
-
-    rows.push([
-      { text: "📤 Upload Bukti Transfer", callback_data: "self:payment:upload_info" }
-    ]);
+    rows.push([{ text: "📄 Cek Status", callback_data: "self:payment:status" }]);
+    rows.push([{ text: "📤 Upload Bukti Transfer", callback_data: "self:payment:upload_info" }]);
   }
 
-  rows.push([
-    { text: "📋 Menu TeMan", callback_data: "teman:menu" }
-  ]);
+  rows.push([{ text: "📋 Menu TeMan", callback_data: "teman:menu" }]);
 
   return { inline_keyboard: rows };
-}
-
-function fmtPartnerStatusLabel(status) {
-  const raw = String(status || "").trim().toLowerCase();
-  if (raw === "pending_approval") return "Menunggu Persetujuan";
-  if (raw === "approved") return "Approved";
-  if (raw === "active") return "Premium Aktif";
-  if (raw === "suspended") return "Suspended";
-  return raw ? raw.replaceAll("_", " ") : "-";
 }
 
 function fmtTicketStatusLabel(status) {
@@ -149,7 +131,7 @@ function buildPaymentTicketSummary(ticket) {
 
   const classLabel = fmtClassId(ticket.class_id);
   const lines = [
-    "💳 <b>STATUS TIKET PAYMENT</b>",
+    "💳 <b>STATUS TIKET PEMBAYARAN</b>",
     "",
     `Kode Tiket: <code>${escapeHtml(String(ticket.ticket_code || "-"))}</code>`,
     `Status Tiket: <b>${escapeHtml(fmtTicketStatusLabel(ticket.status))}</b>`,
@@ -169,7 +151,7 @@ function buildPaymentTicketSummary(ticket) {
 function buildPaymentInstructionMessage(ticket) {
   const classLabel = fmtClassId(ticket?.class_id);
   const lines = [
-    "✅ <b>TIKET PAYMENT BERHASIL DIBUAT</b>",
+    "✅ <b>TIKET PEMBAYARAN BERHASIL DIBUAT</b>",
     "",
     `Kode Tiket: <code>${escapeHtml(String(ticket?.ticket_code || "-"))}</code>`,
     `Class Partner: <b>${escapeHtml(classLabel)}</b>`,
@@ -193,7 +175,7 @@ function buildPaymentInstructionMessage(ticket) {
 
 function buildPaymentUploadInfoMessage(ticket = null) {
   const lines = [
-    "📤 <b>UPLOAD BUKTI PAYMENT</b>",
+    "📤 <b>UPLOAD BUKTI TRANSFER</b>",
     "",
     "Kirim <b>foto bukti transfer</b> langsung di chat ini.",
     "Format yang diproses hanya <b>photo</b>, bukan file atau dokumen.",
@@ -273,28 +255,13 @@ async function sendPaymentMenu(env, chatId, telegramId, options = {}) {
   }));
 
   const openTicket = await getOpenPaymentTicketByPartnerId(env, telegramId);
-  const latestTicket = openTicket || (await getLatestPaymentTicket(env, telegramId));
 
   const lines = [
     "💎 <b>PREMIUM PARTNER</b>",
     "",
-    `Status Partner: <b>${escapeHtml(fmtPartnerStatusLabel(profile.status))}</b>`,
     `Status Premium: <b>${escapeHtml(fmtPremiumStatusLabel(profile, subInfo))}</b>`,
     `Class Partner: <b>${escapeHtml(fmtClassId(profile.class_id || "bronze"))}</b>`,
   ];
-
-  if (subInfo?.row?.end_at) {
-    lines.push(`Masa Aktif Premium: <b>${escapeHtml(formatDateTime(subInfo.row.end_at))}</b>`);
-  }
-
-  lines.push("");
-
-  if (latestTicket) {
-    lines.push(`Tiket Terakhir: <code>${escapeHtml(String(latestTicket.ticket_code || "-"))}</code>`);
-    lines.push(`Status Tiket: <b>${escapeHtml(fmtTicketStatusLabel(latestTicket.status))}</b>`);
-  } else {
-    lines.push("Tiket Terakhir: <b>-</b>");
-  }
 
   await renderPaymentScreen(
     env,
@@ -322,7 +289,7 @@ async function createPartnerPaymentTicket(env, chatId, telegramId, options = {})
       env,
       chatId,
       sourceMessage,
-      "⚠️ Akun kamu masih <b>Menunggu Persetujuan</b>.\nTiket payment baru bisa diajukan setelah registrasi disetujui.",
+      "⚠️ Akun kamu masih <b>Menunggu Persetujuan</b>.\nTiket pembayaran baru bisa diajukan setelah registrasi disetujui.",
       buildPaymentMenuKeyboard()
     );
     return;
@@ -431,7 +398,7 @@ async function sendPaymentTicketStatus(env, chatId, telegramId, options = {}) {
       env,
       chatId,
       sourceMessage,
-      "Belum ada tiket payment.",
+      "Belum ada tiket pembayaran.",
       buildPaymentMenuKeyboard()
     );
     return;
