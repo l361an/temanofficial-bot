@@ -1,6 +1,6 @@
 // routes/telegram.flow.selfProfile.view.js
 
-import { sendPhoto, sendLongMessage } from "../services/telegramApi.js";
+import { sendMessage, sendPhoto, sendLongMessage } from "../services/telegramApi.js";
 import {
   getProfileFullByTelegramId,
   listCategoryKodesByProfileId,
@@ -25,6 +25,36 @@ function buildMasaAktifText(subInfo) {
   return `${startAt} s.d ${endAt}`;
 }
 
+function buildPremiumStatusText(profile, subInfo) {
+  if (subInfo?.is_active && subInfo?.row) return "Active";
+
+  const partnerStatus = String(profile?.status || "").trim().toLowerCase();
+  if (partnerStatus === "suspended") return "Suspended";
+  if (partnerStatus === "active") return "Active";
+  return "Belum Aktif";
+}
+
+function buildProfileSummaryText(profile, kategoriText, premiumStatusText, masaAktifText) {
+  return [
+    "👤 <b>PROFILE PARTNER</b>",
+    "",
+    fmtKV("Nama Lengkap", profile.nama_lengkap),
+    fmtKV("Nickname", profile.nickname),
+    fmtKV("Username", cleanHandle(profile.username)),
+    fmtKV("Telegram ID", profile.telegram_id),
+    fmtKV("NIK", profile.nik),
+    fmtKV("Kategori", kategoriText),
+    fmtKV("No. Whatsapp", profile.no_whatsapp),
+    fmtKV("Kecamatan", profile.kecamatan),
+    fmtKV("Kota", profile.kota),
+    fmtKV("Status Partner", profile.status),
+    "",
+    "💎 <b>PREMIUM PARTNER</b>",
+    fmtKV("Status Premium", premiumStatusText),
+    fmtKV("Masa Aktif", masaAktifText),
+  ].join("\n");
+}
+
 export async function sendSelfProfile(env, chatId, telegramId) {
   const profile = await getProfileFullByTelegramId(env, telegramId);
 
@@ -37,6 +67,7 @@ export async function sendSelfProfile(env, chatId, telegramId) {
 
   const subInfo = await getSubscriptionInfoByTelegramId(env, telegramId);
   const masaAktifText = buildMasaAktifText(subInfo);
+  const premiumStatusText = buildPremiumStatusText(profile, subInfo);
 
   const categories = profile.id
     ? await listCategoryKodesByProfileId(env, profile.id)
@@ -44,34 +75,16 @@ export async function sendSelfProfile(env, chatId, telegramId) {
 
   const kategoriText = categories.length ? categories.join(", ") : "-";
 
-  const textSummary =
-    "🧾 <b>PROFILE</b>\n" +
-    fmtKV("Telegram ID", profile.telegram_id) +
-    "\n" +
-    fmtKV("Username", cleanHandle(profile.username)) +
-    "\n" +
-    fmtKV("Nama Lengkap", profile.nama_lengkap) +
-    "\n" +
-    fmtKV("Nickname", profile.nickname) +
-    "\n" +
-    fmtKV("NIK", profile.nik) +
-    "\n" +
-    fmtKV("Kategori", kategoriText) +
-    "\n" +
-    fmtKV("No. Whatsapp", profile.no_whatsapp) +
-    "\n" +
-    fmtKV("Kecamatan", profile.kecamatan) +
-    "\n" +
-    fmtKV("Kota", profile.kota) +
-    "\n" +
-    fmtKV("Status", profile.status) +
-    "\n" +
-    fmtKV("Masa Aktif", masaAktifText);
+  const textSummary = buildProfileSummaryText(
+    profile,
+    kategoriText,
+    premiumStatusText,
+    masaAktifText
+  );
 
   await sendLongMessage(env, chatId, textSummary, {
     parse_mode: "HTML",
     disable_web_page_preview: true,
-    reply_markup: buildTeManMenuKeyboard(),
   });
 
   if (profile.foto_closeup_file_id) {
@@ -79,5 +92,10 @@ export async function sendSelfProfile(env, chatId, telegramId) {
       parse_mode: "HTML",
       reply_markup: buildTeManMenuKeyboard(),
     });
+    return;
   }
+
+  await sendMessage(env, chatId, "📋 Menu TeMan", {
+    reply_markup: buildTeManMenuKeyboard(),
+  });
 }
