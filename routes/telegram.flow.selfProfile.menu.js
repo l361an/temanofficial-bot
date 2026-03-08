@@ -7,9 +7,9 @@ import { sendHtml, buildTeManMenuKeyboard, escapeHtml } from "./telegram.user.sh
 function fmtPartnerStatusLabel(status) {
   const raw = String(status || "").trim().toLowerCase();
 
-  if (raw === "pending_approval") return "Menunggu Persetujuan";
+  if (raw === "pending_approval") return "Pending Approval";
   if (raw === "approved") return "Approved";
-  if (raw === "active") return "Premium Aktif";
+  if (raw === "active") return "Active";
   if (raw === "suspended") return "Suspended";
 
   return raw ? raw.replaceAll("_", " ") : "-";
@@ -35,12 +35,9 @@ export function buildSelfMenuMessage(profile) {
   const statusLabel = fmtPartnerStatusLabel(profile?.status);
 
   return [
-    "📋 <b>MENU PARTNER</b>",
-    "",
-    `Halo, <b>${escapeHtml(nick)}</b>.`,
-    `Status Partner: <b>${escapeHtml(statusLabel)}</b>`,
-    "",
-    "Silakan pilih menu yang ingin kamu buka.",
+    `Halo ${escapeHtml(nick)} !!!`,
+    `Status Partnership kamu saat ini <b>${escapeHtml(statusLabel)}</b>...`,
+    "Apa yang bisa TeMan bantu hari ini ?",
   ].join("\n");
 }
 
