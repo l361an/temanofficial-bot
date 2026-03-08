@@ -12,11 +12,13 @@ import { handleCallback } from "./telegram.callback.js";
 import { handleAdminCommand } from "./telegram.commands.admin.js";
 import {
   handleUserCommand,
-  buildSelfMenuMessage,
-  buildSelfMenuKeyboard,
   buildTeManMenuKeyboard,
   handleUserEditFlow,
 } from "./telegram.commands.user.js";
+import {
+  buildSelfMenuMessage,
+  buildSelfMenuKeyboard,
+} from "./telegram.flow.selfProfile.js";
 import { handleRegistrationFlow } from "./telegram.flow.js";
 import { handlePartnerModerationInput } from "./telegram.flow.partnerModeration.js";
 import { handlePartnerViewInput } from "./telegram.flow.partnerView.js";
@@ -30,7 +32,6 @@ import {
   syncProfileUsernameFromTelegram,
 } from "../repositories/profilesRepo.js";
 import {
-  buildHelpText,
   buildOfficerIdleText,
 } from "./telegram.messages.js";
 import { SESSION_MODES } from "./telegram.constants.js";
@@ -59,12 +60,6 @@ export async function handleTelegramWebhook(request, env) {
 
     if (text && text.startsWith("/")) {
       const raw = String(text || "").trim();
-      const baseCmd = raw.split(/\s+/)[0].split("@")[0];
-
-      if (baseCmd === "/help" || baseCmd === "/cmd") {
-        await sendMessage(env, chatId, buildHelpText(role), { parse_mode: "HTML" });
-        return json({ ok: true });
-      }
 
       if (isAdminRole(role)) {
         const handled = await handleAdminCommand({ env, chatId, text: raw, telegramId, role });
@@ -170,7 +165,7 @@ export async function handleTelegramWebhook(request, env) {
           return json({ ok: true });
         }
 
-        await sendMessage(env, chatId, "Klik <b>Menu TeMan</b> untuk mulai ya.", {
+        await sendMessage(env, chatId, "Klik <b>Menu TeMan</b> di bawah ya.", {
           parse_mode: "HTML",
           reply_markup: buildTeManMenuKeyboard(),
         });
