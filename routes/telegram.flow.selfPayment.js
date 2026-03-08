@@ -24,23 +24,6 @@ import {
   buildTeManMenuKeyboard,
 } from "./telegram.user.shared.js";
 
-function buildPaymentMenuKeyboard({ hasOpenTicket = false } = {}) {
-  const rows = [];
-
-  if (!hasOpenTicket) {
-    rows.push([{ text: "🧾 Upgrade Premium", callback_data: "self:payment:create" }]);
-  }
-
-  if (hasOpenTicket) {
-    rows.push([{ text: "📄 Cek Status", callback_data: "self:payment:status" }]);
-    rows.push([{ text: "📤 Upload Bukti Transfer", callback_data: "self:payment:upload_info" }]);
-  }
-
-  rows.push([{ text: "📋 Menu TeMan", callback_data: "teman:menu" }]);
-
-  return { inline_keyboard: rows };
-}
-
 function fmtTicketStatusLabel(status) {
   const raw = String(status || "").trim().toLowerCase();
   if (raw === "waiting_payment") return "Menunggu Pembayaran";
@@ -52,18 +35,72 @@ function fmtTicketStatusLabel(status) {
   return raw ? raw.replaceAll("_", " ") : "-";
 }
 
-function fmtPremiumStatusLabel(profile, subInfo) {
-  if (subInfo?.is_active && subInfo?.row) return "Aktif";
-
-  const latestSubStatus = String(subInfo?.row?.status || "").trim().toLowerCase();
-  if (latestSubStatus === "expired") return "Expired";
-  if (latestSubStatus === "cancelled") return "Cancelled";
-
+function resolvePremiumUiState(profile, subInfo) {
   const partnerStatus = String(profile?.status || "").trim().toLowerCase();
-  if (partnerStatus === "active") return "Aktif";
-  if (partnerStatus === "suspended") return "Suspended";
+  const latestSubStatus = String(subInfo?.row?.status || "").trim().toLowerCase();
 
-  return "Belum Aktif";
+  if (subInfo?.is_active && subInfo?.row) {
+    return {
+      statusKey: "active",
+      statusLabel: "Aktif",
+      primaryActionText: "🔄 Renew Premium",
+    };
+  }
+
+  if (latestSubStatus === "expired") {
+    return {
+      statusKey: "expired",
+      statusLabel: "Expired",
+      primaryActionText: "🧾 Upgrade Premium",
+    };
+  }
+
+  if (latestSubStatus === "cancelled") {
+    return {
+      statusKey: "cancelled",
+      statusLabel: "Cancelled",
+      primaryActionText: "🧾 Upgrade Premium",
+    };
+  }
+
+  if (partnerStatus === "active") {
+    return {
+      statusKey: "active",
+      statusLabel: "Aktif",
+      primaryActionText: "🔄 Renew Premium",
+    };
+  }
+
+  if (partnerStatus === "suspended") {
+    return {
+      statusKey: "suspended",
+      statusLabel: "Suspended",
+      primaryActionText: "🧾 Upgrade Premium",
+    };
+  }
+
+  return {
+    statusKey: "inactive",
+    statusLabel: "Belum Aktif",
+    primaryActionText: "🧾 Upgrade Premium",
+  };
+}
+
+function buildPaymentMenuKeyboard({ hasOpenTicket = false, primaryActionText = "🧾 Upgrade Premium" } = {}) {
+  const rows = [];
+
+  if (!hasOpenTicket) {
+    rows.push([{ text: primaryActionText, callback_data: "self:payment:create" }]);
+  }
+
+  if (hasOpenTicket) {
+    rows.push([{ text: "📄 Cek Status", callback_data: "self:payment:status" }]);
+    rows.push([{ text: "📤 Upload Bukti Transfer", callback_data: "self:payment:upload_info" }]);
+  }
+
+  rows.push([{ text: "📋 Menu TeMan", callback_data: "teman:menu" }]);
+
+  return { inline_keyboard: rows };
 }
 
 async function getLatestPaymentTicket(env, partnerId) {
@@ -127,7 +164,7 @@ async function resolveBasePriceByClass(env, classId) {
 }
 
 function buildPaymentTicketSummary(ticket) {
-  if (!ticket) return "Belum ada tiket payment.";
+  if (!ticket) return "Belum ada tiket pembayaran.";
 
   const classLabel = fmtClassId(ticket.class_id);
   const lines = [
@@ -254,12 +291,13 @@ async function sendPaymentMenu(env, chatId, telegramId, options = {}) {
     row: null,
   }));
 
+  const premiumUi = resolvePremiumUiState(profile, subInfo);
   const openTicket = await getOpenPaymentTicketByPartnerId(env, telegramId);
 
   const lines = [
     "💎 <b>PREMIUM PARTNER</b>",
     "",
-    `Status Premium: <b>${escapeHtml(fmtPremiumStatusLabel(profile, subInfo))}</b>`,
+    `Status Premium: <b>${escapeHtml(premiumUi.statusLabel)}</b>`,
     `Class Partner: <b>${escapeHtml(fmtClassId(profile.class_id || "bronze"))}</b>`,
   ];
 
@@ -268,7 +306,10 @@ async function sendPaymentMenu(env, chatId, telegramId, options = {}) {
     chatId,
     sourceMessage,
     lines.join("\n"),
-    buildPaymentMenuKeyboard({ hasOpenTicket: Boolean(openTicket) })
+    buildPaymentMenuKeyboard({
+      hasOpenTicket: Boolean(openTicket),
+      primaryActionText: premiumUi.primaryActionText,
+    })
   );
 }
 
@@ -283,6 +324,13 @@ async function createPartnerPaymentTicket(env, chatId, telegramId, options = {})
     return;
   }
 
+  const subInfo = await getSubscriptionInfoByTelegramId(env, telegramId).catch(() => ({
+    found: false,
+    is_active: false,
+    row: null,
+  }));
+  const premiumUi = resolvePremiumUiState(profile, subInfo);
+
   const partnerStatus = normalizeStatus(profile.status);
   if (partnerStatus === "pending_approval") {
     await renderPaymentScreen(
@@ -290,7 +338,10 @@ async function createPartnerPaymentTicket(env, chatId, telegramId, options = {})
       chatId,
       sourceMessage,
       "⚠️ Akun kamu masih <b>Menunggu Persetujuan</b>.\nTiket pembayaran baru bisa diajukan setelah registrasi disetujui.",
-      buildPaymentMenuKeyboard()
+      buildPaymentMenuKeyboard({
+        hasOpenTicket: false,
+        primaryActionText: premiumUi.primaryActionText,
+      })
     );
     return;
   }
@@ -302,7 +353,10 @@ async function createPartnerPaymentTicket(env, chatId, telegramId, options = {})
       chatId,
       sourceMessage,
       "⚠️ Payment manual sedang dinonaktifkan oleh Superadmin.",
-      buildPaymentMenuKeyboard()
+      buildPaymentMenuKeyboard({
+        hasOpenTicket: false,
+        primaryActionText: premiumUi.primaryActionText,
+      })
     );
     return;
   }
@@ -314,7 +368,10 @@ async function createPartnerPaymentTicket(env, chatId, telegramId, options = {})
       chatId,
       sourceMessage,
       buildOpenTicketWarningMessage(openTicket),
-      buildPaymentMenuKeyboard({ hasOpenTicket: true })
+      buildPaymentMenuKeyboard({
+        hasOpenTicket: true,
+        primaryActionText: premiumUi.primaryActionText,
+      })
     );
     return;
   }
@@ -327,7 +384,10 @@ async function createPartnerPaymentTicket(env, chatId, telegramId, options = {})
       chatId,
       sourceMessage,
       `⚠️ Harga untuk class <b>${escapeHtml(fmtClassId(classId))}</b> belum diset di settings.`,
-      buildPaymentMenuKeyboard()
+      buildPaymentMenuKeyboard({
+        hasOpenTicket: false,
+        primaryActionText: premiumUi.primaryActionText,
+      })
     );
     return;
   }
@@ -365,6 +425,7 @@ async function createPartnerPaymentTicket(env, chatId, telegramId, options = {})
     }),
     metadataJson: JSON.stringify({
       source: "partner_self_menu",
+      action_label: premiumUi.primaryActionText,
     }),
   });
 
@@ -373,12 +434,23 @@ async function createPartnerPaymentTicket(env, chatId, telegramId, options = {})
     chatId,
     sourceMessage,
     buildPaymentInstructionMessage(created),
-    buildPaymentMenuKeyboard({ hasOpenTicket: true })
+    buildPaymentMenuKeyboard({
+      hasOpenTicket: true,
+      primaryActionText: premiumUi.primaryActionText,
+    })
   );
 }
 
 async function sendPaymentTicketStatus(env, chatId, telegramId, options = {}) {
   const { sourceMessage = null } = options;
+
+  const profile = await getProfileFullByTelegramId(env, telegramId);
+  const subInfo = await getSubscriptionInfoByTelegramId(env, telegramId).catch(() => ({
+    found: false,
+    is_active: false,
+    row: null,
+  }));
+  const premiumUi = resolvePremiumUiState(profile, subInfo);
 
   const openTicket = await getOpenPaymentTicketByPartnerId(env, telegramId);
   if (openTicket) {
@@ -387,7 +459,10 @@ async function sendPaymentTicketStatus(env, chatId, telegramId, options = {}) {
       chatId,
       sourceMessage,
       buildPaymentTicketSummary(openTicket),
-      buildPaymentMenuKeyboard({ hasOpenTicket: true })
+      buildPaymentMenuKeyboard({
+        hasOpenTicket: true,
+        primaryActionText: premiumUi.primaryActionText,
+      })
     );
     return;
   }
@@ -399,7 +474,10 @@ async function sendPaymentTicketStatus(env, chatId, telegramId, options = {}) {
       chatId,
       sourceMessage,
       "Belum ada tiket pembayaran.",
-      buildPaymentMenuKeyboard()
+      buildPaymentMenuKeyboard({
+        hasOpenTicket: false,
+        primaryActionText: premiumUi.primaryActionText,
+      })
     );
     return;
   }
@@ -410,7 +488,10 @@ async function sendPaymentTicketStatus(env, chatId, telegramId, options = {}) {
       chatId,
       sourceMessage,
       buildExpiredTicketHelpMessage(latestTicket),
-      buildPaymentMenuKeyboard()
+      buildPaymentMenuKeyboard({
+        hasOpenTicket: false,
+        primaryActionText: premiumUi.primaryActionText,
+      })
     );
     return;
   }
@@ -420,7 +501,10 @@ async function sendPaymentTicketStatus(env, chatId, telegramId, options = {}) {
     chatId,
     sourceMessage,
     buildPaymentTicketSummary(latestTicket),
-    buildPaymentMenuKeyboard()
+    buildPaymentMenuKeyboard({
+      hasOpenTicket: false,
+      primaryActionText: premiumUi.primaryActionText,
+    })
   );
 }
 
@@ -471,13 +555,23 @@ export async function handleSelfPaymentInlineCallback(update, env) {
     const p = await ensureRegistered();
     if (!p) return true;
 
+    const subInfo = await getSubscriptionInfoByTelegramId(env, telegramId).catch(() => ({
+      found: false,
+      is_active: false,
+      row: null,
+    }));
+    const premiumUi = resolvePremiumUiState(p, subInfo);
     const openTicket = await getOpenPaymentTicketByPartnerId(env, telegramId);
+
     await renderPaymentScreen(
       env,
       chatId,
       msg,
       buildPaymentUploadInfoMessage(openTicket),
-      buildPaymentMenuKeyboard({ hasOpenTicket: Boolean(openTicket) })
+      buildPaymentMenuKeyboard({
+        hasOpenTicket: Boolean(openTicket),
+        primaryActionText: premiumUi.primaryActionText,
+      })
     );
     return true;
   }
