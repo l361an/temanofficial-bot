@@ -29,7 +29,11 @@ export function resolvePremiumAccessLabel(profile, subInfo) {
   return hasPremiumAccess(profile, subInfo) ? "Aktif" : "Non-aktif";
 }
 
-export function resolvePrimaryActionText() {
+export function resolvePrimaryActionText(profile, subInfo) {
+  if (subInfo?.found) {
+    return "🔄 Renew Premium";
+  }
+
   return "💳 Aktivasi Premium";
 }
 
