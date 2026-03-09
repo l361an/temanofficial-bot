@@ -1,6 +1,6 @@
 // routes/callbacks/superadmin.finance.js
 
-import { sendMessage, editMessageReplyMarkup } from "../../services/telegramApi.js";
+import { sendMessage, upsertCallbackMessage } from "../../services/telegramApi.js";
 import { getSetting, upsertSetting } from "../../repositories/settingsRepo.js";
 import { saveSession, clearSession } from "../../utils/session.js";
 
@@ -120,33 +120,38 @@ function buildFinancePromptText(classId, durationCode) {
   ].join("\n");
 }
 
+async function renderMenuMessage(ctx, text, extra) {
+  const { env, adminId, msg } = ctx;
+
+  if (msg) {
+    await upsertCallbackMessage(env, msg, text, extra).catch(async () => {
+      await sendMessage(env, adminId, text, extra);
+    });
+    return true;
+  }
+
+  await sendMessage(env, adminId, text, extra);
+  return true;
+}
+
 export function buildSuperadminFinanceHandlers() {
   const EXACT = {};
 
   EXACT[CALLBACKS.SUPERADMIN_FINANCE_MENU] = async (ctx) => {
-    const { env, adminId, msgChatId, msgId } = ctx;
+    const { env, adminId } = ctx;
 
     await clearSession(env, `state:${adminId}`).catch(() => {});
-    if (msgChatId && msgId) {
-      await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
-    }
 
     const state = await getFinanceState(env);
 
-    await sendMessage(env, adminId, buildFinanceText(state), {
+    return renderMenuMessage(ctx, buildFinanceText(state), {
       parse_mode: "HTML",
       reply_markup: buildFinanceKeyboard(state.manualOn),
     });
-
-    return true;
   };
 
   EXACT[CALLBACKS.SUPERADMIN_FINANCE_MANUAL_TOGGLE] = async (ctx) => {
-    const { env, adminId, msgChatId, msgId } = ctx;
-
-    if (msgChatId && msgId) {
-      await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
-    }
+    const { env } = ctx;
 
     const raw = (await getSetting(env, "payment_manual_enabled")) ?? "1";
     const manualOn = String(raw) !== "0";
@@ -154,79 +159,53 @@ export function buildSuperadminFinanceHandlers() {
 
     const state = await getFinanceState(env);
 
-    await sendMessage(env, adminId, `✅ Set Manual sekarang: ${state.manualOn ? "ON" : "OFF"}`, {
+    return renderMenuMessage(ctx, `✅ Set Manual sekarang: ${state.manualOn ? "ON" : "OFF"}`, {
       reply_markup: buildFinanceKeyboard(state.manualOn),
     });
-
-    return true;
   };
 
   EXACT[CALLBACKS.SUPERADMIN_FINANCE_PRICING_MENU] = async (ctx) => {
-    const { env, adminId, msgChatId, msgId } = ctx;
-
-    if (msgChatId && msgId) {
-      await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
-    }
+    const { env } = ctx;
 
     const state = await getFinanceState(env);
 
-    await sendMessage(env, adminId, buildFinancePricingText(state), {
+    return renderMenuMessage(ctx, buildFinancePricingText(state), {
       parse_mode: "HTML",
       reply_markup: buildFinancePricingKeyboard(),
     });
-
-    return true;
   };
 
   EXACT[CALLBACKS.SUPERADMIN_FINANCE_PRICING_BRONZE_MENU] = async (ctx) => {
-    const { env, adminId, msgChatId, msgId } = ctx;
-
-    if (msgChatId && msgId) {
-      await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
-    }
+    const { env } = ctx;
 
     const state = await getFinanceState(env);
 
-    await sendMessage(env, adminId, buildFinanceClassText(state, "bronze"), {
+    return renderMenuMessage(ctx, buildFinanceClassText(state, "bronze"), {
       parse_mode: "HTML",
       reply_markup: buildFinanceClassPricingKeyboard("bronze"),
     });
-
-    return true;
   };
 
   EXACT[CALLBACKS.SUPERADMIN_FINANCE_PRICING_GOLD_MENU] = async (ctx) => {
-    const { env, adminId, msgChatId, msgId } = ctx;
-
-    if (msgChatId && msgId) {
-      await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
-    }
+    const { env } = ctx;
 
     const state = await getFinanceState(env);
 
-    await sendMessage(env, adminId, buildFinanceClassText(state, "gold"), {
+    return renderMenuMessage(ctx, buildFinanceClassText(state, "gold"), {
       parse_mode: "HTML",
       reply_markup: buildFinanceClassPricingKeyboard("gold"),
     });
-
-    return true;
   };
 
   EXACT[CALLBACKS.SUPERADMIN_FINANCE_PRICING_PLATINUM_MENU] = async (ctx) => {
-    const { env, adminId, msgChatId, msgId } = ctx;
-
-    if (msgChatId && msgId) {
-      await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
-    }
+    const { env } = ctx;
 
     const state = await getFinanceState(env);
 
-    await sendMessage(env, adminId, buildFinanceClassText(state, "platinum"), {
+    return renderMenuMessage(ctx, buildFinanceClassText(state, "platinum"), {
       parse_mode: "HTML",
       reply_markup: buildFinanceClassPricingKeyboard("platinum"),
     });
-
-    return true;
   };
 
   const financePriceActions = [
@@ -248,7 +227,7 @@ export function buildSuperadminFinanceHandlers() {
 
   for (const [callbackKey, classId, durationCode] of financePriceActions) {
     EXACT[callbackKey] = async (ctx) => {
-      const { env, adminId, msgChatId, msgId } = ctx;
+      const { env, adminId } = ctx;
 
       await saveSession(env, `state:${adminId}`, {
         mode: SESSION_MODES.SA_FINANCE,
@@ -257,10 +236,6 @@ export function buildSuperadminFinanceHandlers() {
         duration_code: durationCode,
         step: "await_text",
       });
-
-      if (msgChatId && msgId) {
-        await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
-      }
 
       await sendMessage(env, adminId, buildFinancePromptText(classId, durationCode), {
         parse_mode: "HTML",
