@@ -113,7 +113,7 @@ function buildFinancePromptText(classId, durationCode) {
   return [
     `💰 <b>Set Harga ${escapeHtml(formatClassLabel(classId))} - ${escapeHtml(formatDurationLabel(durationCode))}</b>`,
     "",
-    `Kirim nominal harga untuk ${escapeHtml(formatDurationLabel(durationCode))}.`,
+    "Ketik Harga Baru.",
     "Contoh: <code>150000</code>",
     "",
     "Ketik <b>batal</b> untuk keluar.",
