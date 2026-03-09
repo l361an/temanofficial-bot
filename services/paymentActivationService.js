@@ -140,9 +140,7 @@ function buildPartnerPaymentConfirmedMessage(subscription) {
 
 function buildPartnerPaymentConfirmedKeyboard() {
   return {
-    inline_keyboard: [
-      [{ text: "📋 Menu TeMan", callback_data: "teman:menu" }],
-    ],
+    inline_keyboard: [[{ text: "📋 Menu TeMan", callback_data: "teman:menu" }]],
   };
 }
 
@@ -181,6 +179,14 @@ function resolveCoverageWindow(activeSubscriptions, fallbackNowSql) {
   };
 }
 
+function resolvePartnerClassId(profile) {
+  const raw = String(profile?.class_id || "").trim().toLowerCase();
+  if (raw === "bronze" || raw === "gold" || raw === "platinum") {
+    return raw;
+  }
+  return "bronze";
+}
+
 export async function confirmPaymentAndActivateSubscription(env, ticketId, actorId, adminNote = null) {
   const ticket = await getPaymentTicketById(env, ticketId);
   if (!ticket) return { ok: false, reason: "ticket_not_found" };
@@ -198,12 +204,19 @@ export async function confirmPaymentAndActivateSubscription(env, ticketId, actor
   const nowSql = toSqlDateTime(new Date());
   const durationCode = getDurationCode(ticket);
   const durationMonths = durationCode === "1m" ? 1 : 0;
-  const classId = String(ticket.class_id || profile.class_id || "bronze").toLowerCase();
+
+  // Source of truth: class partner hanya mengikuti profile / hasil set superadmin.
+  // Payment ticket tidak boleh mengubah class partner.
+  const classId = resolvePartnerClassId(profile);
 
   const activeSubscriptions = await listActiveSubscriptionsByTelegramId(env, partnerId).catch(() => []);
   const coverage = resolveCoverageWindow(activeSubscriptions, nowSql);
 
-  const startedAt = coverage.startAt;
+  // Rule final TeMan:
+  // - jika masih ada premium aktif, renewal extend dari current_end_at
+  // - jika tidak ada premium aktif, mulai dari sekarang
+  // - start_at record baru mempertahankan coverage awal yang masih aktif agar periode tampil utuh
+  const startedAt = coverage.hasActiveCoverage ? coverage.startAt : nowSql;
   const endedAt = resolveEndedAt(coverage.anchorEndAt, durationCode);
 
   await confirmPaymentTicket(env, ticketId, actorId, adminNote);
@@ -226,15 +239,18 @@ export async function confirmPaymentAndActivateSubscription(env, ticketId, actor
       notes: adminNote,
       metadataJson: JSON.stringify({
         duration_code: durationCode,
-        activation_mode: coverage.hasActiveCoverage ? "renew_or_upgrade_merge" : "fresh_activation",
+        activation_mode: coverage.hasActiveCoverage ? "renewal_extension" : "fresh_activation",
         merged_from_subscription_ids: coverage.mergedFromIds,
         previous_coverage_end_at: coverage.hasActiveCoverage ? coverage.anchorEndAt : null,
+        class_source: "profile",
+        ticket_class_id: ticket?.class_id ? String(ticket.class_id).toLowerCase() : null,
+        applied_class_id: classId,
       }),
     },
     {
       cancelledBy: actorId,
       cancelReason: coverage.hasActiveCoverage
-        ? "replaced_by_payment_activation"
+        ? "replaced_by_renewal_extension"
         : "replaced_by_fresh_payment_activation",
     }
   );
