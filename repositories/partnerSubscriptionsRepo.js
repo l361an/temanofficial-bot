@@ -1,5 +1,24 @@
 // repositories/partnerSubscriptionsRepo.js
 
+export async function listActiveSubscriptionsByTelegramId(env, telegramId) {
+  const { results } = await env.DB.prepare(
+    `
+    SELECT *
+    FROM partner_subscriptions
+    WHERE partner_id = ?
+      AND status = 'active'
+      AND start_at IS NOT NULL
+      AND end_at IS NOT NULL
+      AND datetime(end_at) > datetime('now')
+    ORDER BY datetime(start_at) ASC, datetime(end_at) DESC, datetime(created_at) DESC
+  `
+  )
+    .bind(String(telegramId))
+    .all();
+
+  return Array.isArray(results) ? results : [];
+}
+
 export async function getActiveSubscriptionByTelegramId(env, telegramId) {
   const row = await env.DB.prepare(
     `
@@ -11,7 +30,7 @@ export async function getActiveSubscriptionByTelegramId(env, telegramId) {
       AND end_at IS NOT NULL
       AND datetime(start_at) <= datetime('now')
       AND datetime(end_at) > datetime('now')
-    ORDER BY datetime(end_at) DESC, datetime(created_at) DESC
+    ORDER BY datetime(end_at) DESC, datetime(start_at) ASC, datetime(created_at) DESC
     LIMIT 1
   `
   )
@@ -27,11 +46,26 @@ export async function getLatestSubscriptionByTelegramId(env, telegramId) {
     SELECT *
     FROM partner_subscriptions
     WHERE partner_id = ?
-    ORDER BY datetime(created_at) DESC, datetime(updated_at) DESC
+    ORDER BY datetime(created_at) DESC, datetime(updated_at) DESC, id DESC
     LIMIT 1
   `
   )
     .bind(String(telegramId))
+    .first();
+
+  return row ?? null;
+}
+
+export async function getSubscriptionById(env, id) {
+  const row = await env.DB.prepare(
+    `
+    SELECT *
+    FROM partner_subscriptions
+    WHERE id = ?
+    LIMIT 1
+  `
+  )
+    .bind(String(id))
     .first();
 
   return row ?? null;
@@ -43,7 +77,7 @@ export async function createPartnerSubscription(env, payload) {
     partnerId,
     paymentTicketId = null,
     classId,
-    durationMonths,
+    durationMonths = 0,
     status = "active",
     startAt,
     endAt,
@@ -57,6 +91,12 @@ export async function createPartnerSubscription(env, payload) {
     notes = null,
     metadataJson = null,
   } = payload || {};
+
+  const normalizedDurationMonths = Number(durationMonths);
+  const safeDurationMonths =
+    Number.isFinite(normalizedDurationMonths) && normalizedDurationMonths >= 0
+      ? normalizedDurationMonths
+      : 0;
 
   await env.DB.prepare(
     `
@@ -89,7 +129,7 @@ export async function createPartnerSubscription(env, payload) {
       String(partnerId),
       paymentTicketId == null ? null : Number(paymentTicketId),
       String(classId || "bronze").toLowerCase(),
-      Number(durationMonths || 1),
+      safeDurationMonths,
       String(status),
       String(startAt),
       String(endAt),
@@ -105,7 +145,71 @@ export async function createPartnerSubscription(env, payload) {
     )
     .run();
 
-  return { ok: true };
+  return getSubscriptionById(env, id);
+}
+
+export async function cancelActiveSubscriptionsByTelegramId(
+  env,
+  telegramId,
+  {
+    cancelledBy = null,
+    cancelReason = "replaced_by_payment_activation",
+  } = {}
+) {
+  const activeRows = await listActiveSubscriptionsByTelegramId(env, telegramId);
+  if (!activeRows.length) {
+    return {
+      ok: true,
+      count: 0,
+      rows: [],
+    };
+  }
+
+  await env.DB.prepare(
+    `
+    UPDATE partner_subscriptions
+    SET status = 'cancelled',
+        cancelled_at = COALESCE(cancelled_at, datetime('now')),
+        cancelled_by = COALESCE(?, cancelled_by),
+        cancel_reason = COALESCE(?, cancel_reason),
+        updated_at = datetime('now')
+    WHERE partner_id = ?
+      AND status = 'active'
+      AND start_at IS NOT NULL
+      AND end_at IS NOT NULL
+      AND datetime(end_at) > datetime('now')
+  `
+  )
+    .bind(
+      cancelledBy == null ? null : String(cancelledBy),
+      cancelReason == null ? null : String(cancelReason),
+      String(telegramId)
+    )
+    .run();
+
+  return {
+    ok: true,
+    count: activeRows.length,
+    rows: activeRows,
+  };
+}
+
+export async function replaceActiveSubscriptionByTelegramId(
+  env,
+  telegramId,
+  payload,
+  {
+    cancelledBy = null,
+    cancelReason = "replaced_by_payment_activation",
+  } = {}
+) {
+  await cancelActiveSubscriptionsByTelegramId(env, telegramId, {
+    cancelledBy,
+    cancelReason,
+  });
+
+  const created = await createPartnerSubscription(env, payload);
+  return created;
 }
 
 export async function expireDueSubscriptions(env) {
