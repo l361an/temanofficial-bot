@@ -19,15 +19,10 @@ export function buildSuperadminConfigHandlers() {
   const EXACT = {};
   const PREFIX = [];
 
-  // =========================
-  // SUPERADMIN TOOLS
-  // =========================
-
   EXACT[CALLBACKS.SUPERADMIN_TOOLS_MENU] = async (ctx) => {
     const { env, adminId, msgChatId, msgId } = ctx;
 
     await clearSession(env, `state:${adminId}`).catch(() => {});
-
     if (msgChatId && msgId) {
       await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
     }
@@ -40,15 +35,10 @@ export function buildSuperadminConfigHandlers() {
     return true;
   };
 
-  // =========================
-  // SETTINGS MENU
-  // =========================
-
   EXACT[CALLBACKS.SUPERADMIN_SETTINGS_MENU] = async (ctx) => {
     const { env, adminId, msgChatId, msgId } = ctx;
 
     await clearSession(env, `state:${adminId}`).catch(() => {});
-
     if (msgChatId && msgId) {
       await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
     }
@@ -61,15 +51,10 @@ export function buildSuperadminConfigHandlers() {
     return true;
   };
 
-  // =========================
-  // CONFIG MENU
-  // =========================
-
   EXACT[CALLBACKS.SUPERADMIN_CONFIG_MENU] = async (ctx) => {
     const { env, adminId, msgChatId, msgId } = ctx;
 
     await clearSession(env, `state:${adminId}`).catch(() => {});
-
     if (msgChatId && msgId) {
       await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
     }
@@ -82,15 +67,10 @@ export function buildSuperadminConfigHandlers() {
     return true;
   };
 
-  // =========================
-  // WELCOME CONFIG
-  // =========================
-
   EXACT[CALLBACKS.SUPERADMIN_CONFIG_WELCOME] = async (ctx) => {
     const { env, adminId, msgChatId, msgId } = ctx;
 
     await clearSession(env, `state:${adminId}`).catch(() => {});
-
     if (msgChatId && msgId) {
       await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
     }
@@ -100,9 +80,7 @@ export function buildSuperadminConfigHandlers() {
     await sendMessage(
       env,
       adminId,
-      "👋 <b>Welcome Message</b>\n\n<b>Current:</b>\n<pre>" +
-        escapeHtml(current) +
-        "</pre>",
+      "👋 <b>Welcome Message</b>\n\n<b>Current:</b>\n<pre>" + escapeHtml(current) + "</pre>",
       {
         parse_mode: "HTML",
         reply_markup: buildConfigWelcomeKeyboard(),
@@ -132,9 +110,7 @@ export function buildSuperadminConfigHandlers() {
       {
         parse_mode: "HTML",
         reply_markup: {
-          inline_keyboard: [
-            [{ text: "⬅️ Back", callback_data: CALLBACKS.SUPERADMIN_CONFIG_WELCOME }],
-          ],
+          inline_keyboard: [[{ text: "⬅️ Back", callback_data: CALLBACKS.SUPERADMIN_CONFIG_WELCOME }]],
         },
       }
     );
@@ -142,15 +118,10 @@ export function buildSuperadminConfigHandlers() {
     return true;
   };
 
-  // =========================
-  // LINK ATURAN CONFIG
-  // =========================
-
   EXACT[CALLBACKS.SUPERADMIN_CONFIG_ATURAN] = async (ctx) => {
     const { env, adminId, msgChatId, msgId } = ctx;
 
     await clearSession(env, `state:${adminId}`).catch(() => {});
-
     if (msgChatId && msgId) {
       await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
     }
@@ -160,9 +131,7 @@ export function buildSuperadminConfigHandlers() {
     await sendMessage(
       env,
       adminId,
-      "🔗 <b>Link Aturan</b>\n\n<b>Current:</b>\n<pre>" +
-        escapeHtml(current) +
-        "</pre>",
+      "🔗 <b>Link Aturan</b>\n\n<b>Current:</b>\n<pre>" + escapeHtml(current) + "</pre>",
       {
         parse_mode: "HTML",
         disable_web_page_preview: true,
@@ -193,19 +162,13 @@ export function buildSuperadminConfigHandlers() {
       {
         parse_mode: "HTML",
         reply_markup: {
-          inline_keyboard: [
-            [{ text: "⬅️ Back", callback_data: CALLBACKS.SUPERADMIN_CONFIG_ATURAN }],
-          ],
+          inline_keyboard: [[{ text: "⬅️ Back", callback_data: CALLBACKS.SUPERADMIN_CONFIG_ATURAN }]],
         },
       }
     );
 
     return true;
   };
-
-  // =========================
-  // CONFIRM PREFIX HANDLERS
-  // =========================
 
   PREFIX.push({
     match: (d) =>
@@ -216,7 +179,6 @@ export function buildSuperadminConfigHandlers() {
 
     run: async (ctx) => {
       const { env, data, adminId } = ctx;
-
       const [action] = data.split(":");
 
       if (action === "setwelcome_confirm" || action === "setwelcome_cancel") {
@@ -224,21 +186,26 @@ export function buildSuperadminConfigHandlers() {
         const draftText = await getSetting(env, draftKey);
 
         if (!draftText) {
-          await sendMessage(env, adminId, "⚠️ Draft welcome tidak ditemukan.");
+          await sendMessage(env, adminId, "⚠️ Draft welcome tidak ditemukan / sudah dibatalkan.");
           return true;
         }
 
         if (action === "setwelcome_cancel") {
           await deleteSetting(env, draftKey);
-          await sendMessage(env, adminId, "❌ Draft welcome dibatalkan.");
+          await sendMessage(env, adminId, "❌ Draft welcome dibatalkan.", {
+            reply_markup: buildSuperadminToolsKeyboard(),
+          });
           return true;
         }
 
         await upsertSetting(env, "welcome_partner", draftText);
         await deleteSetting(env, draftKey);
 
-        await sendMessage(env, adminId, "✅ Welcome message berhasil diupdate.");
-
+        await sendMessage(env, adminId, "✅ Welcome message berhasil diupdate.\n\n*Welcome baru:*\n" + draftText, {
+          parse_mode: "Markdown",
+          disable_web_page_preview: true,
+          reply_markup: buildSuperadminToolsKeyboard(),
+        });
         return true;
       }
 
@@ -247,21 +214,25 @@ export function buildSuperadminConfigHandlers() {
         const draftUrl = await getSetting(env, draftKey);
 
         if (!draftUrl) {
-          await sendMessage(env, adminId, "⚠️ Draft link aturan tidak ditemukan.");
+          await sendMessage(env, adminId, "⚠️ Draft link aturan tidak ditemukan / sudah dibatalkan.");
           return true;
         }
 
         if (action === "setlink_cancel") {
           await deleteSetting(env, draftKey);
-          await sendMessage(env, adminId, "❌ Draft link aturan dibatalkan.");
+          await sendMessage(env, adminId, "❌ Draft link aturan dibatalkan.", {
+            reply_markup: buildSuperadminToolsKeyboard(),
+          });
           return true;
         }
 
         await upsertSetting(env, "link_aturan", draftUrl);
         await deleteSetting(env, draftKey);
 
-        await sendMessage(env, adminId, "✅ Link aturan berhasil diupdate.");
-
+        await sendMessage(env, adminId, `✅ Link aturan berhasil diupdate:\n${draftUrl}`, {
+          disable_web_page_preview: true,
+          reply_markup: buildSuperadminToolsKeyboard(),
+        });
         return true;
       }
 
