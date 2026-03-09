@@ -54,7 +54,11 @@ export async function handlePartnerViewInput({ env, chatId, text, STATE_KEY, rol
   if (profile.verificator_admin_id) {
     const vid = String(profile.verificator_admin_id);
     const vRow = await getAdminByTelegramId(env, vid).catch(() => null);
-    const vUser = vRow?.username ? cleanHandle(vRow.username) : vRow?.label ? String(vRow.label) : "-";
+    const vUser = vRow?.username
+      ? cleanHandle(vRow.username)
+      : vRow?.label
+      ? String(vRow.label)
+      : "-";
     verificatorDisplay = `${vid} - ${vUser || "-"}`;
   }
 
@@ -82,14 +86,40 @@ export async function handlePartnerViewInput({ env, chatId, text, STATE_KEY, rol
     "\n" +
     fmtKV("Verificator", verificatorDisplay);
 
-  await sendLongMessage(env, chatId, textSummary, { parse_mode: "HTML", disable_web_page_preview: true });
+  let summarySent = false;
+
+  try {
+    await sendLongMessage(env, chatId, textSummary, {
+      parse_mode: "HTML",
+      disable_web_page_preview: true,
+    });
+    summarySent = true;
+  } catch (err) {
+    console.error("VIEW PARTNER summary error:", err);
+
+    // fallback tanpa HTML
+    try {
+      await sendMessage(env, chatId, textSummary.replace(/<[^>]+>/g, ""));
+      summarySent = true;
+    } catch (e) {
+      console.error("VIEW PARTNER fallback error:", e);
+    }
+  }
+
+  if (!summarySent) {
+    await sendMessage(env, chatId, "⚠️ Gagal menampilkan data partner.");
+    await clearSession(env, STATE_KEY);
+    return true;
+  }
 
   for (const [fileId, cap] of [
     [profile.foto_closeup_file_id, "📸 <b>Foto Closeup</b>"],
     [profile.foto_fullbody_file_id, "📸 <b>Foto Fullbody</b>"],
     [profile.foto_ktp_file_id, "🪪 <b>Foto KTP</b>"],
   ]) {
-    if (fileId) await sendPhoto(env, chatId, fileId, cap, { parse_mode: "HTML" });
+    if (fileId) {
+      await sendPhoto(env, chatId, fileId, cap, { parse_mode: "HTML" });
+    }
   }
 
   await clearSession(env, STATE_KEY);
@@ -105,5 +135,6 @@ export async function handlePartnerViewInput({ env, chatId, text, STATE_KEY, rol
   await sendMessage(env, chatId, "✅ Selesai.", {
     reply_markup: buildBackToPartnerDatabaseViewKeyboard(),
   });
+
   return true;
 }
