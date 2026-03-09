@@ -1,5 +1,14 @@
 // repositories/partnerSubscriptionsRepo.js
 
+function normalizeReminderColumn(reminderKey) {
+  const raw = String(reminderKey || "").trim().toLowerCase();
+  if (raw === "h3d") return "reminder_h3d_sent_at";
+  if (raw === "h2d") return "reminder_h2d_sent_at";
+  if (raw === "h1d") return "reminder_h1d_sent_at";
+  if (raw === "h3h") return "reminder_h3h_sent_at";
+  throw new Error("invalid_reminder_key");
+}
+
 export async function listActiveSubscriptionsByTelegramId(env, telegramId) {
   const { results } = await env.DB.prepare(
     `
@@ -90,6 +99,10 @@ export async function createPartnerSubscription(env, payload) {
     sourceRefId = null,
     notes = null,
     metadataJson = null,
+    reminderH3dSentAt = null,
+    reminderH2dSentAt = null,
+    reminderH1dSentAt = null,
+    reminderH3hSentAt = null,
   } = payload || {};
 
   const normalizedDurationMonths = Number(durationMonths);
@@ -114,6 +127,10 @@ export async function createPartnerSubscription(env, payload) {
       cancelled_at,
       cancelled_by,
       cancel_reason,
+      reminder_h3d_sent_at,
+      reminder_h2d_sent_at,
+      reminder_h1d_sent_at,
+      reminder_h3h_sent_at,
       source_type,
       source_ref_id,
       notes,
@@ -121,7 +138,7 @@ export async function createPartnerSubscription(env, payload) {
       created_at,
       updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
   `
   )
     .bind(
@@ -138,6 +155,10 @@ export async function createPartnerSubscription(env, payload) {
       cancelledAt == null ? null : String(cancelledAt),
       cancelledBy == null ? null : String(cancelledBy),
       cancelReason == null ? null : String(cancelReason),
+      reminderH3dSentAt == null ? null : String(reminderH3dSentAt),
+      reminderH2dSentAt == null ? null : String(reminderH2dSentAt),
+      reminderH1dSentAt == null ? null : String(reminderH1dSentAt),
+      reminderH3hSentAt == null ? null : String(reminderH3hSentAt),
       String(sourceType || "payment_ticket"),
       sourceRefId == null ? null : String(sourceRefId),
       notes == null ? null : String(notes),
@@ -265,4 +286,92 @@ export async function getSubscriptionInfoByTelegramId(env, telegramId) {
     is_active: false,
     row: latest,
   };
+}
+
+export async function listSubscriptionsDueForReminder(
+  env,
+  reminderKey,
+  {
+    limit = 200,
+  } = {}
+) {
+  const reminderColumn = normalizeReminderColumn(reminderKey);
+  const safeLimit = Number.isFinite(Number(limit)) && Number(limit) > 0
+    ? Math.min(Number(limit), 1000)
+    : 200;
+
+  let lowerExpr = "";
+  let upperExpr = "";
+
+  if (reminderKey === "h3d") {
+    lowerExpr = "datetime('now', '+3 days')";
+    upperExpr = "datetime('now', '+3 days', '+1 hour')";
+  } else if (reminderKey === "h2d") {
+    lowerExpr = "datetime('now', '+2 days')";
+    upperExpr = "datetime('now', '+2 days', '+1 hour')";
+  } else if (reminderKey === "h1d") {
+    lowerExpr = "datetime('now', '+1 days')";
+    upperExpr = "datetime('now', '+1 days', '+1 hour')";
+  } else if (reminderKey === "h3h") {
+    lowerExpr = "datetime('now', '+3 hours')";
+    upperExpr = "datetime('now', '+4 hours')";
+  } else {
+    throw new Error("invalid_reminder_key");
+  }
+
+  const sql = `
+    SELECT *
+    FROM partner_subscriptions
+    WHERE status = 'active'
+      AND end_at IS NOT NULL
+      AND datetime(end_at) > datetime('now')
+      AND datetime(end_at) >= ${lowerExpr}
+      AND datetime(end_at) < ${upperExpr}
+      AND ${reminderColumn} IS NULL
+    ORDER BY datetime(end_at) ASC, datetime(created_at) ASC
+    LIMIT ${safeLimit}
+  `;
+
+  const { results } = await env.DB.prepare(sql).all();
+  return Array.isArray(results) ? results : [];
+}
+
+export async function markSubscriptionReminderSent(
+  env,
+  subscriptionId,
+  reminderKey,
+  sentAt = null
+) {
+  const reminderColumn = normalizeReminderColumn(reminderKey);
+  const sql = `
+    UPDATE partner_subscriptions
+    SET ${reminderColumn} = COALESCE(${reminderColumn}, ?),
+        updated_at = datetime('now')
+    WHERE id = ?
+  `;
+
+  await env.DB.prepare(sql)
+    .bind(
+      sentAt == null ? new Date().toISOString().slice(0, 19).replace("T", " ") : String(sentAt),
+      String(subscriptionId)
+    )
+    .run();
+
+  return { ok: true };
+}
+
+export async function resetSubscriptionReminderMarker(env, subscriptionId, reminderKey) {
+  const reminderColumn = normalizeReminderColumn(reminderKey);
+  const sql = `
+    UPDATE partner_subscriptions
+    SET ${reminderColumn} = NULL,
+        updated_at = datetime('now')
+    WHERE id = ?
+  `;
+
+  await env.DB.prepare(sql)
+    .bind(String(subscriptionId))
+    .run();
+
+  return { ok: true };
 }
