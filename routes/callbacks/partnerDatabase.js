@@ -160,12 +160,20 @@ export function buildPartnerDatabaseHandlers() {
         showStatus: config.showStatus,
       });
 
-      await sendMessage(env, adminId, text, {
+      const extra = {
         parse_mode: "HTML",
         disable_web_page_preview: true,
         reply_markup: buildBackToPartnerDatabaseKeyboard(),
-      });
+      };
 
+      if (msg) {
+        await upsertCallbackMessage(env, msg, text, extra).catch(async () => {
+          await sendMessage(env, adminId, text, extra);
+        });
+        return true;
+      }
+
+      await sendMessage(env, adminId, text, extra);
       return true;
     },
   });
