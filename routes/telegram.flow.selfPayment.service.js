@@ -29,8 +29,8 @@ export function resolvePremiumAccessLabel(profile, subInfo) {
   return hasPremiumAccess(profile, subInfo) ? "Aktif" : "Non-aktif";
 }
 
-export function resolvePrimaryActionText(profile, subInfo) {
-  return hasPremiumAccess(profile, subInfo) ? "🔄 Renew Premium" : "🧾 Upgrade Premium";
+export function resolvePrimaryActionText() {
+  return "💳 Aktivasi Premium";
 }
 
 export function resolveDurationMeta(durationCode) {
