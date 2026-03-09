@@ -135,7 +135,7 @@ export async function markRegistrationApproved(env, telegramId, actorId) {
   };
 }
 
-export async function markPaymentConfirmedAndActivate(env, telegramId, actorId, adminNote = null) {
+export async function markPaymentConfirmed(env, telegramId, actorId, adminNote = null) {
   await clearManualSuspendProfile(env, telegramId);
 
   await setProfileStatusAuditFields(env, telegramId, {
