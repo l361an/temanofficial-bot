@@ -6,7 +6,7 @@ import {
   listActiveSubscriptionsByTelegramId,
   replaceActiveSubscriptionByTelegramId,
 } from "../repositories/partnerSubscriptionsRepo.js";
-import { markPaymentConfirmedAndActivate } from "./partnerStatusService.js";
+import { markPaymentConfirmed } from "./partnerStatusService.js";
 
 function addMonthsSqlDate(baseDate, monthsToAdd) {
   const d = new Date(baseDate);
@@ -239,7 +239,7 @@ export async function confirmPaymentAndActivateSubscription(env, ticketId, actor
     }
   );
 
-  const statusRes = await markPaymentConfirmedAndActivate(env, partnerId, actorId, adminNote);
+  const statusRes = await markPaymentConfirmed(env, partnerId, actorId, adminNote);
 
   const subscription = createdSubscription || {
     start_at: startedAt,
