@@ -19,7 +19,7 @@ export const CALLBACKS = {
   PARTNER_DATABASE_VIEW: "pm:view",
 
   PARTNER_MODERATION_MENU: "mod:menu",
-  PARTNER_MOD_ACTIVATE: "mod:activate",
+  PARTNER_MOD_RESTORE: "mod:restore",
   PARTNER_MOD_SUSPEND: "mod:suspend",
   PARTNER_MOD_DELETE: "mod:delete",
 
@@ -91,7 +91,7 @@ export const CALLBACK_PREFIX = {
 
 export const OBSOLETE_ADMIN_COMMANDS = new Set([
   "/list",
-  "/activate",
+  "/restore",
   "/suspend",
   "/delpartner",
   "/viewpartner",
