@@ -170,9 +170,7 @@ export function buildSuperadminToolsKeyboard() {
         { text: "🧩 Config", callback_data: CALLBACKS.SUPERADMIN_CONFIG_MENU },
         { text: "⚙️ Settings", callback_data: CALLBACKS.SUPERADMIN_SETTINGS_MENU },
       ],
-      [
-        { text: "🏠 Officer Home", callback_data: CALLBACKS.OFFICER_HOME },
-      ],
+      [{ text: "🏠 Officer Home", callback_data: CALLBACKS.OFFICER_HOME }],
     ],
   };
 }
