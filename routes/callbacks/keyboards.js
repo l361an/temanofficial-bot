@@ -36,15 +36,21 @@ export function buildPartnerToolsKeyboard() {
 export function buildPartnerDatabaseKeyboard() {
   return {
     inline_keyboard: [
-      [{ text: "🔎 View Partner", callback_data: CALLBACKS.PARTNER_DATABASE_VIEW }],
-      [{ text: "👥 Partner", callback_data: cb.pmList("all") }],
-      [{ text: "🕒 Partner Pending", callback_data: cb.pmList("pending_approval") }],
-      [{ text: "✅ Partner Approved", callback_data: cb.pmList("approved") }],
-      [{ text: "⛔ Partner Suspended", callback_data: cb.pmList("suspended") }],
+      [
+        { text: "🔎 View Partner", callback_data: CALLBACKS.PARTNER_DATABASE_VIEW }
+      ],
+      [
+        { text: "👥 Partner", callback_data: cb.pmList("all") },
+        { text: "🕒 Partner Pending", callback_data: cb.pmList("pending_approval") }
+      ],
+      [
+        { text: "✅ Partner Approved", callback_data: cb.pmList("approved") },
+        { text: "⛔ Partner Suspended", callback_data: cb.pmList("suspended") }
+      ],
       [
         { text: "⬅️ Kembali", callback_data: CALLBACKS.PARTNER_TOOLS_MENU },
-        { text: "🏠 Officer Home", callback_data: CALLBACKS.OFFICER_HOME },
-      ],
+        { text: "🏠 Officer Home", callback_data: CALLBACKS.OFFICER_HOME }
+      ]
     ],
   };
 }
