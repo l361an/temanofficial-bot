@@ -1,5 +1,5 @@
 // routes/callbacks/partnerTools.js
-import { sendMessage, editMessageReplyMarkup } from "../../services/telegramApi.js";
+import { sendMessage, upsertCallbackMessage } from "../../services/telegramApi.js";
 import { clearSession } from "../../utils/session.js";
 import { buildPartnerToolsKeyboard } from "./keyboards.js";
 import { CALLBACKS } from "../telegram.constants.js";
@@ -8,17 +8,24 @@ export function buildPartnerToolsExact() {
   const EXACT = {};
 
   EXACT[CALLBACKS.PARTNER_TOOLS_MENU] = async (ctx) => {
-    const { env, adminId, msgChatId, msgId } = ctx;
+    const { env, adminId, msg } = ctx;
 
     await clearSession(env, `state:${adminId}`).catch(() => {});
-    if (msgChatId && msgId) {
-      await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
-    }
 
-    await sendMessage(env, adminId, "🧰 <b>Partner Tools</b>\nPilih menu:", {
+    const text = "🧰 <b>Partner Tools</b>\nPilih menu:";
+    const extra = {
       parse_mode: "HTML",
       reply_markup: buildPartnerToolsKeyboard(),
-    });
+    };
+
+    if (msg) {
+      await upsertCallbackMessage(env, msg, text, extra).catch(async () => {
+        await sendMessage(env, adminId, text, extra);
+      });
+      return true;
+    }
+
+    await sendMessage(env, adminId, text, extra);
     return true;
   };
 
