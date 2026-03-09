@@ -147,7 +147,7 @@ export function buildPartnerVerificatorPickerKeyboard(telegramId, verificators) 
 // Partner Moderation
 export function buildPartnerModerationKeyboard(role) {
   const rows = [[
-    { text: "✅ Activate", callback_data: CALLBACKS.PARTNER_MOD_ACTIVATE },
+    { text: "✅ Restore", callback_data: CALLBACKS.PARTNER_MOD_RESTORE },
     { text: "⛔ Suspend", callback_data: CALLBACKS.PARTNER_MOD_SUSPEND },
   ]];
 
