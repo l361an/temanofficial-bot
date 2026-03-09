@@ -72,7 +72,7 @@ export function buildSuperadminCategoryHandlers() {
     await sendMessage(
       env,
       adminId,
-      "➕ <b>Add Category</b>\n\nKirim kode kategori.",
+      "➕ <b>Add Category</b>\n\nKetik Kategori Baru.",
       { parse_mode: "HTML" }
     );
 
@@ -91,7 +91,7 @@ export function buildSuperadminCategoryHandlers() {
     await sendMessage(
       env,
       adminId,
-      "➖ <b>Delete Category</b>\n\nKirim kode kategori.",
+      "➖ <b>Delete Category</b>\n\nKetik Kategori Yang Ingin Dihapus.",
       { parse_mode: "HTML" }
     );
 
