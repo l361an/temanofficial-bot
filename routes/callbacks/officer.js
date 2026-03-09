@@ -1,5 +1,5 @@
 // routes/callbacks/officer.js
-import { sendMessage, editMessageReplyMarkup } from "../../services/telegramApi.js";
+import { sendMessage, upsertCallbackMessage } from "../../services/telegramApi.js";
 import { isAdminRole } from "../../utils/roles.js";
 import { buildOfficerHomeKeyboard } from "./keyboards.js";
 import { CALLBACKS } from "../telegram.constants.js";
@@ -9,16 +9,22 @@ export function buildOfficerExact() {
   const EXACT = {};
 
   EXACT[CALLBACKS.OFFICER_HOME] = async (ctx) => {
-    const { env, role, adminId, msgChatId, msgId } = ctx;
+    const { env, role, adminId, msg } = ctx;
     if (!isAdminRole(role)) return true;
 
-    if (msgChatId && msgId) {
-      await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+    const text = buildOfficerHomeText();
+    const extra = {
+      reply_markup: buildOfficerHomeKeyboard(role),
+    };
+
+    if (msg) {
+      await upsertCallbackMessage(env, msg, text, extra).catch(async () => {
+        await sendMessage(env, adminId, text, extra);
+      });
+      return true;
     }
 
-    await sendMessage(env, adminId, buildOfficerHomeText(), {
-      reply_markup: buildOfficerHomeKeyboard(role),
-    });
+    await sendMessage(env, adminId, text, extra);
     return true;
   };
 
