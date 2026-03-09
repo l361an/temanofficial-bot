@@ -97,7 +97,7 @@ export async function handlePartnerModerationInput({
   const classId = fmtClassId(profile?.class_id);
   const label = raw.startsWith("@") ? raw : targetId;
 
-  if (!["activate", "suspend", "delete"].includes(action)) {
+  if (!["restore", "suspend", "delete"].includes(action)) {
     await clearSession(env, STATE_KEY);
 
     await renderModerationPanel(
@@ -142,7 +142,7 @@ export async function handlePartnerModerationInput({
     return true;
   }
 
-  if (action === "activate") {
+  if (action === "restore") {
     const res = await manualRestorePartner(env, targetId, chatId, null);
     await clearSession(env, STATE_KEY);
 
