@@ -95,7 +95,7 @@ export function buildSuperadminConfigHandlers() {
     await sendMessage(
       env,
       adminId,
-      "✏️ <b>Edit Welcome Message</b>\n\nKirim teks welcome baru.\n\nKetik <b>batal</b> untuk keluar.",
+      "✏️ <b>Edit Welcome Message</b>\n\nKetik Welcome Message Baru.\n\nKetik <b>batal</b> untuk keluar.",
       {
         parse_mode: "HTML",
         reply_markup: {
@@ -137,7 +137,7 @@ export function buildSuperadminConfigHandlers() {
     await sendMessage(
       env,
       adminId,
-      "✏️ <b>Edit Link Aturan</b>\n\nKirim URL aturan baru.\n\nKetik <b>batal</b> untuk keluar.",
+      "✏️ <b>Edit Link Aturan</b>\n\nKetik Link Aturan Baru.\n\nKetik <b>batal</b> untuk keluar.",
       {
         parse_mode: "HTML",
         reply_markup: {
