@@ -10,8 +10,8 @@ import { CALLBACKS, SESSION_MODES } from "../telegram.constants.js";
 
 function buildModerationPrompt(action) {
   const nice =
-    action === "activate"
-      ? "ACTIVATE"
+    action === "restore"
+      ? "RESTORE"
       : action === "suspend"
         ? "SUSPEND"
         : "DELETE";
@@ -53,7 +53,7 @@ export function buildPartnerModerationHandlers() {
   PREFIX.push({
     match: (d) =>
       [
-        CALLBACKS.PARTNER_MOD_ACTIVATE,
+        CALLBACKS.PARTNER_MOD_RESTORE,
         CALLBACKS.PARTNER_MOD_SUSPEND,
         CALLBACKS.PARTNER_MOD_DELETE,
       ].includes(d),
@@ -61,7 +61,7 @@ export function buildPartnerModerationHandlers() {
       const { env, data, adminId, msg, role, msgChatId, msgId } = ctx;
 
       let action = "";
-      if (data === CALLBACKS.PARTNER_MOD_ACTIVATE) action = "activate";
+      if (data === CALLBACKS.PARTNER_MOD_RESTORE) action = "restore";
       if (data === CALLBACKS.PARTNER_MOD_SUSPEND) action = "suspend";
       if (data === CALLBACKS.PARTNER_MOD_DELETE) action = "delete";
 
