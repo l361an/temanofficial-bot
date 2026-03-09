@@ -4,6 +4,7 @@ import { getProfileFullByTelegramId } from "../repositories/profilesRepo.js";
 import { getPaymentTicketById, confirmPaymentTicket } from "../repositories/paymentTicketsRepo.js";
 import { createPartnerSubscription } from "../repositories/partnerSubscriptionsRepo.js";
 import { markPaymentConfirmedAndActivate } from "./partnerStatusService.js";
+import { CALLBACKS } from "../routes/telegram.constants.js";
 
 function addMonthsSqlDate(baseDate, monthsToAdd) {
   const d = new Date(baseDate);
@@ -112,18 +113,27 @@ function buildPartnerPaymentConfirmedMessage(subscription) {
   const durationLabel = buildDurationLabel(subscription?.duration_code);
 
   return [
-    "Info :",
-    "Pembayaran kamu sudah dikonfirmasi.",
+    "✨ <b>Pembayaran Berhasil Dikonfirmasi</b>",
     "",
-    "Fitur PREMIUM TeMan",
-    "Status : Active",
-    `Durasi : ${durationLabel}`,
-    `Masa Aktif: ${formatDateTime(subscription?.start_at)} s.d ${formatDateTime(subscription?.end_at)}`,
+    "Pembayaran kamu telah berhasil dikonfirmasi dan fitur <b>PREMIUM TeMan</b> sekarang sudah aktif.",
     "",
-    "<i>Perpanjang masa aktif sebelum kadaluarsa untuk tetap menikmati Fitur PREMIUM TeMan.</i>",
+    "<b>Informasi Premium</b>",
+    "• Status: <b>Aktif</b>",
+    `• Durasi: <b>${durationLabel}</b>`,
+    `• Periode Aktif: <b>${formatDateTime(subscription?.start_at)}</b> s.d <b>${formatDateTime(subscription?.end_at)}</b>`,
     "",
-    "Terimakasih.",
+    "Silakan lakukan perpanjangan sebelum masa aktif berakhir agar layanan <b>PREMIUM TeMan</b> tetap dapat digunakan tanpa terputus.",
+    "",
+    "Terima kasih telah menggunakan <b>TeMan Official</b>.",
   ].join("\n");
+}
+
+function buildPartnerPaymentConfirmedKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "📋 Menu TeMan", callback_data: CALLBACKS.PARTNER_TOOLS_MENU }],
+    ],
+  };
 }
 
 export async function confirmPaymentAndActivateSubscription(env, ticketId, actorId, adminNote = null) {
@@ -183,5 +193,6 @@ export async function confirmPaymentAndActivateSubscription(env, ticketId, actor
     subscription,
     status: statusRes.status,
     user_message: buildPartnerPaymentConfirmedMessage(subscription),
+    user_reply_markup: buildPartnerPaymentConfirmedKeyboard(),
   };
 }
