@@ -1,6 +1,6 @@
 // routes/callbacks/superadmin.config.js
 
-import { sendMessage, editMessageReplyMarkup } from "../../services/telegramApi.js";
+import { sendMessage, upsertCallbackMessage } from "../../services/telegramApi.js";
 import { getSetting, upsertSetting } from "../../repositories/settingsRepo.js";
 import { saveSession, clearSession } from "../../utils/session.js";
 
@@ -15,93 +15,82 @@ import {
 import { deleteSetting, escapeHtml } from "./shared.js";
 import { CALLBACKS, CALLBACK_PREFIX, SESSION_MODES } from "../telegram.constants.js";
 
+async function renderMenuMessage(ctx, text, extra) {
+  const { env, adminId, msg } = ctx;
+
+  if (msg) {
+    await upsertCallbackMessage(env, msg, text, extra).catch(async () => {
+      await sendMessage(env, adminId, text, extra);
+    });
+    return true;
+  }
+
+  await sendMessage(env, adminId, text, extra);
+  return true;
+}
+
 export function buildSuperadminConfigHandlers() {
   const EXACT = {};
   const PREFIX = [];
 
   EXACT[CALLBACKS.SUPERADMIN_TOOLS_MENU] = async (ctx) => {
-    const { env, adminId, msgChatId, msgId } = ctx;
+    const { env, adminId } = ctx;
 
     await clearSession(env, `state:${adminId}`).catch(() => {});
-    if (msgChatId && msgId) {
-      await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
-    }
 
-    await sendMessage(env, adminId, "⚙️ <b>Superadmin Tools</b>\nPilih menu:", {
+    return renderMenuMessage(ctx, "⚙️ <b>Superadmin Tools</b>\nPilih menu:", {
       parse_mode: "HTML",
       reply_markup: buildSuperadminToolsKeyboard(),
     });
-
-    return true;
   };
 
   EXACT[CALLBACKS.SUPERADMIN_SETTINGS_MENU] = async (ctx) => {
-    const { env, adminId, msgChatId, msgId } = ctx;
+    const { env, adminId } = ctx;
 
     await clearSession(env, `state:${adminId}`).catch(() => {});
-    if (msgChatId && msgId) {
-      await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
-    }
 
-    await sendMessage(env, adminId, "⚙️ <b>Settings</b>\nPilih menu:", {
+    return renderMenuMessage(ctx, "⚙️ <b>Settings</b>\nPilih menu:", {
       parse_mode: "HTML",
       reply_markup: buildSettingsKeyboard(),
     });
-
-    return true;
   };
 
   EXACT[CALLBACKS.SUPERADMIN_CONFIG_MENU] = async (ctx) => {
-    const { env, adminId, msgChatId, msgId } = ctx;
+    const { env, adminId } = ctx;
 
     await clearSession(env, `state:${adminId}`).catch(() => {});
-    if (msgChatId && msgId) {
-      await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
-    }
 
-    await sendMessage(env, adminId, "🧩 <b>Config</b>\nPilih yang mau diupdate:", {
+    return renderMenuMessage(ctx, "🧩 <b>Config</b>\nPilih yang mau diupdate:", {
       parse_mode: "HTML",
       reply_markup: buildConfigKeyboard(),
     });
-
-    return true;
   };
 
   EXACT[CALLBACKS.SUPERADMIN_CONFIG_WELCOME] = async (ctx) => {
-    const { env, adminId, msgChatId, msgId } = ctx;
+    const { env, adminId } = ctx;
 
     await clearSession(env, `state:${adminId}`).catch(() => {});
-    if (msgChatId && msgId) {
-      await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
-    }
 
     const current = (await getSetting(env, "welcome_partner")) || "-";
 
-    await sendMessage(
-      env,
-      adminId,
+    return renderMenuMessage(
+      ctx,
       "👋 <b>Welcome Message</b>\n\n<b>Current:</b>\n<pre>" + escapeHtml(current) + "</pre>",
       {
         parse_mode: "HTML",
         reply_markup: buildConfigWelcomeKeyboard(),
       }
     );
-
-    return true;
   };
 
   EXACT[CALLBACKS.SUPERADMIN_CONFIG_WELCOME_EDIT] = async (ctx) => {
-    const { env, adminId, msgChatId, msgId } = ctx;
+    const { env, adminId } = ctx;
 
     await saveSession(env, `state:${adminId}`, {
       mode: SESSION_MODES.SA_CONFIG,
       area: "welcome",
       step: "await_text",
     });
-
-    if (msgChatId && msgId) {
-      await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
-    }
 
     await sendMessage(
       env,
@@ -119,18 +108,14 @@ export function buildSuperadminConfigHandlers() {
   };
 
   EXACT[CALLBACKS.SUPERADMIN_CONFIG_ATURAN] = async (ctx) => {
-    const { env, adminId, msgChatId, msgId } = ctx;
+    const { env, adminId } = ctx;
 
     await clearSession(env, `state:${adminId}`).catch(() => {});
-    if (msgChatId && msgId) {
-      await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
-    }
 
     const current = (await getSetting(env, "link_aturan")) || "-";
 
-    await sendMessage(
-      env,
-      adminId,
+    return renderMenuMessage(
+      ctx,
       "🔗 <b>Link Aturan</b>\n\n<b>Current:</b>\n<pre>" + escapeHtml(current) + "</pre>",
       {
         parse_mode: "HTML",
@@ -138,22 +123,16 @@ export function buildSuperadminConfigHandlers() {
         reply_markup: buildConfigAturanKeyboard(),
       }
     );
-
-    return true;
   };
 
   EXACT[CALLBACKS.SUPERADMIN_CONFIG_ATURAN_EDIT] = async (ctx) => {
-    const { env, adminId, msgChatId, msgId } = ctx;
+    const { env, adminId } = ctx;
 
     await saveSession(env, `state:${adminId}`, {
       mode: SESSION_MODES.SA_CONFIG,
       area: "aturan",
       step: "await_text",
     });
-
-    if (msgChatId && msgId) {
-      await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
-    }
 
     await sendMessage(
       env,
