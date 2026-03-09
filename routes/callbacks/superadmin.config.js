@@ -6,6 +6,7 @@ import { saveSession, clearSession } from "../../utils/session.js";
 
 import {
   buildSuperadminToolsKeyboard,
+  buildSettingsKeyboard,
   buildConfigKeyboard,
   buildConfigWelcomeKeyboard,
   buildConfigAturanKeyboard,
@@ -18,10 +19,15 @@ export function buildSuperadminConfigHandlers() {
   const EXACT = {};
   const PREFIX = [];
 
+  // =========================
+  // SUPERADMIN TOOLS
+  // =========================
+
   EXACT[CALLBACKS.SUPERADMIN_TOOLS_MENU] = async (ctx) => {
     const { env, adminId, msgChatId, msgId } = ctx;
 
     await clearSession(env, `state:${adminId}`).catch(() => {});
+
     if (msgChatId && msgId) {
       await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
     }
@@ -34,10 +40,36 @@ export function buildSuperadminConfigHandlers() {
     return true;
   };
 
+  // =========================
+  // SETTINGS MENU
+  // =========================
+
+  EXACT[CALLBACKS.SUPERADMIN_SETTINGS_MENU] = async (ctx) => {
+    const { env, adminId, msgChatId, msgId } = ctx;
+
+    await clearSession(env, `state:${adminId}`).catch(() => {});
+
+    if (msgChatId && msgId) {
+      await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+    }
+
+    await sendMessage(env, adminId, "⚙️ <b>Settings</b>\nPilih menu:", {
+      parse_mode: "HTML",
+      reply_markup: buildSettingsKeyboard(),
+    });
+
+    return true;
+  };
+
+  // =========================
+  // CONFIG MENU
+  // =========================
+
   EXACT[CALLBACKS.SUPERADMIN_CONFIG_MENU] = async (ctx) => {
     const { env, adminId, msgChatId, msgId } = ctx;
 
     await clearSession(env, `state:${adminId}`).catch(() => {});
+
     if (msgChatId && msgId) {
       await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
     }
@@ -49,6 +81,10 @@ export function buildSuperadminConfigHandlers() {
 
     return true;
   };
+
+  // =========================
+  // WELCOME CONFIG
+  // =========================
 
   EXACT[CALLBACKS.SUPERADMIN_CONFIG_WELCOME] = async (ctx) => {
     const { env, adminId, msgChatId, msgId } = ctx;
@@ -106,6 +142,10 @@ export function buildSuperadminConfigHandlers() {
     return true;
   };
 
+  // =========================
+  // LINK ATURAN CONFIG
+  // =========================
+
   EXACT[CALLBACKS.SUPERADMIN_CONFIG_ATURAN] = async (ctx) => {
     const { env, adminId, msgChatId, msgId } = ctx;
 
@@ -120,7 +160,9 @@ export function buildSuperadminConfigHandlers() {
     await sendMessage(
       env,
       adminId,
-      "🔗 <b>Link Aturan</b>\n\n<b>Current:</b>\n<pre>" + escapeHtml(current) + "</pre>",
+      "🔗 <b>Link Aturan</b>\n\n<b>Current:</b>\n<pre>" +
+        escapeHtml(current) +
+        "</pre>",
       {
         parse_mode: "HTML",
         disable_web_page_preview: true,
@@ -160,6 +202,10 @@ export function buildSuperadminConfigHandlers() {
 
     return true;
   };
+
+  // =========================
+  // CONFIRM PREFIX HANDLERS
+  // =========================
 
   PREFIX.push({
     match: (d) =>
