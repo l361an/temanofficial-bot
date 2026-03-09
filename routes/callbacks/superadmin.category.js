@@ -1,6 +1,6 @@
 // routes/callbacks/superadmin.category.js
 
-import { sendMessage, editMessageReplyMarkup } from "../../services/telegramApi.js";
+import { sendMessage, upsertCallbackMessage } from "../../services/telegramApi.js";
 import { listCategories } from "../../repositories/categoriesRepo.js";
 import { saveSession, clearSession } from "../../utils/session.js";
 
@@ -8,37 +8,44 @@ import { buildCategoryKeyboard } from "./keyboards.js";
 import { CALLBACKS, SESSION_MODES } from "../telegram.constants.js";
 import { escapeHtml } from "./shared.js";
 
+async function renderMenuMessage(ctx, text, extra) {
+  const { env, adminId, msg } = ctx;
+
+  if (msg) {
+    await upsertCallbackMessage(env, msg, text, extra).catch(async () => {
+      await sendMessage(env, adminId, text, extra);
+    });
+    return true;
+  }
+
+  await sendMessage(env, adminId, text, extra);
+  return true;
+}
+
 export function buildSuperadminCategoryHandlers() {
   const EXACT = {};
 
   EXACT[CALLBACKS.SUPERADMIN_CATEGORY_MENU] = async (ctx) => {
-    const { env, adminId, msgChatId, msgId } = ctx;
+    const { env, adminId } = ctx;
 
     await clearSession(env, `state:${adminId}`).catch(() => {});
-    if (msgChatId && msgId) {
-      await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
-    }
 
-    await sendMessage(env, adminId, "🗂️ <b>Category</b>\nPilih aksi:", {
+    return renderMenuMessage(ctx, "🗂️ <b>Category</b>\nPilih aksi:", {
       parse_mode: "HTML",
       reply_markup: buildCategoryKeyboard(),
     });
-
-    return true;
   };
 
   EXACT[CALLBACKS.SUPERADMIN_CATEGORY_LIST] = async (ctx) => {
-    const { env, adminId } = ctx;
+    const { env } = ctx;
 
     const rows = await listCategories(env);
 
     if (!rows.length) {
-      await sendMessage(env, adminId, "📚 <b>Category List</b>\n\nBelum ada kategori.", {
+      return renderMenuMessage(ctx, "📚 <b>Category List</b>\n\nBelum ada kategori.", {
         parse_mode: "HTML",
         reply_markup: buildCategoryKeyboard(),
       });
-
-      return true;
     }
 
     const lines = ["📚 <b>Category List</b>", ""];
@@ -47,12 +54,10 @@ export function buildSuperadminCategoryHandlers() {
       lines.push(`${i + 1}. ${escapeHtml(r.kode)}`);
     });
 
-    await sendMessage(env, adminId, lines.join("\n"), {
+    return renderMenuMessage(ctx, lines.join("\n"), {
       parse_mode: "HTML",
       reply_markup: buildCategoryKeyboard(),
     });
-
-    return true;
   };
 
   EXACT[CALLBACKS.SUPERADMIN_CATEGORY_ADD] = async (ctx) => {
