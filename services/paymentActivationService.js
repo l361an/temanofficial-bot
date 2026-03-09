@@ -4,7 +4,6 @@ import { getProfileFullByTelegramId } from "../repositories/profilesRepo.js";
 import { getPaymentTicketById, confirmPaymentTicket } from "../repositories/paymentTicketsRepo.js";
 import { createPartnerSubscription } from "../repositories/partnerSubscriptionsRepo.js";
 import { markPaymentConfirmedAndActivate } from "./partnerStatusService.js";
-import { CALLBACKS } from "../routes/telegram.constants.js";
 
 function addMonthsSqlDate(baseDate, monthsToAdd) {
   const d = new Date(baseDate);
@@ -131,7 +130,7 @@ function buildPartnerPaymentConfirmedMessage(subscription) {
 function buildPartnerPaymentConfirmedKeyboard() {
   return {
     inline_keyboard: [
-      [{ text: "📋 Menu TeMan", callback_data: CALLBACKS.PARTNER_TOOLS_MENU }],
+      [{ text: "📋 Menu TeMan", callback_data: "teman:menu" }],
     ],
   };
 }
