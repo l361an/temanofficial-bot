@@ -1,5 +1,5 @@
 // routes/callbacks/partnerDatabase.js
-import { sendMessage, editMessageReplyMarkup } from "../../services/telegramApi.js";
+import { sendMessage, upsertCallbackMessage } from "../../services/telegramApi.js";
 import { saveSession, clearSession } from "../../utils/session.js";
 import { listProfilesAll, listProfilesByStatus } from "../../repositories/profilesRepo.js";
 
@@ -55,63 +55,77 @@ export function buildPartnerDatabaseHandlers() {
   const PREFIX = [];
 
   EXACT[CALLBACKS.PARTNER_DATABASE_MENU] = async (ctx) => {
-    const { env, adminId, msgChatId, msgId } = ctx;
+    const { env, adminId, msg } = ctx;
 
     await clearSession(env, `state:${adminId}`).catch(() => {});
 
-    if (msgChatId && msgId) {
-      await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
-    }
-
-    await sendMessage(env, adminId, "🗃️ <b>Partner Database</b>\nPilih menu di bawah:", {
+    const text = "🗃️ <b>Partner Database</b>\nPilih menu di bawah:";
+    const extra = {
       parse_mode: "HTML",
       reply_markup: buildPartnerDatabaseKeyboard(),
-    });
+    };
 
+    if (msg) {
+      await upsertCallbackMessage(env, msg, text, extra).catch(async () => {
+        await sendMessage(env, adminId, text, extra);
+      });
+      return true;
+    }
+
+    await sendMessage(env, adminId, text, extra);
     return true;
   };
 
   EXACT[CALLBACKS.PARTNER_DATABASE_VIEW] = async (ctx) => {
-    const { env, adminId, msgChatId, msgId } = ctx;
+    const { env, adminId, msg } = ctx;
 
     await saveSession(env, `state:${adminId}`, {
       mode: SESSION_MODES.PARTNER_VIEW,
       step: "await_target",
     });
 
-    if (msgChatId && msgId) {
-      await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+    const text =
+      "🔎 <b>View Partner</b>\n\n" +
+      "Kirim <b>@username</b> atau <b>telegram_id</b> target.\n\n" +
+      "Ketik <b>batal</b> untuk keluar.";
+
+    const extra = {
+      parse_mode: "HTML",
+      reply_markup: buildBackToPartnerDatabaseViewKeyboard(),
+    };
+
+    if (msg) {
+      await upsertCallbackMessage(env, msg, text, extra).catch(async () => {
+        await sendMessage(env, adminId, text, extra);
+      });
+      return true;
     }
 
-    await sendMessage(
-      env,
-      adminId,
-      "🔎 <b>View Partner</b>\n\nKirim <b>@username</b> atau <b>telegram_id</b> target.\n\nKetik <b>batal</b> untuk keluar.",
-      {
-        parse_mode: "HTML",
-        reply_markup: buildBackToPartnerDatabaseViewKeyboard(),
-      }
-    );
-
+    await sendMessage(env, adminId, text, extra);
     return true;
   };
 
   PREFIX.push({
     match: (d) => d.startsWith(CALLBACK_PREFIX.PM_LIST),
     run: async (ctx) => {
-      const { env, data, adminId, msgChatId, msgId } = ctx;
+      const { env, data, adminId, msg } = ctx;
       const rawKey = String(data.slice(CALLBACK_PREFIX.PM_LIST.length) || "").trim();
       const config = normalizePartnerListKey(rawKey);
 
       if (!config) {
-        if (msgChatId && msgId) {
-          await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+        const text = "Menu tidak dikenal. Balik ke Partner Database.";
+        const extra = {
+          reply_markup: buildPartnerDatabaseKeyboard(),
+        };
+
+        if (msg) {
+          await upsertCallbackMessage(env, msg, text, extra).catch(async () => {
+            await sendMessage(env, adminId, text, extra);
+          });
+          return true;
         }
 
-        await sendMessage(env, adminId, "Menu tidak dikenal. Balik ke Partner Database.", {
-          reply_markup: buildPartnerDatabaseKeyboard(),
-        });
-
+        await sendMessage(env, adminId, text, extra);
         return true;
       }
 
@@ -124,22 +138,23 @@ export function buildPartnerDatabaseHandlers() {
       }
 
       if (!rows.length) {
-        if (msgChatId && msgId) {
-          await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+        const text = `Tidak ada data untuk: ${config.title}`;
+        const extra = {
+          reply_markup: buildBackToPartnerDatabaseKeyboard(),
+        };
+
+        if (msg) {
+          await upsertCallbackMessage(env, msg, text, extra).catch(async () => {
+            await sendMessage(env, adminId, text, extra);
+          });
+          return true;
         }
 
-        await sendMessage(env, adminId, `Tidak ada data untuk: ${config.title}`, {
-          reply_markup: buildBackToPartnerDatabaseKeyboard(),
-        });
-
+        await sendMessage(env, adminId, text, extra);
         return true;
       }
 
       const verificatorMap = await buildVerificatorMap(env, rows).catch(() => new Map());
-
-      if (msgChatId && msgId) {
-        await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
-      }
 
       const text = buildListMessageHtml(config.title, rows, verificatorMap, {
         showStatus: config.showStatus,
