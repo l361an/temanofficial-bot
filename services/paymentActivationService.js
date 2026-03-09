@@ -2,7 +2,10 @@
 
 import { getProfileFullByTelegramId } from "../repositories/profilesRepo.js";
 import { getPaymentTicketById, confirmPaymentTicket } from "../repositories/paymentTicketsRepo.js";
-import { createPartnerSubscription } from "../repositories/partnerSubscriptionsRepo.js";
+import {
+  listActiveSubscriptionsByTelegramId,
+  replaceActiveSubscriptionByTelegramId,
+} from "../repositories/partnerSubscriptionsRepo.js";
 import { markPaymentConfirmedAndActivate } from "./partnerStatusService.js";
 
 function addMonthsSqlDate(baseDate, monthsToAdd) {
@@ -18,14 +21,7 @@ function addMonthsSqlDate(baseDate, monthsToAdd) {
     d.setDate(0);
   }
 
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mi = String(d.getMinutes()).padStart(2, "0");
-  const ss = String(d.getSeconds()).padStart(2, "0");
-
-  return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
+  return toSqlDateTime(d);
 }
 
 function addDaysSqlDate(baseDate, daysToAdd) {
@@ -35,15 +31,7 @@ function addDaysSqlDate(baseDate, daysToAdd) {
   }
 
   d.setDate(d.getDate() + Number(daysToAdd || 0));
-
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mi = String(d.getMinutes()).padStart(2, "0");
-  const ss = String(d.getSeconds()).padStart(2, "0");
-
-  return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
+  return toSqlDateTime(d);
 }
 
 function makeId(prefix = "sub") {
@@ -52,6 +40,29 @@ function makeId(prefix = "sub") {
 
 function pad2(value) {
   return String(value).padStart(2, "0");
+}
+
+function toSqlDateTime(value = new Date()) {
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) {
+    throw new Error("invalid_datetime");
+  }
+
+  const yyyy = d.getFullYear();
+  const mm = pad2(d.getMonth() + 1);
+  const dd = pad2(d.getDate());
+  const hh = pad2(d.getHours());
+  const mi = pad2(d.getMinutes());
+  const ss = pad2(d.getSeconds());
+
+  return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
+}
+
+function parseDateSafe(value) {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return d;
 }
 
 function formatDateTime(value) {
@@ -118,7 +129,7 @@ function buildPartnerPaymentConfirmedMessage(subscription) {
     "",
     "<b>Informasi Premium</b>",
     "• Status: <b>Aktif</b>",
-    `• Durasi: <b>${durationLabel}</b>`,
+    `• Durasi Transaksi: <b>${durationLabel}</b>`,
     `• Periode Aktif: <b>${formatDateTime(subscription?.start_at)}</b> s.d <b>${formatDateTime(subscription?.end_at)}</b>`,
     "",
     "Silakan lakukan perpanjangan sebelum masa aktif berakhir agar layanan <b>PREMIUM TeMan</b> tetap dapat digunakan tanpa terputus.",
@@ -132,6 +143,41 @@ function buildPartnerPaymentConfirmedKeyboard() {
     inline_keyboard: [
       [{ text: "📋 Menu TeMan", callback_data: "teman:menu" }],
     ],
+  };
+}
+
+function resolveCoverageWindow(activeSubscriptions, fallbackNowSql) {
+  const rows = Array.isArray(activeSubscriptions) ? activeSubscriptions : [];
+  if (!rows.length) {
+    return {
+      hasActiveCoverage: false,
+      startAt: fallbackNowSql,
+      anchorEndAt: fallbackNowSql,
+      mergedFromIds: [],
+    };
+  }
+
+  let earliestStart = null;
+  let latestEnd = null;
+
+  for (const row of rows) {
+    const startAt = parseDateSafe(row?.start_at);
+    const endAt = parseDateSafe(row?.end_at);
+
+    if (startAt && (!earliestStart || startAt.getTime() < earliestStart.getTime())) {
+      earliestStart = startAt;
+    }
+
+    if (endAt && (!latestEnd || endAt.getTime() > latestEnd.getTime())) {
+      latestEnd = endAt;
+    }
+  }
+
+  return {
+    hasActiveCoverage: Boolean(earliestStart && latestEnd),
+    startAt: earliestStart ? toSqlDateTime(earliestStart) : fallbackNowSql,
+    anchorEndAt: latestEnd ? toSqlDateTime(latestEnd) : fallbackNowSql,
+    mergedFromIds: rows.map((row) => String(row?.id || "")).filter(Boolean),
   };
 }
 
@@ -149,49 +195,75 @@ export async function confirmPaymentAndActivateSubscription(env, ticketId, actor
   const profile = await getProfileFullByTelegramId(env, partnerId);
   if (!profile) return { ok: false, reason: "profile_not_found" };
 
-  const now = new Date();
-  const startedAt = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`;
+  const nowSql = toSqlDateTime(new Date());
   const durationCode = getDurationCode(ticket);
   const durationMonths = durationCode === "1m" ? 1 : 0;
-  const endedAt = resolveEndedAt(now, durationCode);
+  const classId = String(ticket.class_id || profile.class_id || "bronze").toLowerCase();
+
+  const activeSubscriptions = await listActiveSubscriptionsByTelegramId(env, partnerId).catch(() => []);
+  const coverage = resolveCoverageWindow(activeSubscriptions, nowSql);
+
+  const startedAt = coverage.startAt;
+  const endedAt = resolveEndedAt(coverage.anchorEndAt, durationCode);
 
   await confirmPaymentTicket(env, ticketId, actorId, adminNote);
 
-  await createPartnerSubscription(env, {
-    id: makeId("sub"),
+  const createdSubscription = await replaceActiveSubscriptionByTelegramId(
+    env,
     partnerId,
-    paymentTicketId: ticket.id,
-    classId: ticket.class_id || profile.class_id || "bronze",
-    durationMonths,
-    status: "active",
-    startAt: startedAt,
-    endAt: endedAt,
-    activatedAt: startedAt,
-    sourceType: "payment_ticket",
-    sourceRefId: String(ticket.id),
-    notes: adminNote,
-    metadataJson: JSON.stringify({
-      duration_code: durationCode,
-    }),
-  });
+    {
+      id: makeId("sub"),
+      partnerId,
+      paymentTicketId: ticket.id,
+      classId,
+      durationMonths,
+      status: "active",
+      startAt: startedAt,
+      endAt: endedAt,
+      activatedAt: nowSql,
+      sourceType: "payment_ticket",
+      sourceRefId: String(ticket.id),
+      notes: adminNote,
+      metadataJson: JSON.stringify({
+        duration_code: durationCode,
+        activation_mode: coverage.hasActiveCoverage ? "renew_or_upgrade_merge" : "fresh_activation",
+        merged_from_subscription_ids: coverage.mergedFromIds,
+        previous_coverage_end_at: coverage.hasActiveCoverage ? coverage.anchorEndAt : null,
+      }),
+    },
+    {
+      cancelledBy: actorId,
+      cancelReason: coverage.hasActiveCoverage
+        ? "replaced_by_payment_activation"
+        : "replaced_by_fresh_payment_activation",
+    }
+  );
 
   const statusRes = await markPaymentConfirmedAndActivate(env, partnerId, actorId, adminNote);
 
-  const subscription = {
+  const subscription = createdSubscription || {
     start_at: startedAt,
     end_at: endedAt,
     duration_months: durationMonths,
     duration_code: durationCode,
-    class_id: ticket.class_id || profile.class_id || "bronze",
+    class_id: classId,
   };
 
   return {
     ok: true,
     ticket,
     profile,
-    subscription,
+    subscription: {
+      ...subscription,
+      duration_months: durationMonths,
+      duration_code: durationCode,
+      class_id: classId,
+    },
     status: statusRes.status,
-    user_message: buildPartnerPaymentConfirmedMessage(subscription),
+    user_message: buildPartnerPaymentConfirmedMessage({
+      ...subscription,
+      duration_code: durationCode,
+    }),
     user_reply_markup: buildPartnerPaymentConfirmedKeyboard(),
   };
 }
