@@ -139,7 +139,10 @@ export function buildSuperadminPaymentReviewHandlers() {
             env,
             res.profile.telegram_id,
             res.user_message || "✅ Pembayaran berhasil dikonfirmasi. Premium kamu sudah aktif.",
-            {}
+            {
+              parse_mode: "HTML",
+              reply_markup: res.user_reply_markup,
+            }
           ).catch(() => {});
         }
 
