@@ -58,7 +58,7 @@ function readDurationCodeFromTicket(ticket) {
 
 export function buildPaymentMenuKeyboard({
   hasOpenTicket = false,
-  primaryActionText = "🧾 Upgrade Premium",
+  primaryActionText = "💳 Aktivasi Premium",
 } = {}) {
   const rows = [];
 
