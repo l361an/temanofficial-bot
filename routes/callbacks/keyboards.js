@@ -67,7 +67,6 @@ export function buildBackToPartnerDatabaseKeyboard() {
   return {
     inline_keyboard: [
       backAndOfficerHomeRow(CALLBACKS.PARTNER_DATABASE_MENU),
-      [{ text: "🧰 Partner Tools", callback_data: CALLBACKS.PARTNER_TOOLS_MENU }],
     ],
   };
 }
@@ -76,7 +75,6 @@ export function buildBackToPartnerDatabaseViewKeyboard() {
   return {
     inline_keyboard: [
       backAndOfficerHomeRow(CALLBACKS.PARTNER_DATABASE_MENU),
-      [{ text: "🧰 Partner Tools", callback_data: CALLBACKS.PARTNER_TOOLS_MENU }],
     ],
   };
 }
@@ -160,7 +158,6 @@ export function buildBackToPartnerModerationKeyboard() {
   return {
     inline_keyboard: [
       backAndOfficerHomeRow(CALLBACKS.PARTNER_MODERATION_MENU),
-      [{ text: "🧰 Partner Tools", callback_data: CALLBACKS.PARTNER_TOOLS_MENU }],
     ],
   };
 }
