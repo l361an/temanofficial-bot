@@ -7,6 +7,7 @@ import {
   replaceActiveSubscriptionByTelegramId,
 } from "../repositories/partnerSubscriptionsRepo.js";
 import { markPaymentConfirmed } from "./partnerStatusService.js";
+import { syncPartnerGroupRole } from "./partnerGroupRoleService.js";
 
 function addMonthsSqlDate(baseDate, monthsToAdd) {
   const d = new Date(baseDate);
@@ -78,7 +79,9 @@ function formatDateTime(value) {
   const d = new Date(raw);
   if (Number.isNaN(d.getTime())) return raw;
 
-  return `${pad2(d.getDate())}-${pad2(d.getMonth() + 1)}-${d.getFullYear()} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  return `${pad2(d.getDate())}-${pad2(d.getMonth() + 1)}-${d.getFullYear()} ${pad2(
+    d.getHours()
+  )}:${pad2(d.getMinutes())}`;
 }
 
 function getDurationCode(ticket) {
@@ -86,7 +89,9 @@ function getDurationCode(ticket) {
   if (metadata) {
     try {
       const parsed = JSON.parse(metadata);
-      const raw = String(parsed?.duration_code || "").trim().toLowerCase();
+      const raw = String(parsed?.duration_code || "")
+        .trim()
+        .toLowerCase();
       if (raw === "1d" || raw === "3d" || raw === "7d" || raw === "1m") return raw;
     } catch {}
   }
@@ -95,7 +100,9 @@ function getDurationCode(ticket) {
   if (pricingSnapshot) {
     try {
       const parsed = JSON.parse(pricingSnapshot);
-      const raw = String(parsed?.duration_code || "").trim().toLowerCase();
+      const raw = String(parsed?.duration_code || "")
+        .trim()
+        .toLowerCase();
       if (raw === "1d" || raw === "3d" || raw === "7d" || raw === "1m") return raw;
     } catch {}
   }
@@ -130,7 +137,9 @@ function buildPartnerPaymentConfirmedMessage(subscription) {
     "<b>Informasi Premium</b>",
     "• Status: <b>Aktif</b>",
     `• Durasi Transaksi: <b>${durationLabel}</b>`,
-    `• Periode Aktif: <b>${formatDateTime(subscription?.start_at)}</b> s.d <b>${formatDateTime(subscription?.end_at)}</b>`,
+    `• Periode Aktif: <b>${formatDateTime(subscription?.start_at)}</b> s.d <b>${formatDateTime(
+      subscription?.end_at
+    )}</b>`,
     "",
     "Silakan lakukan perpanjangan sebelum masa aktif berakhir agar layanan <b>PREMIUM TeMan</b> tetap dapat digunakan tanpa terputus.",
     "",
@@ -180,7 +189,9 @@ function resolveCoverageWindow(activeSubscriptions, fallbackNowSql) {
 }
 
 function resolvePartnerClassId(profile) {
-  const raw = String(profile?.class_id || "").trim().toLowerCase();
+  const raw = String(profile?.class_id || "")
+    .trim()
+    .toLowerCase();
   if (raw === "bronze" || raw === "gold" || raw === "platinum") {
     return raw;
   }
@@ -205,17 +216,11 @@ export async function confirmPaymentAndActivateSubscription(env, ticketId, actor
   const durationCode = getDurationCode(ticket);
   const durationMonths = durationCode === "1m" ? 1 : 0;
 
-  // Source of truth: class partner hanya mengikuti profile / hasil set superadmin.
-  // Payment ticket tidak boleh mengubah class partner.
   const classId = resolvePartnerClassId(profile);
 
   const activeSubscriptions = await listActiveSubscriptionsByTelegramId(env, partnerId).catch(() => []);
   const coverage = resolveCoverageWindow(activeSubscriptions, nowSql);
 
-  // Rule final TeMan:
-  // - jika masih ada premium aktif, renewal extend dari current_end_at
-  // - jika tidak ada premium aktif, mulai dari sekarang
-  // - start_at record baru mempertahankan coverage awal yang masih aktif agar periode tampil utuh
   const startedAt = coverage.hasActiveCoverage ? coverage.startAt : nowSql;
   const endedAt = resolveEndedAt(coverage.anchorEndAt, durationCode);
 
@@ -256,6 +261,10 @@ export async function confirmPaymentAndActivateSubscription(env, ticketId, actor
   );
 
   const statusRes = await markPaymentConfirmed(env, partnerId, actorId, adminNote);
+  const groupRoleSync = await syncPartnerGroupRole(env, partnerId).catch((error) => ({
+    ok: false,
+    reason: error?.message || String(error),
+  }));
 
   const subscription = createdSubscription || {
     start_at: startedAt,
@@ -276,6 +285,7 @@ export async function confirmPaymentAndActivateSubscription(env, ticketId, actor
       class_id: classId,
     },
     status: statusRes.status,
+    group_role_sync: groupRoleSync,
     user_message: buildPartnerPaymentConfirmedMessage({
       ...subscription,
       duration_code: durationCode,
