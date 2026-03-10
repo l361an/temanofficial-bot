@@ -94,7 +94,7 @@ export async function handleTelegramWebhook(request, env) {
       }
 
       if (session?.mode === SESSION_MODES.PARTNER_VIEW) {
-        await handlePartnerViewInput({ env, chatId, text, STATE_KEY, role });
+        await handlePartnerViewInput({ env, chatId, text, session, STATE_KEY, role });
         return json({ ok: true });
       }
 
