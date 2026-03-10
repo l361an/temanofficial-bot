@@ -2,7 +2,7 @@
 
 import { getSetting } from "../repositories/settingsRepo.js";
 import { createPaymentTicket } from "../repositories/paymentTicketsRepo.js";
-import { sendPhoto, upsertCallbackMessage } from "../services/telegramApi.js";
+import { sendPhoto } from "../services/telegramApi.js";
 
 import {
   normalizeStatus,
@@ -364,20 +364,15 @@ async function createPartnerPaymentTicket(env, chatId, telegramId, durationCode,
     }),
   });
 
-  const keyboard = buildPaymentMenuKeyboard({
-    hasOpenTicket: true,
-    primaryActionText: ctx.primaryActionText,
-  });
+  const finalKeyboard = {
+    inline_keyboard: [
+      [{ text: "📄 Cek Status", callback_data: "self:payment:status" }],
+      [{ text: "📤 Upload Bukti Transfer", callback_data: "self:payment:upload_info" }],
+      [{ text: "📋 Menu TeMan", callback_data: "teman:menu" }],
+    ],
+  };
 
   const qrisPhotoFileId = String((await getSetting(env, "payment_qris_photo_file_id")) || "").trim();
-
-  if (sourceMessage) {
-    await upsertCallbackMessage(env, sourceMessage, "✅ Tiket pembayaran berhasil dibuat.\nLihat detail pembayaran di pesan berikutnya.", {
-      parse_mode: "HTML",
-      reply_markup: keyboard,
-      disable_web_page_preview: true,
-    }).catch(() => {});
-  }
 
   if (qrisPhotoFileId) {
     await sendPhoto(
@@ -387,7 +382,7 @@ async function createPartnerPaymentTicket(env, chatId, telegramId, durationCode,
       buildPaymentInstructionMessage(created, price.durationLabel, { hasQrisPhoto: true }),
       {
         parse_mode: "HTML",
-        reply_markup: keyboard,
+        reply_markup: finalKeyboard,
       }
     );
     return;
@@ -396,9 +391,9 @@ async function createPartnerPaymentTicket(env, chatId, telegramId, durationCode,
   await renderPaymentScreen(
     env,
     chatId,
-    null,
+    sourceMessage,
     buildPaymentInstructionMessage(created, price.durationLabel, { hasQrisPhoto: false }),
-    keyboard
+    finalKeyboard
   );
 }
 
