@@ -1,5 +1,9 @@
 // routes/callbacks/partnerDatabase.render.js
-import { sendMessage, upsertCallbackMessage } from "../../services/telegramApi.js";
+import {
+  sendMessage,
+  sendPhoto,
+  upsertCallbackMessage,
+} from "../../services/telegramApi.js";
 import {
   getProfileFullByTelegramId,
   listCategoryKodesByProfileId,
@@ -28,8 +32,6 @@ import {
   buildPartnerDetailsText,
   buildPartnerSubscriptionText,
 } from "./partnerDatabase.format.js";
-
-import { sendPartnerDetailsMediaAnchor } from "./partnerDatabase.media.js";
 
 export { buildPartnerViewPromptText } from "./partnerDatabase.format.js";
 
@@ -116,6 +118,39 @@ async function loadPartnerContext(env, telegramId) {
   };
 }
 
+function collectDetailPhotos(profile) {
+  return [
+    { fileId: profile?.foto_closeup_file_id, label: "📸 <b>Foto Closeup</b>" },
+    { fileId: profile?.foto_fullbody_file_id, label: "📸 <b>Foto Fullbody</b>" },
+    { fileId: profile?.foto_ktp_file_id, label: "🪪 <b>Foto KTP</b>" },
+  ].filter((item) => item.fileId);
+}
+
+async function sendDetailsFlowMessages(env, adminId, profile, detailsText, replyMarkup) {
+  await sendMessage(env, adminId, detailsText, {
+    parse_mode: "HTML",
+    disable_web_page_preview: true,
+  });
+
+  const photos = collectDetailPhotos(profile);
+  for (const item of photos) {
+    await sendPhoto(env, adminId, item.fileId, item.label, {
+      parse_mode: "HTML",
+    }).catch(() => {});
+  }
+
+  const navRes = await sendMessage(env, adminId, "Pilih aksi di bawah:", {
+    parse_mode: "HTML",
+    reply_markup: replyMarkup,
+    disable_web_page_preview: true,
+  });
+
+  return {
+    anchor_chat_id: adminId,
+    anchor_message_id: navRes?.result?.message_id ?? null,
+  };
+}
+
 export async function renderPartnerControlPanel(
   env,
   adminId,
@@ -186,7 +221,7 @@ export async function renderPartnerDetailsPage(
   const replyMarkup = buildPartnerDetailsKeyboard(context.profile.telegram_id, role);
   const detailsText = buildPartnerDetailsText(context);
 
-  const anchor = await sendPartnerDetailsMediaAnchor(
+  const anchor = await sendDetailsFlowMessages(
     env,
     adminId,
     context.profile,
@@ -202,6 +237,8 @@ export async function renderPartnerDetailsPage(
       step: "selected",
       data: {
         selected_partner_id: String(context.profile.telegram_id),
+        source_chat_id: anchor?.anchor_chat_id ?? adminId,
+        source_message_id: anchor?.anchor_message_id ?? null,
         details_anchor_chat_id: anchor?.anchor_chat_id ?? null,
         details_anchor_message_id: anchor?.anchor_message_id ?? null,
       },
