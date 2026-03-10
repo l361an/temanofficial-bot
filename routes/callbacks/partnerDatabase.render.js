@@ -35,6 +35,14 @@ import {
 
 export { buildPartnerViewPromptText } from "./partnerDatabase.format.js";
 
+function buildAnchorResult(baseChatId, baseMessageId, apiRes = null) {
+  return {
+    ok: true,
+    anchor_chat_id: apiRes?.result?.chat?.id ?? baseChatId ?? null,
+    anchor_message_id: apiRes?.result?.message_id ?? baseMessageId ?? null,
+  };
+}
+
 export async function renderPartnerDatabaseMessage(
   env,
   adminId,
@@ -45,9 +53,13 @@ export async function renderPartnerDatabaseMessage(
     fallbackMessage = null,
     parseMode = "HTML",
     disableWebPreview = true,
+    forceNewMessage = false,
   } = {}
 ) {
-  const sourceMessage = readSourceMessage(session, fallbackMessage, adminId);
+  const sourceMessage = forceNewMessage
+    ? null
+    : readSourceMessage(session, fallbackMessage, adminId);
+
   const extra = {
     parse_mode: parseMode,
     reply_markup: replyMarkup,
@@ -55,14 +67,19 @@ export async function renderPartnerDatabaseMessage(
   };
 
   if (sourceMessage) {
-    await upsertCallbackMessage(env, sourceMessage, text, extra).catch(async () => {
-      await sendMessage(env, adminId, text, extra);
-    });
-    return true;
+    const res = await upsertCallbackMessage(env, sourceMessage, text, extra).catch(
+      async () => await sendMessage(env, adminId, text, extra)
+    );
+
+    return buildAnchorResult(
+      sourceMessage?.chat?.id ?? adminId,
+      sourceMessage?.message_id ?? null,
+      res
+    );
   }
 
-  await sendMessage(env, adminId, text, extra);
-  return true;
+  const sent = await sendMessage(env, adminId, text, extra);
+  return buildAnchorResult(adminId, null, sent);
 }
 
 async function getLatestPaymentTicket(env, partnerId) {
@@ -156,20 +173,52 @@ export async function renderPartnerControlPanel(
   adminId,
   telegramId,
   role,
-  { session = null, fallbackMessage = null, selectedInput = null } = {}
+  {
+    session = null,
+    fallbackMessage = null,
+    selectedInput = null,
+    forceNewMessage = false,
+  } = {}
 ) {
   const context = await loadPartnerContext(env, telegramId);
 
   if (!context?.profile) {
-    await renderPartnerDatabaseMessage(
+    const missingAnchor = await renderPartnerDatabaseMessage(
       env,
       adminId,
       "⚠️ Data partner tidak ditemukan.",
       buildBackToPartnerDatabaseViewKeyboard(role),
-      { session, fallbackMessage }
+      { session, fallbackMessage, forceNewMessage }
     );
+
+    await persistPartnerViewSession(
+      env,
+      adminId,
+      session,
+      {
+        step: "await_target",
+        data: {
+          source_chat_id: missingAnchor?.anchor_chat_id ?? adminId,
+          source_message_id: missingAnchor?.anchor_message_id ?? null,
+          selected_partner_id: null,
+          selected_input: selectedInput ?? session?.data?.selected_input ?? null,
+          details_anchor_chat_id: null,
+          details_anchor_message_id: null,
+        },
+      },
+      fallbackMessage
+    );
+
     return false;
   }
+
+  const panelAnchor = await renderPartnerDatabaseMessage(
+    env,
+    adminId,
+    buildPartnerControlPanelText(context),
+    buildPartnerControlPanelKeyboard(context.profile.telegram_id, role),
+    { session, fallbackMessage, forceNewMessage }
+  );
 
   await persistPartnerViewSession(
     env,
@@ -178,6 +227,8 @@ export async function renderPartnerControlPanel(
     {
       step: "selected",
       data: {
+        source_chat_id: panelAnchor?.anchor_chat_id ?? adminId,
+        source_message_id: panelAnchor?.anchor_message_id ?? null,
         selected_partner_id: String(context.profile.telegram_id),
         selected_input: selectedInput ?? session?.data?.selected_input ?? null,
         details_anchor_chat_id: null,
@@ -185,14 +236,6 @@ export async function renderPartnerControlPanel(
       },
     },
     fallbackMessage
-  );
-
-  await renderPartnerDatabaseMessage(
-    env,
-    adminId,
-    buildPartnerControlPanelText(context),
-    buildPartnerControlPanelKeyboard(context.profile.telegram_id, role),
-    { session, fallbackMessage }
   );
 
   return true;
@@ -269,6 +312,14 @@ export async function renderPartnerSubscriptionPage(
     return false;
   }
 
+  const panelAnchor = await renderPartnerDatabaseMessage(
+    env,
+    adminId,
+    buildPartnerSubscriptionText(context),
+    buildPartnerSubscriptionKeyboard(context.profile.telegram_id, role),
+    { session, fallbackMessage }
+  );
+
   await persistPartnerViewSession(
     env,
     adminId,
@@ -276,20 +327,14 @@ export async function renderPartnerSubscriptionPage(
     {
       step: "selected",
       data: {
+        source_chat_id: panelAnchor?.anchor_chat_id ?? adminId,
+        source_message_id: panelAnchor?.anchor_message_id ?? null,
         selected_partner_id: String(context.profile.telegram_id),
         details_anchor_chat_id: null,
         details_anchor_message_id: null,
       },
     },
     fallbackMessage
-  );
-
-  await renderPartnerDatabaseMessage(
-    env,
-    adminId,
-    buildPartnerSubscriptionText(context),
-    buildPartnerSubscriptionKeyboard(context.profile.telegram_id, role),
-    { session, fallbackMessage }
   );
 
   return true;
