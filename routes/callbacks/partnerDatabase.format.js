@@ -109,12 +109,12 @@ export function buildPartnerControlPanelText(context) {
   return [
     "🎛️ <b>Partner Control Panel</b>",
     "",
-    `Target: <b>${escapeHtml(selectedLabel)}</b>`,
-    `Nama: <b>${escapeHtml(profile?.nama_lengkap || "-")}</b>`,
-    `Telegram ID: <code>${escapeHtml(profile?.telegram_id || "-")}</code>`,
-    `Status Partner: <b>${escapeHtml(partnerStatusLabel(profile?.status))}</b>`,
-    `Akses Premium: <b>${escapeHtml(premiumAccess)}</b>`,
-    `Class Partner: <b>${escapeHtml(fmtClassId(profile?.class_id))}</b>`,
+    `Target : <b>${escapeHtml(selectedLabel)}</b>`,
+    `Nama : <b>${escapeHtml(profile?.nama_lengkap || "-")}</b>`,
+    `Telegram ID : <code>${escapeHtml(profile?.telegram_id || "-")}</code>`,
+    `Status Partner : <b>${escapeHtml(partnerStatusLabel(profile?.status))}</b>`,
+    `Akses Premium : <b>${escapeHtml(premiumAccess)}</b>`,
+    `Class Partner : <b>${escapeHtml(fmtClassId(profile?.class_id))}</b>`,
     "",
     "Pilih menu di bawah:",
   ].join("\n");
@@ -127,17 +127,17 @@ export function buildPartnerDetailsText(context) {
   return [
     "👤 <b>Partner Details</b>",
     "",
-    `Nama Lengkap: <b>${escapeHtml(profile?.nama_lengkap || "-")}</b>`,
-    `Nickname: <b>${escapeHtml(profile?.nickname || "-")}</b>`,
-    `Username: <b>${escapeHtml(cleanHandle(profile?.username) || "-")}</b>`,
-    `Telegram ID: <code>${escapeHtml(profile?.telegram_id || "-")}</code>`,
-    `NIK: <b>${escapeHtml(profile?.nik || "-")}</b>`,
-    `No Whatsapp: <b>${escapeHtml(profile?.no_whatsapp || "-")}</b>`,
-    `Kecamatan: <b>${escapeHtml(profile?.kecamatan || "-")}</b>`,
-    `Kota: <b>${escapeHtml(profile?.kota || "-")}</b>`,
-    `Kategori: <b>${escapeHtml(kategoriText)}</b>`,
-    `Verificator: <b>${escapeHtml(verificatorDisplay || "-")}</b>`,
-    `Approved At: <b>${escapeHtml(formatDateTime(profile?.approved_at))}</b>`,
+    `Nama Lengkap : <b>${escapeHtml(profile?.nama_lengkap || "-")}</b>`,
+    `Nickname : <b>${escapeHtml(profile?.nickname || "-")}</b>`,
+    `Username : <b>${escapeHtml(cleanHandle(profile?.username) || "-")}</b>`,
+    `Telegram ID : <code>${escapeHtml(profile?.telegram_id || "-")}</code>`,
+    `NIK : <b>${escapeHtml(profile?.nik || "-")}</b>`,
+    `No Whatsapp : <b>${escapeHtml(profile?.no_whatsapp || "-")}</b>`,
+    `Kecamatan : <b>${escapeHtml(profile?.kecamatan || "-")}</b>`,
+    `Kota : <b>${escapeHtml(profile?.kota || "-")}</b>`,
+    `Kategori : <b>${escapeHtml(kategoriText)}</b>`,
+    `Verificator : <b>${escapeHtml(verificatorDisplay || "-")}</b>`,
+    `Approved At : <b>${escapeHtml(formatDateTime(profile?.approved_at))}</b>`,
   ].join("\n");
 }
 
@@ -151,42 +151,25 @@ export function buildPartnerSubscriptionText(context) {
   const lines = [
     "📦 <b>Partner Subscription</b>",
     "",
-    "💎 <b>Status Premium</b>",
-    `${escapeHtml(premiumAccess)}`,
-    "",
-    "👤 <b>Class Partner</b>",
-    `${escapeHtml(fmtClassId(profile?.class_id))}`,
-    "",
-    "⏱ <b>Durasi</b>",
-    `${escapeHtml(durationLabel)}`,
-    "",
-    "📅 <b>Periode Aktif</b>",
-    `${escapeHtml(formatDateTime(row?.start_at))}`,
-    "s/d",
-    `${escapeHtml(formatDateTime(row?.end_at))}`,
+    `Akses Premium : <b>${escapeHtml(premiumAccess)}</b>`,
+    `Class Partner : <b>${escapeHtml(fmtClassId(profile?.class_id))}</b>`,
+    `Durasi : <b>${escapeHtml(durationLabel)}</b>`,
+    `Periode : <b>${escapeHtml(formatDateTime(row?.start_at))}</b> s/d <b>${escapeHtml(formatDateTime(row?.end_at))}</b>`,
   ];
 
   if (latestPayment) {
     lines.push("");
     lines.push("💳 <b>Pembayaran Terakhir</b>");
     lines.push("");
-    lines.push(`Kode Tiket`);
-    lines.push(`<b>${escapeHtml(latestPayment.ticket_code || "-")}</b>`);
-    lines.push("");
-    lines.push(`Status`);
-    lines.push(`<b>${escapeHtml(latestPayment.status || "-")}</b>`);
-    lines.push("");
-    lines.push(`Harga`);
-    lines.push(`<b>${escapeHtml(formatMoney(latestPayment.amount_base))}</b>`);
-    lines.push("");
-    lines.push(`Kode Unik`);
-    lines.push(`<b>${escapeHtml(latestPayment.unique_code ?? "0")}</b>`);
-    lines.push("");
-    lines.push(`Total Transfer`);
-    lines.push(`<b>${escapeHtml(formatMoney(latestPayment.amount_final))}</b>`);
-    lines.push("");
-    lines.push(`Tanggal Bayar`);
-    lines.push(`<b>${escapeHtml(formatDateTime(latestPayment.confirmed_at))}</b>`);
+    lines.push(`Kode Tiket : <b>${escapeHtml(latestPayment.ticket_code || "-")}</b>`);
+    lines.push(`Status : <b>${escapeHtml(latestPayment.status || "-")}</b>`);
+    lines.push(`Durasi : <b>${escapeHtml(formatDurationLabelFromRow(latestPayment))}</b>`);
+    lines.push(`Harga Dasar : <b>${escapeHtml(formatMoney(latestPayment.amount_base))}</b>`);
+    lines.push(`Kode Unik : <b>${escapeHtml(latestPayment.unique_code ?? "0")}</b>`);
+    lines.push(`Total Bayar : <b>${escapeHtml(formatMoney(latestPayment.amount_final))}</b>`);
+    lines.push(`Requested At : <b>${escapeHtml(formatDateTime(latestPayment.requested_at))}</b>`);
+    lines.push(`Expires At : <b>${escapeHtml(formatDateTime(latestPayment.expires_at))}</b>`);
+    lines.push(`Confirmed At : <b>${escapeHtml(formatDateTime(latestPayment.confirmed_at))}</b>`);
   }
 
   return lines.join("\n");
