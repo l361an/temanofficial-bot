@@ -232,94 +232,16 @@ export function buildPartnerDatabaseHandlers() {
     },
   });
 
-  PREFIX.push({
-    match: (d) => d.startsWith(CALLBACK_PREFIX.PM_PANEL_OPEN),
-    run: async (ctx) => {
-      const { env, data, adminId, msg, role, session } = ctx;
-      const telegramId = resolveTargetTelegramId(
-        String(data.slice(CALLBACK_PREFIX.PM_PANEL_OPEN.length) || "").trim(),
-        session
-      );
-
-      if (!telegramId) {
-        await renderPartnerDatabaseMessage(
-          env,
-          adminId,
-          "⚠️ Target partner tidak valid.",
-          buildPartnerDatabaseKeyboard(role),
-          { session, fallbackMessage: msg }
-        );
-        return true;
-      }
-
-      await renderPartnerControlPanel(env, adminId, telegramId, role, {
-        session,
-        fallbackMessage: msg,
-      });
-      return true;
-    },
-  });
-
-  PREFIX.push({
-    match: (d) => d.startsWith(CALLBACK_PREFIX.PM_DETAILS_OPEN),
-    run: async (ctx) => {
-      const { env, data, adminId, msg, role, session } = ctx;
-      const telegramId = resolveTargetTelegramId(
-        String(data.slice(CALLBACK_PREFIX.PM_DETAILS_OPEN.length) || "").trim(),
-        session
-      );
-
-      if (!telegramId) {
-        await renderPartnerDatabaseMessage(
-          env,
-          adminId,
-          "⚠️ Target partner tidak valid.",
-          buildPartnerDatabaseKeyboard(role),
-          { session, fallbackMessage: msg }
-        );
-        return true;
-      }
-
-      await renderPartnerDetailsPage(env, adminId, telegramId, role, {
-        session,
-        fallbackMessage: msg,
-      });
-      return true;
-    },
-  });
-
-  PREFIX.push({
-    match: (d) => d.startsWith(CALLBACK_PREFIX.PM_SUBSCRIPTION_OPEN),
-    run: async (ctx) => {
-      const { env, data, adminId, msg, role, session } = ctx;
-      const telegramId = resolveTargetTelegramId(
-        String(data.slice(CALLBACK_PREFIX.PM_SUBSCRIPTION_OPEN.length) || "").trim(),
-        session
-      );
-
-      if (!telegramId) {
-        await renderPartnerDatabaseMessage(
-          env,
-          adminId,
-          "⚠️ Target partner tidak valid.",
-          buildPartnerDatabaseKeyboard(role),
-          { session, fallbackMessage: msg }
-        );
-        return true;
-      }
-
-      await renderPartnerSubscriptionPage(env, adminId, telegramId, role, {
-        session,
-        fallbackMessage: msg,
-      });
-      return true;
-    },
-  });
-
+  /**
+   * FIX BUG:
+   * BACK harus diproses dulu sebelum OPEN
+   * supaya pm:panel:back:XXXX tidak ditangkap pm:panel:
+   */
   PREFIX.push({
     match: (d) => d.startsWith(CALLBACK_PREFIX.PM_PANEL_BACK),
     run: async (ctx) => {
       const { env, data, adminId, msg, role, session } = ctx;
+
       const telegramId = resolveTargetTelegramId(
         String(data.slice(CALLBACK_PREFIX.PM_PANEL_BACK.length) || "").trim(),
         session
@@ -340,6 +262,97 @@ export function buildPartnerDatabaseHandlers() {
         session,
         fallbackMessage: msg,
       });
+
+      return true;
+    },
+  });
+
+  PREFIX.push({
+    match: (d) => d.startsWith(CALLBACK_PREFIX.PM_PANEL_OPEN),
+    run: async (ctx) => {
+      const { env, data, adminId, msg, role, session } = ctx;
+
+      const telegramId = resolveTargetTelegramId(
+        String(data.slice(CALLBACK_PREFIX.PM_PANEL_OPEN.length) || "").trim(),
+        session
+      );
+
+      if (!telegramId) {
+        await renderPartnerDatabaseMessage(
+          env,
+          adminId,
+          "⚠️ Target partner tidak valid.",
+          buildPartnerDatabaseKeyboard(role),
+          { session, fallbackMessage: msg }
+        );
+        return true;
+      }
+
+      await renderPartnerControlPanel(env, adminId, telegramId, role, {
+        session,
+        fallbackMessage: msg,
+      });
+
+      return true;
+    },
+  });
+
+  PREFIX.push({
+    match: (d) => d.startsWith(CALLBACK_PREFIX.PM_DETAILS_OPEN),
+    run: async (ctx) => {
+      const { env, data, adminId, msg, role, session } = ctx;
+
+      const telegramId = resolveTargetTelegramId(
+        String(data.slice(CALLBACK_PREFIX.PM_DETAILS_OPEN.length) || "").trim(),
+        session
+      );
+
+      if (!telegramId) {
+        await renderPartnerDatabaseMessage(
+          env,
+          adminId,
+          "⚠️ Target partner tidak valid.",
+          buildPartnerDatabaseKeyboard(role),
+          { session, fallbackMessage: msg }
+        );
+        return true;
+      }
+
+      await renderPartnerDetailsPage(env, adminId, telegramId, role, {
+        session,
+        fallbackMessage: msg,
+      });
+
+      return true;
+    },
+  });
+
+  PREFIX.push({
+    match: (d) => d.startsWith(CALLBACK_PREFIX.PM_SUBSCRIPTION_OPEN),
+    run: async (ctx) => {
+      const { env, data, adminId, msg, role, session } = ctx;
+
+      const telegramId = resolveTargetTelegramId(
+        String(data.slice(CALLBACK_PREFIX.PM_SUBSCRIPTION_OPEN.length) || "").trim(),
+        session
+      );
+
+      if (!telegramId) {
+        await renderPartnerDatabaseMessage(
+          env,
+          adminId,
+          "⚠️ Target partner tidak valid.",
+          buildPartnerDatabaseKeyboard(role),
+          { session, fallbackMessage: msg }
+        );
+        return true;
+      }
+
+      await renderPartnerSubscriptionPage(env, adminId, telegramId, role, {
+        session,
+        fallbackMessage: msg,
+      });
+
       return true;
     },
   });
