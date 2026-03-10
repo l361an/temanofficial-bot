@@ -9,6 +9,98 @@ function normalizeReminderColumn(reminderKey) {
   throw new Error("invalid_reminder_key");
 }
 
+function normalizeReminderKey(reminderKey) {
+  return String(reminderKey || "").trim().toLowerCase();
+}
+
+function toSqlDateTime(value = new Date()) {
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) {
+    throw new Error("invalid_datetime");
+  }
+
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  const ss = String(d.getSeconds()).padStart(2, "0");
+
+  return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
+}
+
+function readDurationCode(row) {
+  const metadata = String(row?.metadata_json || "").trim();
+  if (metadata) {
+    try {
+      const parsed = JSON.parse(metadata);
+      const raw = String(parsed?.duration_code || "").trim().toLowerCase();
+      if (raw === "1d" || raw === "3d" || raw === "7d" || raw === "1m") return raw;
+    } catch {}
+  }
+
+  const months = Number(row?.duration_months || 0);
+  if (months === 1) return "1m";
+  return "1d";
+}
+
+function canReminderApplyToDuration(durationCode, reminderKey) {
+  const d = String(durationCode || "").trim().toLowerCase();
+  const k = normalizeReminderKey(reminderKey);
+
+  if (d === "1d") {
+    return k === "h3h";
+  }
+
+  if (d === "3d") {
+    return k === "h2d" || k === "h1d" || k === "h3h";
+  }
+
+  if (d === "7d" || d === "1m") {
+    return k === "h3d" || k === "h2d" || k === "h1d" || k === "h3h";
+  }
+
+  return false;
+}
+
+function buildReminderWindow(reminderKey, nowSql) {
+  const k = normalizeReminderKey(reminderKey);
+
+  if (k === "h3d") {
+    return {
+      lowerExpr: "datetime(?, '+3 days')",
+      upperExpr: "datetime(?, '+3 days', '+1 hour')",
+      bindValues: [nowSql, nowSql],
+    };
+  }
+
+  if (k === "h2d") {
+    return {
+      lowerExpr: "datetime(?, '+2 days')",
+      upperExpr: "datetime(?, '+2 days', '+1 hour')",
+      bindValues: [nowSql, nowSql],
+    };
+  }
+
+  if (k === "h1d") {
+    return {
+      lowerExpr: "datetime(?, '+1 day')",
+      upperExpr: "datetime(?, '+1 day', '+1 hour')",
+      bindValues: [nowSql, nowSql],
+    };
+  }
+
+  if (k === "h3h") {
+    return {
+      lowerExpr: "datetime(?, '+3 hours')",
+      upperExpr: "datetime(?, '+4 hours')",
+      bindValues: [nowSql, nowSql],
+    };
+  }
+
+  throw new Error("invalid_reminder_key");
+}
+
 export async function listActiveSubscriptionsByTelegramId(env, telegramId) {
   const { results } = await env.DB.prepare(
     `
@@ -233,28 +325,34 @@ export async function replaceActiveSubscriptionByTelegramId(
   return created;
 }
 
-export async function expireDueSubscriptions(env) {
+export async function expireDueSubscriptions(env, nowOverride = null) {
+  const nowSql = nowOverride ? toSqlDateTime(nowOverride) : toSqlDateTime(new Date());
+
   const { results } = await env.DB.prepare(
     `
     SELECT DISTINCT partner_id
     FROM partner_subscriptions
     WHERE status = 'active'
       AND end_at IS NOT NULL
-      AND datetime(end_at) <= datetime('now')
+      AND datetime(end_at) <= datetime(?)
   `
-  ).all();
+  )
+    .bind(nowSql)
+    .all();
 
   await env.DB.prepare(
     `
     UPDATE partner_subscriptions
     SET status = 'expired',
-        expired_at = COALESCE(expired_at, datetime('now')),
+        expired_at = COALESCE(expired_at, ?),
         updated_at = datetime('now')
     WHERE status = 'active'
       AND end_at IS NOT NULL
-      AND datetime(end_at) <= datetime('now')
+      AND datetime(end_at) <= datetime(?)
   `
-  ).run();
+  )
+    .bind(nowSql, nowSql)
+    .run();
 
   return {
     ok: true,
@@ -293,39 +391,26 @@ export async function listSubscriptionsDueForReminder(
   reminderKey,
   {
     limit = 200,
+    nowOverride = null,
   } = {}
 ) {
-  const reminderColumn = normalizeReminderColumn(reminderKey);
+  const safeReminderKey = normalizeReminderKey(reminderKey);
+  const reminderColumn = normalizeReminderColumn(safeReminderKey);
+  const nowSql = nowOverride ? toSqlDateTime(nowOverride) : toSqlDateTime(new Date());
+  const { lowerExpr, upperExpr, bindValues } = buildReminderWindow(safeReminderKey, nowSql);
   const safeLimit =
     Number.isFinite(Number(limit)) && Number(limit) > 0
       ? Math.min(Number(limit), 1000)
       : 200;
 
-  let lowerExpr = "";
-  let upperExpr = "";
-
-  if (reminderKey === "h3d") {
-    lowerExpr = "datetime('now', '+3 days')";
-    upperExpr = "datetime('now', '+3 days', '+1 hour')";
-  } else if (reminderKey === "h2d") {
-    lowerExpr = "datetime('now', '+2 days')";
-    upperExpr = "datetime('now', '+2 days', '+1 hour')";
-  } else if (reminderKey === "h1d") {
-    lowerExpr = "datetime('now', '+1 day')";
-    upperExpr = "datetime('now', '+1 day', '+1 hour')";
-  } else if (reminderKey === "h3h") {
-    lowerExpr = "datetime('now', '+3 hours')";
-    upperExpr = "datetime('now', '+4 hours')";
-  } else {
-    throw new Error("invalid_reminder_key");
-  }
-
   const sql = `
     SELECT *
     FROM partner_subscriptions
     WHERE status = 'active'
+      AND start_at IS NOT NULL
       AND end_at IS NOT NULL
-      AND datetime(end_at) > datetime('now')
+      AND datetime(start_at) <= datetime(?)
+      AND datetime(end_at) > datetime(?)
       AND datetime(end_at) >= ${lowerExpr}
       AND datetime(end_at) < ${upperExpr}
       AND ${reminderColumn} IS NULL
@@ -333,8 +418,19 @@ export async function listSubscriptionsDueForReminder(
     LIMIT ${safeLimit}
   `;
 
-  const { results } = await env.DB.prepare(sql).all();
-  return Array.isArray(results) ? results : [];
+  const bindParams = [nowSql, nowSql, ...bindValues];
+  const { results } = await env.DB.prepare(sql).bind(...bindParams).all();
+  const rows = Array.isArray(results) ? results : [];
+
+  return rows
+    .filter((row) => {
+      const durationCode = readDurationCode(row);
+      return canReminderApplyToDuration(durationCode, safeReminderKey);
+    })
+    .map((row) => ({
+      ...row,
+      duration_code: readDurationCode(row),
+    }));
 }
 
 export async function markSubscriptionReminderSent(
@@ -344,17 +440,17 @@ export async function markSubscriptionReminderSent(
   sentAt = null
 ) {
   const reminderColumn = normalizeReminderColumn(reminderKey);
+  const safeSentAt =
+    sentAt == null
+      ? new Date().toISOString().slice(0, 19).replace("T", " ")
+      : String(sentAt);
+
   const sql = `
     UPDATE partner_subscriptions
     SET ${reminderColumn} = COALESCE(${reminderColumn}, ?),
         updated_at = datetime('now')
     WHERE id = ?
   `;
-
-  const safeSentAt =
-    sentAt == null
-      ? new Date().toISOString().slice(0, 19).replace("T", " ")
-      : String(sentAt);
 
   await env.DB.prepare(sql)
     .bind(safeSentAt, String(subscriptionId))
@@ -365,6 +461,7 @@ export async function markSubscriptionReminderSent(
 
 export async function resetSubscriptionReminderMarker(env, subscriptionId, reminderKey) {
   const reminderColumn = normalizeReminderColumn(reminderKey);
+
   const sql = `
     UPDATE partner_subscriptions
     SET ${reminderColumn} = NULL,
@@ -377,4 +474,52 @@ export async function resetSubscriptionReminderMarker(env, subscriptionId, remin
     .run();
 
   return { ok: true };
+}
+
+export async function listReminderDebugRows(
+  env,
+  {
+    limit = 20,
+    nowOverride = null,
+  } = {}
+) {
+  const safeLimit =
+    Number.isFinite(Number(limit)) && Number(limit) > 0
+      ? Math.min(Number(limit), 100)
+      : 20;
+
+  const nowSql = nowOverride ? toSqlDateTime(nowOverride) : toSqlDateTime(new Date());
+
+  const { results } = await env.DB.prepare(
+    `
+    SELECT *
+    FROM partner_subscriptions
+    WHERE status = 'active'
+      AND start_at IS NOT NULL
+      AND end_at IS NOT NULL
+      AND datetime(start_at) <= datetime(?)
+      AND datetime(end_at) > datetime(?)
+    ORDER BY datetime(end_at) ASC, datetime(created_at) ASC
+    LIMIT ?
+  `
+  )
+    .bind(nowSql, nowSql, safeLimit)
+    .all();
+
+  const rows = Array.isArray(results) ? results : [];
+
+  return rows.map((row) => {
+    const durationCode = readDurationCode(row);
+    return {
+      ...row,
+      duration_code: durationCode,
+      debug_now: nowSql,
+      reminder_matrix: {
+        h3d: canReminderApplyToDuration(durationCode, "h3d"),
+        h2d: canReminderApplyToDuration(durationCode, "h2d"),
+        h1d: canReminderApplyToDuration(durationCode, "h1d"),
+        h3h: canReminderApplyToDuration(durationCode, "h3h"),
+      },
+    };
+  });
 }
