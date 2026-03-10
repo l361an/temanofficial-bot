@@ -80,14 +80,27 @@ export function buildPaymentDurationKeyboard() {
   return {
     inline_keyboard: [
       [
-        { text: "1 Hari", callback_data: "self:payment:create:1d" },
-        { text: "3 Hari", callback_data: "self:payment:create:3d" },
+        { text: "1 Hari", callback_data: "self:payment:pick:1d" },
+        { text: "3 Hari", callback_data: "self:payment:pick:3d" },
       ],
       [
-        { text: "7 Hari", callback_data: "self:payment:create:7d" },
-        { text: "1 Bulan", callback_data: "self:payment:create:1m" },
+        { text: "7 Hari", callback_data: "self:payment:pick:7d" },
+        { text: "1 Bulan", callback_data: "self:payment:pick:1m" },
       ],
       [{ text: "⬅️ Kembali", callback_data: "self:payment" }],
+    ],
+  };
+}
+
+export function buildPaymentDurationConfirmKeyboard(durationCode) {
+  const code = String(durationCode || "").trim().toLowerCase();
+  return {
+    inline_keyboard: [
+      [
+        { text: "✅ Konfirmasi", callback_data: `self:payment:confirm:${code}` },
+        { text: "❌ Cancel", callback_data: "self:payment:create" },
+      ],
+      [{ text: "⬅️ Ganti Durasi", callback_data: "self:payment:create" }],
     ],
   };
 }
@@ -118,6 +131,24 @@ export function buildChooseDurationMessage(ctx) {
   ].join("\n");
 }
 
+export function buildPaymentDurationConfirmMessage(ctx, price) {
+  const classLabel = fmtClassId(ctx?.profile?.class_id || "bronze");
+
+  return [
+    "🧾 <b>KONFIRMASI DURASI PREMIUM</b>",
+    "",
+    `Status Partner: <b>${escapeHtml(ctx.partnerStatusLabel)}</b>`,
+    `Akses Premium: <b>${escapeHtml(ctx.premiumAccessLabel)}</b>`,
+    `Class Partner: <b>${escapeHtml(classLabel)}</b>`,
+    "",
+    `Durasi Dipilih: <b>${escapeHtml(price?.durationLabel || "-")}</b>`,
+    `Harga Dasar: <b>${escapeHtml(formatMoney(price?.amount || 0))}</b>`,
+    "",
+    "Pastikan durasi yang kamu pilih sudah benar.",
+    "Kalau sudah sesuai, klik <b>Konfirmasi</b> untuk membuat tiket pembayaran.",
+  ].join("\n");
+}
+
 export function buildPaymentTicketSummary(ticket) {
   if (!ticket) return "Belum ada tiket pembayaran.";
 
@@ -142,7 +173,8 @@ export function buildPaymentTicketSummary(ticket) {
   return lines.join("\n");
 }
 
-export function buildPaymentInstructionMessage(ticket, durationLabel = null) {
+export function buildPaymentInstructionMessage(ticket, durationLabel = null, options = {}) {
+  const { hasQrisPhoto = false } = options;
   const classLabel = fmtClassId(ticket?.class_id);
   const durationCode = readDurationCodeFromTicket(ticket);
   const finalDurationLabel = durationLabel || fmtDurationLabel(durationCode, ticket?.duration_months);
@@ -156,7 +188,9 @@ export function buildPaymentInstructionMessage(ticket, durationLabel = null) {
     `Total Bayar: <b>${escapeHtml(formatMoney(ticket?.amount_final))}</b>`,
     `Batas Waktu: <b>${escapeHtml(formatDateTime(ticket?.expires_at))}</b>`,
     "",
-    "Silakan transfer sesuai nominal di atas.",
+    hasQrisPhoto
+      ? "Silakan scan QRIS pada foto ini dan transfer sesuai nominal di atas."
+      : "Silakan transfer sesuai nominal di atas.",
     "Setelah transfer, kirim <b>foto bukti transfer</b> langsung di chat ini.",
     "",
     "Catatan:",
