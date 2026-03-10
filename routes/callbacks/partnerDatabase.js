@@ -1,5 +1,9 @@
 // routes/callbacks/partnerDatabase.js
-import { sendMessage, upsertCallbackMessage } from "../../services/telegramApi.js";
+import {
+  sendMessage,
+  sendPhoto,
+  upsertCallbackMessage,
+} from "../../services/telegramApi.js";
 import { saveSession, clearSession } from "../../utils/session.js";
 import {
   listProfilesAll,
@@ -234,6 +238,10 @@ async function persistPartnerViewSession(
       patch?.data?.selected_input ??
       currentSession?.data?.selected_input ??
       null,
+    details_photos_sent:
+      patch?.data?.details_photos_sent ??
+      currentSession?.data?.details_photos_sent ??
+      false,
   };
 
   await saveSession(env, `state:${adminId}`, {
@@ -337,6 +345,8 @@ function buildPartnerDetailsText(context) {
     `Verificator: <b>${escapeHtml(verificatorDisplay || "-")}</b>`,
     `Approved At: <b>${escapeHtml(formatDateTime(profile?.approved_at))}</b>`,
     `Approved By: <b>${escapeHtml(profile?.approved_by || "-")}</b>`,
+    "",
+    "Foto partner dikirim di bawah jika tersedia.",
   ].join("\n");
 }
 
@@ -378,6 +388,29 @@ function buildPartnerSubscriptionText(context) {
   return lines.join("\n");
 }
 
+async function sendPartnerPhotos(env, adminId, profile) {
+  const photos = [
+    [profile?.foto_closeup_file_id, "📸 <b>Foto Closeup</b>"],
+    [profile?.foto_fullbody_file_id, "📸 <b>Foto Fullbody</b>"],
+    [profile?.foto_ktp_file_id, "🪪 <b>Foto KTP</b>"],
+  ];
+
+  for (const [fileId, caption] of photos) {
+    if (!fileId) continue;
+    await sendPhoto(env, adminId, fileId, caption, { parse_mode: "HTML" }).catch(() => {});
+  }
+}
+
+function resolveTargetTelegramId(rawTelegramId, session) {
+  const direct = String(rawTelegramId || "").trim();
+  if (direct) return direct;
+
+  const selected = String(session?.data?.selected_partner_id || "").trim();
+  if (selected) return selected;
+
+  return "";
+}
+
 export async function renderPartnerControlPanel(
   env,
   adminId,
@@ -407,6 +440,7 @@ export async function renderPartnerControlPanel(
       data: {
         selected_partner_id: String(context.profile.telegram_id),
         selected_input: selectedInput ?? session?.data?.selected_input ?? null,
+        details_photos_sent: false,
       },
     },
     fallbackMessage
@@ -430,7 +464,8 @@ export async function renderPartnerDetailsPage(
   role,
   { session = null, fallbackMessage = null } = {}
 ) {
-  const context = await loadPartnerContext(env, telegramId);
+  const finalTelegramId = resolveTargetTelegramId(telegramId, session);
+  const context = await loadPartnerContext(env, finalTelegramId);
 
   if (!context?.profile) {
     await renderPartnerDatabaseMessage(
@@ -449,7 +484,10 @@ export async function renderPartnerDetailsPage(
     session,
     {
       step: "selected",
-      data: { selected_partner_id: String(context.profile.telegram_id) },
+      data: {
+        selected_partner_id: String(context.profile.telegram_id),
+        details_photos_sent: true,
+      },
     },
     fallbackMessage
   );
@@ -462,6 +500,8 @@ export async function renderPartnerDetailsPage(
     { session, fallbackMessage }
   );
 
+  await sendPartnerPhotos(env, adminId, context.profile);
+
   return true;
 }
 
@@ -472,7 +512,8 @@ export async function renderPartnerSubscriptionPage(
   role,
   { session = null, fallbackMessage = null } = {}
 ) {
-  const context = await loadPartnerContext(env, telegramId);
+  const finalTelegramId = resolveTargetTelegramId(telegramId, session);
+  const context = await loadPartnerContext(env, finalTelegramId);
 
   if (!context?.profile) {
     await renderPartnerDatabaseMessage(
@@ -491,7 +532,10 @@ export async function renderPartnerSubscriptionPage(
     session,
     {
       step: "selected",
-      data: { selected_partner_id: String(context.profile.telegram_id) },
+      data: {
+        selected_partner_id: String(context.profile.telegram_id),
+        details_photos_sent: false,
+      },
     },
     fallbackMessage
   );
@@ -681,7 +725,10 @@ export function buildPartnerDatabaseHandlers() {
     match: (d) => d.startsWith(CALLBACK_PREFIX.PM_PANEL_OPEN),
     run: async (ctx) => {
       const { env, data, adminId, msg, role } = ctx;
-      const telegramId = String(data.slice(CALLBACK_PREFIX.PM_PANEL_OPEN.length) || "").trim();
+      const telegramId = resolveTargetTelegramId(
+        String(data.slice(CALLBACK_PREFIX.PM_PANEL_OPEN.length) || "").trim(),
+        null
+      );
 
       if (!telegramId) {
         await renderPartnerDatabaseMessage(
@@ -704,8 +751,11 @@ export function buildPartnerDatabaseHandlers() {
   PREFIX.push({
     match: (d) => d.startsWith(CALLBACK_PREFIX.PM_DETAILS_OPEN),
     run: async (ctx) => {
-      const { env, data, adminId, msg, role } = ctx;
-      const telegramId = String(data.slice(CALLBACK_PREFIX.PM_DETAILS_OPEN.length) || "").trim();
+      const { env, data, adminId, msg, role, session } = ctx;
+      const telegramId = resolveTargetTelegramId(
+        String(data.slice(CALLBACK_PREFIX.PM_DETAILS_OPEN.length) || "").trim(),
+        session
+      );
 
       if (!telegramId) {
         await renderPartnerDatabaseMessage(
@@ -713,12 +763,13 @@ export function buildPartnerDatabaseHandlers() {
           adminId,
           "⚠️ Target partner tidak valid.",
           buildPartnerDatabaseKeyboard(role),
-          { fallbackMessage: msg }
+          { session, fallbackMessage: msg }
         );
         return true;
       }
 
       await renderPartnerDetailsPage(env, adminId, telegramId, role, {
+        session,
         fallbackMessage: msg,
       });
       return true;
@@ -728,8 +779,11 @@ export function buildPartnerDatabaseHandlers() {
   PREFIX.push({
     match: (d) => d.startsWith(CALLBACK_PREFIX.PM_SUBSCRIPTION_OPEN),
     run: async (ctx) => {
-      const { env, data, adminId, msg, role } = ctx;
-      const telegramId = String(data.slice(CALLBACK_PREFIX.PM_SUBSCRIPTION_OPEN.length) || "").trim();
+      const { env, data, adminId, msg, role, session } = ctx;
+      const telegramId = resolveTargetTelegramId(
+        String(data.slice(CALLBACK_PREFIX.PM_SUBSCRIPTION_OPEN.length) || "").trim(),
+        session
+      );
 
       if (!telegramId) {
         await renderPartnerDatabaseMessage(
@@ -737,12 +791,13 @@ export function buildPartnerDatabaseHandlers() {
           adminId,
           "⚠️ Target partner tidak valid.",
           buildPartnerDatabaseKeyboard(role),
-          { fallbackMessage: msg }
+          { session, fallbackMessage: msg }
         );
         return true;
       }
 
       await renderPartnerSubscriptionPage(env, adminId, telegramId, role, {
+        session,
         fallbackMessage: msg,
       });
       return true;
@@ -752,21 +807,25 @@ export function buildPartnerDatabaseHandlers() {
   PREFIX.push({
     match: (d) => d.startsWith(CALLBACK_PREFIX.PM_PANEL_BACK),
     run: async (ctx) => {
-      const { env, data, adminId, msg, role } = ctx;
-      const telegramId = String(data.slice(CALLBACK_PREFIX.PM_PANEL_BACK.length) || "").trim();
+      const { env, data, adminId, msg, role, session } = ctx;
+      const telegramId = resolveTargetTelegramId(
+        String(data.slice(CALLBACK_PREFIX.PM_PANEL_BACK.length) || "").trim(),
+        session
+      );
 
       if (!telegramId) {
         await renderPartnerDatabaseMessage(
           env,
           adminId,
-          "⚠️ Target partner tidak valid.",
+          "⚠️ Data partner tidak ditemukan.",
           buildPartnerDatabaseKeyboard(role),
-          { fallbackMessage: msg }
+          { session, fallbackMessage: msg }
         );
         return true;
       }
 
       await renderPartnerControlPanel(env, adminId, telegramId, role, {
+        session,
         fallbackMessage: msg,
       });
       return true;
