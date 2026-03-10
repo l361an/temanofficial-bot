@@ -85,7 +85,8 @@ export async function handlePartnerViewSearchInput({
 
   if (/^(batal|cancel|keluar)$/i.test(raw)) {
     await clearSession(env, STATE_KEY);
-    await renderPartnerDatabaseMessage(
+
+    const anchor = await renderPartnerDatabaseMessage(
       env,
       adminId,
       "✅ Oke, sesi View Partner dibatalkan.",
@@ -93,14 +94,34 @@ export async function handlePartnerViewSearchInput({
       {
         session,
         fallbackMessage: msg,
+        forceNewMessage: true,
       }
     );
+
+    await persistPartnerViewSession(
+      env,
+      adminId,
+      null,
+      {
+        step: "await_target",
+        data: {
+          source_chat_id: anchor?.anchor_chat_id ?? adminId,
+          source_message_id: anchor?.anchor_message_id ?? null,
+          selected_partner_id: null,
+          selected_input: null,
+          details_anchor_chat_id: null,
+          details_anchor_message_id: null,
+        },
+      },
+      null
+    );
+
     return true;
   }
 
   const targetId = await resolveTelegramId(env, raw);
   if (!targetId) {
-    await renderPartnerDatabaseMessage(
+    const anchor = await renderPartnerDatabaseMessage(
       env,
       adminId,
       "⚠️ Target tidak valid / tidak ditemukan.\nKirim <b>@username</b> atau <b>telegram_id</b> ya.\n\nKetik <b>batal</b> untuk keluar.",
@@ -108,8 +129,28 @@ export async function handlePartnerViewSearchInput({
       {
         session,
         fallbackMessage: msg,
+        forceNewMessage: true,
       }
     );
+
+    await persistPartnerViewSession(
+      env,
+      adminId,
+      session,
+      {
+        step: "await_target",
+        data: {
+          source_chat_id: anchor?.anchor_chat_id ?? adminId,
+          source_message_id: anchor?.anchor_message_id ?? null,
+          selected_partner_id: null,
+          selected_input: raw,
+          details_anchor_chat_id: null,
+          details_anchor_message_id: null,
+        },
+      },
+      null
+    );
+
     return true;
   }
 
@@ -117,6 +158,7 @@ export async function handlePartnerViewSearchInput({
     session,
     fallbackMessage: msg,
     selectedInput: raw,
+    forceNewMessage: true,
   });
 }
 
