@@ -10,6 +10,7 @@ import { isAdminRole, isSuperadminRole } from "../utils/roles.js";
 
 import { handleCallback } from "./telegram.callback.js";
 import { handleAdminCommand } from "./telegram.commands.admin.js";
+import { handleReminderTestCommand } from "./telegram.command.reminderTest.js";
 import {
   handleUserCommand,
   buildTeManMenuKeyboard,
@@ -61,6 +62,14 @@ export async function handleTelegramWebhook(request, env) {
 
     if (text && text.startsWith("/")) {
       const raw = String(text || "").trim();
+
+      const handledReminderTest = await handleReminderTestCommand({
+        env,
+        chatId,
+        text: raw,
+        role,
+      });
+      if (handledReminderTest) return json({ ok: true });
 
       if (isAdminRole(role)) {
         const handled = await handleAdminCommand({ env, chatId, text: raw, telegramId, role });
