@@ -79,6 +79,7 @@ export async function handlePartnerViewSearchInput({
   role,
   session,
   STATE_KEY,
+  msg,
 }) {
   const raw = String(text || "").trim();
 
@@ -89,7 +90,10 @@ export async function handlePartnerViewSearchInput({
       adminId,
       "✅ Oke, sesi View Partner dibatalkan.",
       buildPartnerDatabaseKeyboard(role),
-      { session }
+      {
+        session,
+        fallbackMessage: msg,
+      }
     );
     return true;
   }
@@ -101,13 +105,17 @@ export async function handlePartnerViewSearchInput({
       adminId,
       "⚠️ Target tidak valid / tidak ditemukan.\nKirim <b>@username</b> atau <b>telegram_id</b> ya.\n\nKetik <b>batal</b> untuk keluar.",
       buildBackToPartnerDatabaseViewKeyboard(role),
-      { session }
+      {
+        session,
+        fallbackMessage: msg,
+      }
     );
     return true;
   }
 
   return renderPartnerControlPanel(env, adminId || chatId, targetId, role, {
     session,
+    fallbackMessage: msg,
     selectedInput: raw,
   });
 }
@@ -232,11 +240,6 @@ export function buildPartnerDatabaseHandlers() {
     },
   });
 
-  /**
-   * FIX BUG:
-   * BACK harus diproses dulu sebelum OPEN
-   * supaya pm:panel:back:XXXX tidak ditangkap pm:panel:
-   */
   PREFIX.push({
     match: (d) => d.startsWith(CALLBACK_PREFIX.PM_PANEL_BACK),
     run: async (ctx) => {
