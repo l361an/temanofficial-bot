@@ -6,6 +6,7 @@ import {
   listSubscriptionsDueForReminder,
   markSubscriptionReminderSent,
   expireDueSubscriptions,
+  listReminderDebugRows,
 } from "../repositories/partnerSubscriptionsRepo.js";
 import { markSubscriptionExpired } from "./partnerStatusService.js";
 
@@ -13,6 +14,15 @@ const REMINDER_KEYS = ["h3d", "h2d", "h1d", "h3h"];
 
 function pad2(value) {
   return String(value).padStart(2, "0");
+}
+
+function toSqlDateTime(value = new Date()) {
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) {
+    throw new Error("invalid_datetime");
+  }
+
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
 }
 
 function formatDateTime(value) {
@@ -74,6 +84,15 @@ function buildMenuKeyboard() {
   };
 }
 
+function parseNowOverride(nowOverride) {
+  if (!nowOverride) return null;
+  const d = new Date(String(nowOverride).replace(" ", "T"));
+  if (Number.isNaN(d.getTime())) {
+    throw new Error("invalid_now_override");
+  }
+  return d;
+}
+
 async function notifyExpiredPaymentTickets(env, expiredRows) {
   const rows = Array.isArray(expiredRows) ? expiredRows : [];
   let sent = 0;
@@ -107,8 +126,15 @@ async function notifyExpiredPaymentTickets(env, expiredRows) {
   return { sent, failed };
 }
 
-async function processReminderKey(env, reminderKey, { limit = 200, dryRun = false } = {}) {
-  const candidates = await listSubscriptionsDueForReminder(env, reminderKey, { limit });
+async function processReminderKey(
+  env,
+  reminderKey,
+  { limit = 200, dryRun = false, nowOverride = null } = {}
+) {
+  const candidates = await listSubscriptionsDueForReminder(env, reminderKey, {
+    limit,
+    nowOverride,
+  });
 
   if (dryRun) {
     return {
@@ -120,12 +146,14 @@ async function processReminderKey(env, reminderKey, { limit = 200, dryRun = fals
         id: String(row.id || ""),
         partner_id: String(row.partner_id || ""),
         end_at: String(row.end_at || ""),
+        duration_code: String(row.duration_code || ""),
       })),
     };
   }
 
   let sent = 0;
   let failed = 0;
+  const sentAt = nowOverride ? toSqlDateTime(nowOverride) : null;
 
   for (const row of candidates) {
     try {
@@ -145,7 +173,7 @@ async function processReminderKey(env, reminderKey, { limit = 200, dryRun = fals
         continue;
       }
 
-      await markSubscriptionReminderSent(env, row.id, reminderKey);
+      await markSubscriptionReminderSent(env, row.id, reminderKey, sentAt);
       sent += 1;
     } catch (err) {
       console.error("SEND REMINDER ERROR:", reminderKey, row?.id, err);
@@ -162,7 +190,7 @@ async function processReminderKey(env, reminderKey, { limit = 200, dryRun = fals
   };
 }
 
-async function processExpiredSubscriptions(env, { dryRun = false } = {}) {
+async function processExpiredSubscriptions(env, { dryRun = false, nowOverride = null } = {}) {
   if (dryRun) {
     return {
       expired_count: 0,
@@ -172,7 +200,7 @@ async function processExpiredSubscriptions(env, { dryRun = false } = {}) {
     };
   }
 
-  const expired = await expireDueSubscriptions(env);
+  const expired = await expireDueSubscriptions(env, nowOverride);
   const partnerIds = Array.isArray(expired?.partnerIds) ? expired.partnerIds : [];
 
   let notified = 0;
@@ -221,6 +249,7 @@ export async function runSubscriptionReminderCycle(
     target = "all",
     limit = 200,
     dryRun = false,
+    nowOverride = null,
   } = {}
 ) {
   const normalizedTarget = String(target || "all").trim().toLowerCase();
@@ -238,16 +267,23 @@ export async function runSubscriptionReminderCycle(
     };
   }
 
+  const parsedNowOverride = parseNowOverride(nowOverride);
+
   if (dryRun) {
     const reminderRuns = [];
     for (const key of keys) {
-      reminderRuns.push(await processReminderKey(env, key, { limit, dryRun: true }));
+      reminderRuns.push(await processReminderKey(env, key, {
+        limit,
+        dryRun: true,
+        nowOverride: parsedNowOverride,
+      }));
     }
 
     return {
       ok: true,
       dry_run: true,
       target: normalizedTarget,
+      now_override: parsedNowOverride ? toSqlDateTime(parsedNowOverride) : null,
       reminders: reminderRuns,
       expired_tickets: {
         count: 0,
@@ -269,15 +305,23 @@ export async function runSubscriptionReminderCycle(
 
   const reminderRuns = [];
   for (const key of keys) {
-    reminderRuns.push(await processReminderKey(env, key, { limit, dryRun: false }));
+    reminderRuns.push(await processReminderKey(env, key, {
+      limit,
+      dryRun: false,
+      nowOverride: parsedNowOverride,
+    }));
   }
 
-  const expiredSubscriptions = await processExpiredSubscriptions(env, { dryRun: false });
+  const expiredSubscriptions = await processExpiredSubscriptions(env, {
+    dryRun: false,
+    nowOverride: parsedNowOverride,
+  });
 
   return {
     ok: true,
     dry_run: false,
     target: normalizedTarget,
+    now_override: parsedNowOverride ? toSqlDateTime(parsedNowOverride) : null,
     reminders: reminderRuns,
     expired_tickets: {
       count: expiredTicketRows.length,
@@ -285,5 +329,40 @@ export async function runSubscriptionReminderCycle(
       failed: expiredTicketNotify.failed,
     },
     expired_subscriptions: expiredSubscriptions,
+  };
+}
+
+export async function previewReminderDebugRows(
+  env,
+  {
+    limit = 20,
+    nowOverride = null,
+  } = {}
+) {
+  const parsedNowOverride = parseNowOverride(nowOverride);
+
+  const rows = await listReminderDebugRows(env, {
+    limit,
+    nowOverride: parsedNowOverride,
+  });
+
+  return {
+    ok: true,
+    now_override: parsedNowOverride ? toSqlDateTime(parsedNowOverride) : null,
+    rows: rows.map((row) => ({
+      id: String(row.id || ""),
+      partner_id: String(row.partner_id || ""),
+      duration_code: String(row.duration_code || ""),
+      end_at: String(row.end_at || ""),
+      debug_now: String(row.debug_now || ""),
+      h3d: Boolean(row?.reminder_matrix?.h3d),
+      h2d: Boolean(row?.reminder_matrix?.h2d),
+      h1d: Boolean(row?.reminder_matrix?.h1d),
+      h3h: Boolean(row?.reminder_matrix?.h3h),
+      reminder_h3d_sent_at: row?.reminder_h3d_sent_at || null,
+      reminder_h2d_sent_at: row?.reminder_h2d_sent_at || null,
+      reminder_h1d_sent_at: row?.reminder_h1d_sent_at || null,
+      reminder_h3h_sent_at: row?.reminder_h3h_sent_at || null,
+    })),
   };
 }
