@@ -8,13 +8,9 @@ import { getAdminRole } from "../repositories/adminsRepo.js";
 import { isAdminRole, isSuperadminRole } from "../utils/roles.js";
 import { handleCallback } from "./telegram.callback.js";
 import { handleAdminCommand } from "./telegram.commands.admin.js";
-import {
-  handleUserCommand,
-  buildSelfMenuMessage,
-  buildSelfMenuKeyboard,
-  buildTeManMenuKeyboard,
-  handleUserEditFlow,
-} from "./telegram.commands.user.js";
+import { handleUserCommand, handleUserEditFlow } from "./telegram.commands.user.js";
+import { buildSelfMenuMessage, buildSelfMenuKeyboard } from "./telegram.flow.selfProfile.menu.js";
+import { buildTeManMenuKeyboard } from "./telegram.user.shared.js";
 import { handleRegistrationFlow } from "./telegram.flow.js";
 import {
   getProfileFullByTelegramId,
