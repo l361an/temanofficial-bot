@@ -1,7 +1,12 @@
 // routes/callbacks/partnerDatabase.session.js
+
 import { saveSession } from "../../utils/session.js";
 import { SESSION_MODES } from "../telegram.constants.js";
 
+/**
+ * Resolve anchor message for UI editing
+ * Ensures bot always edits the same message instead of sending new ones
+ */
 export function readSourceMessage(session, fallbackMessage = null, adminId = null) {
   const sourceChatId =
     session?.data?.source_chat_id ??
@@ -23,6 +28,9 @@ export function readSourceMessage(session, fallbackMessage = null, adminId = nul
   };
 }
 
+/**
+ * Resolve target telegram id from callback or stored session
+ */
 export function resolveTargetTelegramId(rawTelegramId, session) {
   const direct = String(rawTelegramId || "").trim();
   if (direct) return direct;
@@ -33,6 +41,10 @@ export function resolveTargetTelegramId(rawTelegramId, session) {
   return "";
 }
 
+/**
+ * Persist UI session state
+ * Guarantees anchor message is always stored
+ */
 export async function persistPartnerViewSession(
   env,
   adminId,
@@ -40,30 +52,37 @@ export async function persistPartnerViewSession(
   patch = {},
   fallbackMessage = null
 ) {
+  const sourceChatId =
+    patch?.data?.source_chat_id ??
+    currentSession?.data?.source_chat_id ??
+    fallbackMessage?.chat?.id ??
+    adminId;
+
+  const sourceMessageId =
+    patch?.data?.source_message_id ??
+    currentSession?.data?.source_message_id ??
+    fallbackMessage?.message_id ??
+    null;
+
   const baseData = {
-    source_chat_id:
-      patch?.data?.source_chat_id ??
-      currentSession?.data?.source_chat_id ??
-      fallbackMessage?.chat?.id ??
-      adminId ??
-      null,
-    source_message_id:
-      patch?.data?.source_message_id ??
-      currentSession?.data?.source_message_id ??
-      fallbackMessage?.message_id ??
-      null,
+    source_chat_id: sourceChatId,
+    source_message_id: sourceMessageId,
+
     selected_partner_id:
       patch?.data?.selected_partner_id ??
       currentSession?.data?.selected_partner_id ??
       null,
+
     selected_input:
       patch?.data?.selected_input ??
       currentSession?.data?.selected_input ??
       null,
+
     details_anchor_chat_id:
       patch?.data?.details_anchor_chat_id ??
       currentSession?.data?.details_anchor_chat_id ??
       null,
+
     details_anchor_message_id:
       patch?.data?.details_anchor_message_id ??
       currentSession?.data?.details_anchor_message_id ??
