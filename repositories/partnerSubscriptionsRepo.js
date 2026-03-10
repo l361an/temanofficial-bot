@@ -63,42 +63,63 @@ function canReminderApplyToDuration(durationCode, reminderKey) {
   return false;
 }
 
-function buildReminderWindow(reminderKey, nowSql) {
+function getReminderWindowConfig(reminderKey) {
   const k = normalizeReminderKey(reminderKey);
 
   if (k === "h3d") {
     return {
-      lowerExpr: "datetime(?, '+3 days')",
-      upperExpr: "datetime(?, '+3 days', '+1 hour')",
-      bindValues: [nowSql, nowSql],
+      targetSeconds: 3 * 24 * 60 * 60,
+      lookBehindSeconds: 30 * 60,
+      lookAheadSeconds: 2 * 60 * 60,
     };
   }
 
   if (k === "h2d") {
     return {
-      lowerExpr: "datetime(?, '+2 days')",
-      upperExpr: "datetime(?, '+2 days', '+1 hour')",
-      bindValues: [nowSql, nowSql],
+      targetSeconds: 2 * 24 * 60 * 60,
+      lookBehindSeconds: 30 * 60,
+      lookAheadSeconds: 2 * 60 * 60,
     };
   }
 
   if (k === "h1d") {
     return {
-      lowerExpr: "datetime(?, '+1 day')",
-      upperExpr: "datetime(?, '+1 day', '+1 hour')",
-      bindValues: [nowSql, nowSql],
+      targetSeconds: 1 * 24 * 60 * 60,
+      lookBehindSeconds: 30 * 60,
+      lookAheadSeconds: 2 * 60 * 60,
     };
   }
 
   if (k === "h3h") {
     return {
-      lowerExpr: "datetime(?, '+3 hours')",
-      upperExpr: "datetime(?, '+4 hours')",
-      bindValues: [nowSql, nowSql],
+      targetSeconds: 3 * 60 * 60,
+      lookBehindSeconds: 15 * 60,
+      lookAheadSeconds: 60 * 60,
     };
   }
 
   throw new Error("invalid_reminder_key");
+}
+
+function buildReminderWindow(reminderKey, nowSql) {
+  const { targetSeconds, lookBehindSeconds, lookAheadSeconds } =
+    getReminderWindowConfig(reminderKey);
+
+  const lowerSeconds = Math.max(0, targetSeconds - lookAheadSeconds);
+  const upperSeconds = targetSeconds + lookBehindSeconds;
+
+  return {
+    lowerExpr: `datetime(?, '+${lowerSeconds} seconds')`,
+    upperExpr: `datetime(?, '+${upperSeconds} seconds')`,
+    bindValues: [nowSql, nowSql],
+    debug: {
+      targetSeconds,
+      lookBehindSeconds,
+      lookAheadSeconds,
+      lowerSeconds,
+      upperSeconds,
+    },
+  };
 }
 
 export async function listActiveSubscriptionsByTelegramId(env, telegramId) {
@@ -175,13 +196,13 @@ export async function getSubscriptionById(env, id) {
 export async function createPartnerSubscription(env, payload) {
   const {
     id,
-    partnerId,
+    partnerId = null,
     paymentTicketId = null,
-    classId,
+    classId = null,
     durationMonths = 0,
     status = "active",
-    startAt,
-    endAt,
+    startAt = null,
+    endAt = null,
     activatedAt = null,
     expiredAt = null,
     cancelledAt = null,
@@ -240,8 +261,8 @@ export async function createPartnerSubscription(env, payload) {
       String(classId || "bronze").toLowerCase(),
       safeDurationMonths,
       String(status),
-      String(startAt),
-      String(endAt),
+      startAt == null ? null : String(startAt),
+      endAt == null ? null : String(endAt),
       activatedAt == null ? null : String(activatedAt),
       expiredAt == null ? null : String(expiredAt),
       cancelledAt == null ? null : String(cancelledAt),
@@ -397,7 +418,10 @@ export async function listSubscriptionsDueForReminder(
   const safeReminderKey = normalizeReminderKey(reminderKey);
   const reminderColumn = normalizeReminderColumn(safeReminderKey);
   const nowSql = nowOverride ? toSqlDateTime(nowOverride) : toSqlDateTime(new Date());
-  const { lowerExpr, upperExpr, bindValues } = buildReminderWindow(safeReminderKey, nowSql);
+  const { lowerExpr, upperExpr, bindValues } = buildReminderWindow(
+    safeReminderKey,
+    nowSql
+  );
   const safeLimit =
     Number.isFinite(Number(limit)) && Number(limit) > 0
       ? Math.min(Number(limit), 1000)
@@ -510,6 +534,12 @@ export async function listReminderDebugRows(
 
   return rows.map((row) => {
     const durationCode = readDurationCode(row);
+
+    const h3dWindow = buildReminderWindow("h3d", nowSql);
+    const h2dWindow = buildReminderWindow("h2d", nowSql);
+    const h1dWindow = buildReminderWindow("h1d", nowSql);
+    const h3hWindow = buildReminderWindow("h3h", nowSql);
+
     return {
       ...row,
       duration_code: durationCode,
@@ -519,6 +549,12 @@ export async function listReminderDebugRows(
         h2d: canReminderApplyToDuration(durationCode, "h2d"),
         h1d: canReminderApplyToDuration(durationCode, "h1d"),
         h3h: canReminderApplyToDuration(durationCode, "h3h"),
+      },
+      reminder_windows: {
+        h3d: h3dWindow.debug,
+        h2d: h2dWindow.debug,
+        h1d: h1dWindow.debug,
+        h3h: h3hWindow.debug,
       },
     };
   });
