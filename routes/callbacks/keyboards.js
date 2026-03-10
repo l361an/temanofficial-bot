@@ -90,8 +90,10 @@ export function buildPartnerControlPanelKeyboard(telegramId, role) {
 export function buildPartnerDetailsKeyboard(telegramId, role) {
   return {
     inline_keyboard: [
-      [{ text: "⬅️ Back to Panel", callback_data: cb.pmPanelBack(telegramId) }],
-      [officerHomeButton()],
+      [
+        { text: "⬅️ Back to Panel", callback_data: cb.pmPanelBack(telegramId) },
+        officerHomeButton(),
+      ],
     ],
   };
 }
