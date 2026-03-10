@@ -14,6 +14,7 @@ import {
 } from "./callbacks/keyboards.js";
 import { fmtClassId, resolveTelegramId } from "../utils/partnerHelpers.js";
 import { manualSuspendPartner, manualRestorePartner } from "../services/partnerStatusService.js";
+import { syncPartnerGroupRole } from "../services/partnerGroupRoleService.js";
 
 function readSourceMessage(chatId, session) {
   const sourceChatId = session?.data?.source_chat_id ?? chatId ?? null;
@@ -126,6 +127,11 @@ export async function handlePartnerModerationInput({
 
   if (action === "suspend") {
     const res = await manualSuspendPartner(env, targetId, chatId, null);
+    const groupRoleSync = await syncPartnerGroupRole(env, targetId).catch((error) => ({
+      ok: false,
+      reason: error?.message || String(error),
+    }));
+
     await clearSession(env, STATE_KEY);
 
     await sendMessage(env, targetId, `⛔ ${res.user_message}`, {
@@ -136,7 +142,13 @@ export async function handlePartnerModerationInput({
       env,
       chatId,
       session,
-      `✅ Partner ${label} berhasil di-suspend.\nStatus akhir: ${res.status}\nClass ID: ${classId}`,
+      [
+        `✅ Partner ${label} berhasil di-suspend.`,
+        `Status akhir: ${res.status}`,
+        `Class ID: ${classId}`,
+        "",
+        `Group role sync: ${groupRoleSync?.ok ? "OK" : "FAILED"}`,
+      ].join("\n"),
       buildPartnerModerationKeyboard(role)
     );
     return true;
@@ -144,6 +156,11 @@ export async function handlePartnerModerationInput({
 
   if (action === "restore") {
     const res = await manualRestorePartner(env, targetId, chatId, null);
+    const groupRoleSync = await syncPartnerGroupRole(env, targetId).catch((error) => ({
+      ok: false,
+      reason: error?.message || String(error),
+    }));
+
     await clearSession(env, STATE_KEY);
 
     const link = (await getSetting(env, "link_aturan")) ?? "-";
@@ -161,7 +178,13 @@ export async function handlePartnerModerationInput({
       env,
       chatId,
       session,
-      `✅ Partner ${label} berhasil di-restore.\nStatus akhir: ${res.status}\nClass ID: ${classId}`,
+      [
+        `✅ Partner ${label} berhasil di-restore.`,
+        `Status akhir: ${res.status}`,
+        `Class ID: ${classId}`,
+        "",
+        `Group role sync: ${groupRoleSync?.ok ? "OK" : "FAILED"}`,
+      ].join("\n"),
       buildPartnerModerationKeyboard(role)
     );
     return true;
