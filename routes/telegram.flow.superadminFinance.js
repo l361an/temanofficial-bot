@@ -1,20 +1,9 @@
 // routes/telegram.flow.superadminFinance.js
 
+import { sendMessage, sendPhoto } from "../services/telegramApi.js";
+import { getSetting, upsertSetting } from "../repositories/settingsRepo.js";
 import { clearSession } from "../utils/session.js";
-import { sendMessage } from "../services/telegramApi.js";
-import { upsertSetting, getSetting } from "../repositories/settingsRepo.js";
-import { CALLBACKS } from "./telegram.constants.js";
-import {
-  buildFinanceKeyboard,
-  buildFinancePricingKeyboard,
-  buildFinanceClassPricingKeyboard,
-} from "./callbacks/keyboards.js";
-
-function formatMoney(value) {
-  const n = Number(value || 0);
-  if (!Number.isFinite(n)) return "Rp 0";
-  return `Rp ${n.toLocaleString("id-ID")}`;
-}
+import { buildFinanceKeyboard, buildFinanceQrisKeyboard } from "./callbacks/keyboards.js";
 
 function formatClassLabel(value) {
   const raw = String(value || "").trim().toLowerCase();
@@ -32,138 +21,112 @@ function formatDurationLabel(value) {
   return "1 Bulan";
 }
 
-function getPriceKey(classId, durationCode) {
-  return `payment_price_${classId}_${durationCode}`;
+function buildPriceSettingKey(classId, durationCode) {
+  return `payment_price_${String(classId || "").trim().toLowerCase()}_${String(durationCode || "")
+    .trim()
+    .toLowerCase()}`;
 }
 
-async function getFinanceManualOn(env) {
-  const raw = (await getSetting(env, "payment_manual_enabled")) ?? "1";
-  return String(raw) !== "0";
+async function buildFinanceMenuKeyboard(env) {
+  const manualRaw = (await getSetting(env, "payment_manual_enabled")) ?? "1";
+  const manualOn = String(manualRaw) !== "0";
+  return buildFinanceKeyboard(manualOn);
 }
 
-async function buildFinanceClassText(env, classId) {
-  const key1d = `payment_price_${classId}_1d`;
-  const key3d = `payment_price_${classId}_3d`;
-  const key7d = `payment_price_${classId}_7d`;
-  const key1m = `payment_price_${classId}_1m`;
-
-  const price1d = Number((await getSetting(env, key1d)) || 0);
-  const price3d = Number((await getSetting(env, key3d)) || 0);
-  const price7d = Number((await getSetting(env, key7d)) || 0);
-  const price1m = Number((await getSetting(env, key1m)) || 0);
-
-  return [
-    `🏷️ <b>Pricing ${formatClassLabel(classId)}</b>`,
-    "",
-    `1 Hari: <b>${formatMoney(price1d)}</b>`,
-    `3 Hari: <b>${formatMoney(price3d)}</b>`,
-    `7 Hari: <b>${formatMoney(price7d)}</b>`,
-    `1 Bulan: <b>${formatMoney(price1m)}</b>`,
-  ].join("\n");
+async function cancelFinanceSession(env, chatId, stateKey) {
+  await clearSession(env, stateKey).catch(() => {});
+  await sendMessage(env, chatId, "✅ Oke, input Finance dibatalkan.", {
+    reply_markup: await buildFinanceMenuKeyboard(env),
+  });
+  return true;
 }
 
-function getClassMenuCallback(classId) {
-  if (classId === "bronze") return CALLBACKS.SUPERADMIN_FINANCE_PRICING_BRONZE_MENU;
-  if (classId === "gold") return CALLBACKS.SUPERADMIN_FINANCE_PRICING_GOLD_MENU;
-  return CALLBACKS.SUPERADMIN_FINANCE_PRICING_PLATINUM_MENU;
-}
+export async function handleSuperadminFinanceInput({
+  env,
+  chatId,
+  telegramId,
+  text,
+  session,
+  STATE_KEY,
+  update,
+}) {
+  if (String(session?.mode || "").trim().toLowerCase() !== "sa_finance") {
+    return false;
+  }
 
-function buildPromptKeyboard(classId) {
-  return {
-    inline_keyboard: [
-      [
-        { text: "⬅️ Back", callback_data: getClassMenuCallback(classId) },
-        { text: "🏠 Officer Home", callback_data: CALLBACKS.OFFICER_HOME },
-      ],
-    ],
-  };
-}
+  const rawText = String(text || "").trim();
 
-export async function handleSuperadminFinanceInput({ env, chatId, text, session, STATE_KEY }) {
-  const raw = String(text || "").trim();
+  if (/^(batal|cancel|keluar)$/i.test(rawText)) {
+    return cancelFinanceSession(env, chatId, STATE_KEY);
+  }
 
-  const area = String(session?.area || "").trim().toLowerCase();
-  const classId = String(session?.class_id || "").trim().toLowerCase();
-  const durationCode = String(session?.duration_code || "").trim().toLowerCase();
+  if (session?.area === "price" && session?.step === "await_text") {
+    const normalized = rawText.replace(/[^\d]/g, "");
+    const amount = Number(normalized || 0);
 
-  const validClass = ["bronze", "gold", "platinum"].includes(classId);
-  const validDuration = ["1d", "3d", "7d", "1m"].includes(durationCode);
-
-  if (/^(batal|cancel|keluar)$/i.test(raw)) {
-    await clearSession(env, STATE_KEY);
-
-    if (area === "price" && validClass) {
-      await sendMessage(env, chatId, "✅ Oke, input harga dibatalkan.", {
-        parse_mode: "HTML",
-        reply_markup: buildFinanceClassPricingKeyboard(classId),
-      });
-
-      await sendMessage(env, chatId, await buildFinanceClassText(env, classId), {
-        parse_mode: "HTML",
-        reply_markup: buildFinanceClassPricingKeyboard(classId),
-      });
-
+    if (!Number.isFinite(amount) || amount <= 0) {
+      await sendMessage(
+        env,
+        chatId,
+        "⚠️ Harga tidak valid.\nKetik angka saja.\nContoh: <code>150000</code>\n\nKetik <b>batal</b> untuk keluar.",
+        { parse_mode: "HTML" }
+      );
       return true;
     }
 
-    const manualOn = await getFinanceManualOn(env);
-    await sendMessage(env, chatId, "✅ Oke, input finance dibatalkan.", {
-      reply_markup: buildFinanceKeyboard(manualOn),
-    });
-    return true;
-  }
+    const classId = String(session?.class_id || "").trim().toLowerCase();
+    const durationCode = String(session?.duration_code || "").trim().toLowerCase();
+    const key = buildPriceSettingKey(classId, durationCode);
 
-  if (area !== "price" || !validClass || !validDuration) {
-    await clearSession(env, STATE_KEY);
+    await upsertSetting(env, key, String(amount));
+    await clearSession(env, STATE_KEY).catch(() => {});
 
-    const manualOn = await getFinanceManualOn(env);
-    await sendMessage(env, chatId, "⚠️ Mode Finance tidak dikenal. Balik ke menu.", {
-      reply_markup: buildFinanceKeyboard(manualOn),
-    });
-    return true;
-  }
-
-  const cleaned = raw.replace(/[^\d]/g, "");
-  const amount = Number(cleaned);
-
-  if (!Number.isFinite(amount) || amount <= 0) {
     await sendMessage(
       env,
       chatId,
-      [
-        `⚠️ Nominal tidak valid untuk <b>${formatClassLabel(classId)} - ${formatDurationLabel(durationCode)}</b>.`,
-        "",
-        "Kirim angka harga tanpa simbol.",
-        "Contoh: <code>150000</code>",
-        "",
-        "Ketik <b>batal</b> untuk keluar.",
-      ].join("\n"),
+      `✅ Harga berhasil disimpan.\n${formatClassLabel(classId)} - ${formatDurationLabel(durationCode)} = Rp ${amount.toLocaleString("id-ID")}`,
       {
-        parse_mode: "HTML",
-        reply_markup: buildPromptKeyboard(classId),
+        reply_markup: await buildFinanceMenuKeyboard(env),
       }
     );
     return true;
   }
 
-  const key = getPriceKey(classId, durationCode);
-  await upsertSetting(env, key, String(amount));
-  await clearSession(env, STATE_KEY);
-
-  await sendMessage(
-    env,
-    chatId,
-    `✅ Harga <b>${formatClassLabel(classId)}</b> untuk <b>${formatDurationLabel(durationCode)}</b> berhasil diupdate menjadi <b>${formatMoney(amount)}</b>.`,
-    {
-      parse_mode: "HTML",
-      reply_markup: buildFinanceClassPricingKeyboard(classId),
+  if (session?.area === "qris" && session?.step === "await_photo") {
+    const photos = update?.message?.photo || [];
+    if (!photos.length) {
+      await sendMessage(
+        env,
+        chatId,
+        "⚠️ Kirim <b>photo</b> QRIS ya, bukan file atau teks.\n\nKetik <b>batal</b> untuk keluar.",
+        {
+          parse_mode: "HTML",
+          reply_markup: buildFinanceQrisKeyboard(Boolean(await getSetting(env, "payment_qris_photo_file_id"))),
+        }
+      );
+      return true;
     }
-  );
 
-  await sendMessage(env, chatId, await buildFinanceClassText(env, classId), {
-    parse_mode: "HTML",
-    reply_markup: buildFinanceClassPricingKeyboard(classId),
+    const best = photos[photos.length - 1];
+    const fileId = best?.file_id ? String(best.file_id) : "";
+    if (!fileId) {
+      await sendMessage(env, chatId, "⚠️ Gagal membaca foto QRIS. Kirim ulang ya.");
+      return true;
+    }
+
+    await upsertSetting(env, "payment_qris_photo_file_id", fileId);
+    await clearSession(env, STATE_KEY).catch(() => {});
+
+    await sendPhoto(env, chatId, fileId, "✅ <b>Foto QRIS berhasil disimpan.</b>", {
+      parse_mode: "HTML",
+      reply_markup: buildFinanceQrisKeyboard(true),
+    });
+    return true;
+  }
+
+  await clearSession(env, STATE_KEY).catch(() => {});
+  await sendMessage(env, chatId, "⚠️ Session Finance tidak valid. Balik ke menu ya.", {
+    reply_markup: await buildFinanceMenuKeyboard(env),
   });
-
   return true;
 }
