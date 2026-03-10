@@ -189,16 +189,10 @@ export function buildPaymentInstructionMessage(ticket, durationLabel = null, opt
     `Batas Waktu: <b>${escapeHtml(formatDateTime(ticket?.expires_at))}</b>`,
     "",
     hasQrisPhoto
-      ? "Silakan scan QRIS pada foto ini dan transfer sesuai nominal di atas."
+      ? "Silakan scan / simpan foto QRIS ini lalu transfer sesuai nominal di atas."
       : "Silakan transfer sesuai nominal di atas.",
-    "Setelah transfer, kirim <b>foto bukti transfer</b> langsung di chat ini.",
     "",
-    "Catatan:",
-    "• 1 partner hanya boleh punya 1 tiket aktif",
-    "• upload bukti hanya saat status <b>Menunggu Pembayaran</b>",
-    "• setelah upload, status menjadi <b>Menunggu Konfirmasi Superadmin</b>",
-    "• tiket expired tetap tersimpan di sistem",
-    "• jika tiket expired dan transfer sudah terlanjur dilakukan, hubungi Superadmin untuk manual check",
+    "Setelah transfer, gunakan tombol di bawah untuk cek status atau upload bukti transfer.",
   ];
 
   return lines.join("\n");
