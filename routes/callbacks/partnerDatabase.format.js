@@ -24,7 +24,21 @@ export function premiumAccessLabel(profile, subInfo) {
 
 export function formatDateTime(value) {
   if (!value) return "-";
-  return String(value);
+
+  try {
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return value;
+
+    return d.toLocaleString("id-ID", {
+      year: "numeric",
+      month: "short",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return value;
+  }
 }
 
 export function formatMoney(value) {
@@ -89,7 +103,6 @@ export function buildPartnerViewPromptText() {
 export function buildPartnerControlPanelText(context) {
   const { profile, subInfo } = context;
   const premiumAccess = premiumAccessLabel(profile, subInfo);
-  const subscriptionStatus = subInfo?.row?.status || "-";
   const username = cleanHandle(profile?.username);
   const selectedLabel = username || profile?.telegram_id || "-";
 
@@ -101,7 +114,6 @@ export function buildPartnerControlPanelText(context) {
     `Telegram ID: <code>${escapeHtml(profile?.telegram_id || "-")}</code>`,
     `Status Partner: <b>${escapeHtml(partnerStatusLabel(profile?.status))}</b>`,
     `Akses Premium: <b>${escapeHtml(premiumAccess)}</b>`,
-    `Subscription Status: <b>${escapeHtml(subscriptionStatus)}</b>`,
     `Class Partner: <b>${escapeHtml(fmtClassId(profile?.class_id))}</b>`,
     "",
     "Pilih menu di bawah:",
@@ -120,49 +132,61 @@ export function buildPartnerDetailsText(context) {
     `Username: <b>${escapeHtml(cleanHandle(profile?.username) || "-")}</b>`,
     `Telegram ID: <code>${escapeHtml(profile?.telegram_id || "-")}</code>`,
     `NIK: <b>${escapeHtml(profile?.nik || "-")}</b>`,
-    `No. Whatsapp: <b>${escapeHtml(profile?.no_whatsapp || "-")}</b>`,
+    `No Whatsapp: <b>${escapeHtml(profile?.no_whatsapp || "-")}</b>`,
     `Kecamatan: <b>${escapeHtml(profile?.kecamatan || "-")}</b>`,
     `Kota: <b>${escapeHtml(profile?.kota || "-")}</b>`,
     `Kategori: <b>${escapeHtml(kategoriText)}</b>`,
     `Verificator: <b>${escapeHtml(verificatorDisplay || "-")}</b>`,
     `Approved At: <b>${escapeHtml(formatDateTime(profile?.approved_at))}</b>`,
-    `Approved By: <b>${escapeHtml(profile?.approved_by || "-")}</b>`,
   ].join("\n");
 }
 
 export function buildPartnerSubscriptionText(context) {
   const { profile, subInfo, latestPayment } = context;
+
   const premiumAccess = premiumAccessLabel(profile, subInfo);
   const row = subInfo?.row || null;
   const durationLabel = formatDurationLabelFromRow(row);
 
   const lines = [
-    "💳 <b>Partner Subscription</b>",
+    "📦 <b>Partner Subscription</b>",
     "",
-    `Akses Premium: <b>${escapeHtml(premiumAccess)}</b>`,
-    `Class Partner: <b>${escapeHtml(fmtClassId(profile?.class_id))}</b>`,
-    `Subscription Status: <b>${escapeHtml(row?.status || "-")}</b>`,
-    `Durasi: <b>${escapeHtml(durationLabel)}</b>`,
-    `Start At: <b>${escapeHtml(formatDateTime(row?.start_at))}</b>`,
-    `End At: <b>${escapeHtml(formatDateTime(row?.end_at))}</b>`,
-    `Activated At: <b>${escapeHtml(formatDateTime(row?.activated_at))}</b>`,
-    `Expired At: <b>${escapeHtml(formatDateTime(row?.expired_at))}</b>`,
-    `Source Type: <b>${escapeHtml(row?.source_type || "-")}</b>`,
-    `Source Ref ID: <b>${escapeHtml(row?.source_ref_id || "-")}</b>`,
+    "💎 <b>Status Premium</b>",
+    `${escapeHtml(premiumAccess)}`,
+    "",
+    "👤 <b>Class Partner</b>",
+    `${escapeHtml(fmtClassId(profile?.class_id))}`,
+    "",
+    "⏱ <b>Durasi</b>",
+    `${escapeHtml(durationLabel)}`,
+    "",
+    "📅 <b>Periode Aktif</b>",
+    `${escapeHtml(formatDateTime(row?.start_at))}`,
+    "s/d",
+    `${escapeHtml(formatDateTime(row?.end_at))}`,
   ];
 
   if (latestPayment) {
     lines.push("");
-    lines.push("🧾 <b>Latest Payment</b>");
-    lines.push(`Kode Tiket: <b>${escapeHtml(latestPayment.ticket_code || "-")}</b>`);
-    lines.push(`Status: <b>${escapeHtml(latestPayment.status || "-")}</b>`);
-    lines.push(`Durasi: <b>${escapeHtml(formatDurationLabelFromRow(latestPayment))}</b>`);
-    lines.push(`Harga Dasar: <b>${escapeHtml(formatMoney(latestPayment.amount_base))}</b>`);
-    lines.push(`Kode Unik: <b>${escapeHtml(latestPayment.unique_code ?? "0")}</b>`);
-    lines.push(`Total Bayar: <b>${escapeHtml(formatMoney(latestPayment.amount_final))}</b>`);
-    lines.push(`Requested At: <b>${escapeHtml(formatDateTime(latestPayment.requested_at))}</b>`);
-    lines.push(`Expires At: <b>${escapeHtml(formatDateTime(latestPayment.expires_at))}</b>`);
-    lines.push(`Confirmed At: <b>${escapeHtml(formatDateTime(latestPayment.confirmed_at))}</b>`);
+    lines.push("💳 <b>Pembayaran Terakhir</b>");
+    lines.push("");
+    lines.push(`Kode Tiket`);
+    lines.push(`<b>${escapeHtml(latestPayment.ticket_code || "-")}</b>`);
+    lines.push("");
+    lines.push(`Status`);
+    lines.push(`<b>${escapeHtml(latestPayment.status || "-")}</b>`);
+    lines.push("");
+    lines.push(`Harga`);
+    lines.push(`<b>${escapeHtml(formatMoney(latestPayment.amount_base))}</b>`);
+    lines.push("");
+    lines.push(`Kode Unik`);
+    lines.push(`<b>${escapeHtml(latestPayment.unique_code ?? "0")}</b>`);
+    lines.push("");
+    lines.push(`Total Transfer`);
+    lines.push(`<b>${escapeHtml(formatMoney(latestPayment.amount_final))}</b>`);
+    lines.push("");
+    lines.push(`Tanggal Bayar`);
+    lines.push(`<b>${escapeHtml(formatDateTime(latestPayment.confirmed_at))}</b>`);
   }
 
   return lines.join("\n");
