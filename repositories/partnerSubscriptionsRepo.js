@@ -95,14 +95,14 @@ export async function createPartnerSubscription(env, payload) {
     cancelledAt = null,
     cancelledBy = null,
     cancelReason = null,
-    sourceType = "payment_ticket",
-    sourceRefId = null,
-    notes = null,
-    metadataJson = null,
     reminderH3dSentAt = null,
     reminderH2dSentAt = null,
     reminderH1dSentAt = null,
     reminderH3hSentAt = null,
+    sourceType = "payment_ticket",
+    sourceRefId = null,
+    notes = null,
+    metadataJson = null,
   } = payload || {};
 
   const normalizedDurationMonths = Number(durationMonths);
@@ -296,9 +296,10 @@ export async function listSubscriptionsDueForReminder(
   } = {}
 ) {
   const reminderColumn = normalizeReminderColumn(reminderKey);
-  const safeLimit = Number.isFinite(Number(limit)) && Number(limit) > 0
-    ? Math.min(Number(limit), 1000)
-    : 200;
+  const safeLimit =
+    Number.isFinite(Number(limit)) && Number(limit) > 0
+      ? Math.min(Number(limit), 1000)
+      : 200;
 
   let lowerExpr = "";
   let upperExpr = "";
@@ -310,8 +311,8 @@ export async function listSubscriptionsDueForReminder(
     lowerExpr = "datetime('now', '+2 days')";
     upperExpr = "datetime('now', '+2 days', '+1 hour')";
   } else if (reminderKey === "h1d") {
-    lowerExpr = "datetime('now', '+1 days')";
-    upperExpr = "datetime('now', '+1 days', '+1 hour')";
+    lowerExpr = "datetime('now', '+1 day')";
+    upperExpr = "datetime('now', '+1 day', '+1 hour')";
   } else if (reminderKey === "h3h") {
     lowerExpr = "datetime('now', '+3 hours')";
     upperExpr = "datetime('now', '+4 hours')";
@@ -350,11 +351,13 @@ export async function markSubscriptionReminderSent(
     WHERE id = ?
   `;
 
+  const safeSentAt =
+    sentAt == null
+      ? new Date().toISOString().slice(0, 19).replace("T", " ")
+      : String(sentAt);
+
   await env.DB.prepare(sql)
-    .bind(
-      sentAt == null ? new Date().toISOString().slice(0, 19).replace("T", " ") : String(sentAt),
-      String(subscriptionId)
-    )
+    .bind(safeSentAt, String(subscriptionId))
     .run();
 
   return { ok: true };
