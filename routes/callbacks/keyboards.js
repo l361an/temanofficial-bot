@@ -3,17 +3,26 @@ import { isSuperadminRole } from "../../utils/roles.js";
 import { CALLBACKS, cb } from "../telegram.constants.js";
 
 const OFFICER_HOME_LABEL = "🏠 Officer Home";
+const SUPERADMIN_HOME_LABEL = "🏠 Superadmin Home";
 
 function officerHomeButton() {
   return { text: OFFICER_HOME_LABEL, callback_data: CALLBACKS.OFFICER_HOME };
+}
+
+function superadminHomeButton() {
+  return { text: SUPERADMIN_HOME_LABEL, callback_data: CALLBACKS.OFFICER_HOME };
+}
+
+function homeButtonByRole(role) {
+  return isSuperadminRole(role) ? superadminHomeButton() : officerHomeButton();
 }
 
 function backButton(callbackData, text = "⬅️ Back") {
   return { text, callback_data: callbackData };
 }
 
-function backAndOfficerHomeRow(backCallbackData, backText = "⬅️ Back") {
-  return [backButton(backCallbackData, backText), officerHomeButton()];
+function backAndHomeRow(backCallbackData, role, backText = "⬅️ Back") {
+  return [backButton(backCallbackData, backText), homeButtonByRole(role)];
 }
 
 // Officer Home
@@ -33,23 +42,23 @@ export function buildOfficerHomeKeyboard(role) {
 }
 
 // Partner Tools
-export function buildPartnerToolsKeyboard() {
+export function buildPartnerToolsKeyboard(role) {
   return {
     inline_keyboard: [
       [
         { text: "🗃️ Partner Database", callback_data: CALLBACKS.PARTNER_DATABASE_MENU },
         { text: "🛠️ Partner Moderation", callback_data: CALLBACKS.PARTNER_MODERATION_MENU },
       ],
-      [officerHomeButton()],
+      [homeButtonByRole(role)],
     ],
   };
 }
 
 // Partner Database
-export function buildPartnerDatabaseKeyboard() {
+export function buildPartnerDatabaseKeyboard(role) {
   return {
     inline_keyboard: [
-      [{ text: "🔎 View Partner Details", callback_data: CALLBACKS.PARTNER_DATABASE_VIEW }],
+      [{ text: "🔎 View Partner", callback_data: CALLBACKS.PARTNER_DATABASE_VIEW }],
       [
         { text: "👥 All Partner", callback_data: cb.pmList("all") },
         { text: "🕒 Pending", callback_data: cb.pmList("pending_approval") },
@@ -58,23 +67,53 @@ export function buildPartnerDatabaseKeyboard() {
         { text: "✅ Approved", callback_data: cb.pmList("approved") },
         { text: "⛔ Suspended", callback_data: cb.pmList("suspended") },
       ],
-      backAndOfficerHomeRow(CALLBACKS.PARTNER_TOOLS_MENU),
+      backAndHomeRow(CALLBACKS.PARTNER_TOOLS_MENU, role),
     ],
   };
 }
 
-export function buildBackToPartnerDatabaseKeyboard() {
+export function buildBackToPartnerDatabaseKeyboard(role) {
   return {
     inline_keyboard: [
-      backAndOfficerHomeRow(CALLBACKS.PARTNER_DATABASE_MENU),
+      backAndHomeRow(CALLBACKS.PARTNER_DATABASE_MENU, role),
     ],
   };
 }
 
-export function buildBackToPartnerDatabaseViewKeyboard() {
+export function buildBackToPartnerDatabaseViewKeyboard(role) {
   return {
     inline_keyboard: [
-      backAndOfficerHomeRow(CALLBACKS.PARTNER_DATABASE_MENU),
+      backAndHomeRow(CALLBACKS.PARTNER_DATABASE_MENU, role),
+    ],
+  };
+}
+
+export function buildPartnerControlPanelKeyboard(telegramId, role) {
+  return {
+    inline_keyboard: [
+      [
+        { text: "👤 Details", callback_data: cb.pmDetailsOpen(telegramId) },
+        { text: "💳 Subscription", callback_data: cb.pmSubscriptionOpen(telegramId) },
+      ],
+      [homeButtonByRole(role)],
+    ],
+  };
+}
+
+export function buildPartnerDetailsKeyboard(telegramId, role) {
+  return {
+    inline_keyboard: [
+      [{ text: "⬅️ Back to Panel", callback_data: cb.pmPanelBack(telegramId) }],
+      [homeButtonByRole(role)],
+    ],
+  };
+}
+
+export function buildPartnerSubscriptionKeyboard(telegramId, role) {
+  return {
+    inline_keyboard: [
+      [{ text: "⬅️ Back to Panel", callback_data: cb.pmPanelBack(telegramId) }],
+      [homeButtonByRole(role)],
     ],
   };
 }
@@ -93,12 +132,12 @@ export function buildPartnerDetailActionsKeyboard(telegramId, role) {
     ]);
   }
 
-  rows.push([officerHomeButton()]);
+  rows.push([homeButtonByRole(role)]);
 
   return { inline_keyboard: rows };
 }
 
-export function buildPartnerClassPickerKeyboard(telegramId) {
+export function buildPartnerClassPickerKeyboard(telegramId, role) {
   return {
     inline_keyboard: [
       [
@@ -106,7 +145,7 @@ export function buildPartnerClassPickerKeyboard(telegramId) {
         { text: "Gold", callback_data: cb.pmClassSet(telegramId, "gold") },
       ],
       [{ text: "Platinum", callback_data: cb.pmClassSet(telegramId, "platinum") }],
-      backAndOfficerHomeRow(cb.pmClassBack(telegramId)),
+      backAndHomeRow(cb.pmClassBack(telegramId), role),
       [
         { text: "🗃️ Partner Database", callback_data: CALLBACKS.PARTNER_DATABASE_MENU },
         { text: "🧰 Partner Tools", callback_data: CALLBACKS.PARTNER_TOOLS_MENU },
@@ -115,7 +154,7 @@ export function buildPartnerClassPickerKeyboard(telegramId) {
   };
 }
 
-export function buildPartnerVerificatorPickerKeyboard(telegramId, verificators) {
+export function buildPartnerVerificatorPickerKeyboard(telegramId, verificators, role) {
   const rows = [];
   const max = Math.min(verificators.length, 20);
 
@@ -129,7 +168,7 @@ export function buildPartnerVerificatorPickerKeyboard(telegramId, verificators) 
     rows.push(row);
   }
 
-  rows.push(backAndOfficerHomeRow(cb.pmVerBack(telegramId)));
+  rows.push(backAndHomeRow(cb.pmVerBack(telegramId), role));
   rows.push([
     { text: "🗃️ Partner Database", callback_data: CALLBACKS.PARTNER_DATABASE_MENU },
     { text: "🧰 Partner Tools", callback_data: CALLBACKS.PARTNER_TOOLS_MENU },
@@ -149,15 +188,15 @@ export function buildPartnerModerationKeyboard(role) {
     rows.push([{ text: "❌ Delete", callback_data: CALLBACKS.PARTNER_MOD_DELETE }]);
   }
 
-  rows.push(backAndOfficerHomeRow(CALLBACKS.PARTNER_TOOLS_MENU));
+  rows.push(backAndHomeRow(CALLBACKS.PARTNER_TOOLS_MENU, role));
 
   return { inline_keyboard: rows };
 }
 
-export function buildBackToPartnerModerationKeyboard() {
+export function buildBackToPartnerModerationKeyboard(role) {
   return {
     inline_keyboard: [
-      backAndOfficerHomeRow(CALLBACKS.PARTNER_MODERATION_MENU),
+      backAndHomeRow(CALLBACKS.PARTNER_MODERATION_MENU, role),
     ],
   };
 }
@@ -170,7 +209,7 @@ export function buildSuperadminToolsKeyboard() {
         { text: "🧩 Config", callback_data: CALLBACKS.SUPERADMIN_CONFIG_MENU },
         { text: "⚙️ Settings", callback_data: CALLBACKS.SUPERADMIN_SETTINGS_MENU },
       ],
-      [officerHomeButton()],
+      [superadminHomeButton()],
     ],
   };
 }
@@ -180,7 +219,7 @@ export function buildConfigKeyboard() {
     inline_keyboard: [
       [{ text: "👋 Update Welcome Message", callback_data: CALLBACKS.SUPERADMIN_CONFIG_WELCOME }],
       [{ text: "🔗 Update Link Aturan", callback_data: CALLBACKS.SUPERADMIN_CONFIG_ATURAN }],
-      backAndOfficerHomeRow(CALLBACKS.SUPERADMIN_TOOLS_MENU),
+      backAndHomeRow(CALLBACKS.SUPERADMIN_TOOLS_MENU, "superadmin"),
     ],
   };
 }
@@ -189,7 +228,7 @@ export function buildConfigWelcomeKeyboard() {
   return {
     inline_keyboard: [
       [{ text: "✏️ Edit", callback_data: CALLBACKS.SUPERADMIN_CONFIG_WELCOME_EDIT }],
-      backAndOfficerHomeRow(CALLBACKS.SUPERADMIN_CONFIG_MENU),
+      backAndHomeRow(CALLBACKS.SUPERADMIN_CONFIG_MENU, "superadmin"),
     ],
   };
 }
@@ -198,7 +237,7 @@ export function buildConfigAturanKeyboard() {
   return {
     inline_keyboard: [
       [{ text: "✏️ Edit", callback_data: CALLBACKS.SUPERADMIN_CONFIG_ATURAN_EDIT }],
-      backAndOfficerHomeRow(CALLBACKS.SUPERADMIN_CONFIG_MENU),
+      backAndHomeRow(CALLBACKS.SUPERADMIN_CONFIG_MENU, "superadmin"),
     ],
   };
 }
@@ -210,7 +249,7 @@ export function buildSettingsKeyboard() {
         { text: "🗂️ Category", callback_data: CALLBACKS.SUPERADMIN_CATEGORY_MENU },
         { text: "💰 Finance", callback_data: CALLBACKS.SUPERADMIN_FINANCE_MENU },
       ],
-      backAndOfficerHomeRow(CALLBACKS.SUPERADMIN_TOOLS_MENU),
+      backAndHomeRow(CALLBACKS.SUPERADMIN_TOOLS_MENU, "superadmin"),
     ],
   };
 }
@@ -223,7 +262,7 @@ export function buildCategoryKeyboard() {
         { text: "➕ Add Category", callback_data: CALLBACKS.SUPERADMIN_CATEGORY_ADD },
         { text: "➖ Delete Category", callback_data: CALLBACKS.SUPERADMIN_CATEGORY_DEL },
       ],
-      backAndOfficerHomeRow(CALLBACKS.SUPERADMIN_SETTINGS_MENU),
+      backAndHomeRow(CALLBACKS.SUPERADMIN_SETTINGS_MENU, "superadmin"),
     ],
   };
 }
@@ -238,7 +277,7 @@ export function buildFinanceKeyboard(manualOn) {
         },
       ],
       [{ text: "🏷️ Set Pricing", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICING_MENU }],
-      backAndOfficerHomeRow(CALLBACKS.SUPERADMIN_SETTINGS_MENU),
+      backAndHomeRow(CALLBACKS.SUPERADMIN_SETTINGS_MENU, "superadmin"),
     ],
   };
 }
@@ -270,7 +309,7 @@ export function buildFinancePricingKeyboard() {
         { text: "💠 Platinum 7 Hari", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_PLATINUM_7D },
         { text: "💠 Platinum 1 Bulan", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_PLATINUM_1M },
       ],
-      backAndOfficerHomeRow(CALLBACKS.SUPERADMIN_FINANCE_MENU),
+      backAndHomeRow(CALLBACKS.SUPERADMIN_FINANCE_MENU, "superadmin"),
     ],
   };
 }
@@ -286,7 +325,7 @@ export function buildFinanceClassPricingKeyboard(classId) {
         { text: "7 Hari", callback_data: `sa:fin:price:${classId}:7d` },
         { text: "1 Bulan", callback_data: `sa:fin:price:${classId}:1m` },
       ],
-      backAndOfficerHomeRow(CALLBACKS.SUPERADMIN_FINANCE_PRICING_MENU),
+      backAndHomeRow(CALLBACKS.SUPERADMIN_FINANCE_PRICING_MENU, "superadmin"),
     ],
   };
 }
@@ -300,7 +339,7 @@ export function buildPaymentReviewKeyboard(ticketId) {
       ],
       [
         { text: "⬅️ Finance", callback_data: CALLBACKS.SUPERADMIN_FINANCE_MENU },
-        officerHomeButton(),
+        superadminHomeButton(),
       ],
     ],
   };
@@ -340,6 +379,6 @@ export function buildVerificatorKeyboard(telegramId, verificators) {
     rows.push(row);
   }
 
-  rows.push(backAndOfficerHomeRow(cb.backVer(telegramId)));
+  rows.push(backAndHomeRow(cb.backVer(telegramId), "officer"));
   return { inline_keyboard: rows };
 }
