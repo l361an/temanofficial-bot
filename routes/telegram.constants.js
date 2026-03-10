@@ -64,6 +64,11 @@ export const CALLBACKS = {
 export const CALLBACK_PREFIX = {
   PM_LIST: "pm:list:",
 
+  PM_PANEL_OPEN: "pm:panel:",
+  PM_DETAILS_OPEN: "pm:details:",
+  PM_SUBSCRIPTION_OPEN: "pm:subscription:",
+  PM_PANEL_BACK: "pm:panel:back:",
+
   PM_CLASS_START: "pmclass:start:",
   PM_CLASS_SET: "pmclass:set:",
   PM_CLASS_BACK: "pmclass:back:",
@@ -101,6 +106,11 @@ export const OBSOLETE_ADMIN_COMMANDS = new Set([
 
 export const cb = {
   pmList: (status) => `${CALLBACK_PREFIX.PM_LIST}${status}`,
+
+  pmPanelOpen: (telegramId) => `${CALLBACK_PREFIX.PM_PANEL_OPEN}${telegramId}`,
+  pmDetailsOpen: (telegramId) => `${CALLBACK_PREFIX.PM_DETAILS_OPEN}${telegramId}`,
+  pmSubscriptionOpen: (telegramId) => `${CALLBACK_PREFIX.PM_SUBSCRIPTION_OPEN}${telegramId}`,
+  pmPanelBack: (telegramId) => `${CALLBACK_PREFIX.PM_PANEL_BACK}${telegramId}`,
 
   pmClassStart: (telegramId) => `${CALLBACK_PREFIX.PM_CLASS_START}${telegramId}`,
   pmClassSet: (telegramId, classId) => `${CALLBACK_PREFIX.PM_CLASS_SET}${telegramId}:${classId}`,
