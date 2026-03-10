@@ -260,10 +260,26 @@ export function buildFinanceKeyboard(manualOn) {
           callback_data: CALLBACKS.SUPERADMIN_FINANCE_MANUAL_TOGGLE,
         },
       ],
-      [{ text: "🏷️ Set Pricing", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICING_MENU }],
+      [
+        { text: "🏷️ Set Pricing", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICING_MENU },
+        { text: "🖼️ QRIS", callback_data: CALLBACKS.SUPERADMIN_FINANCE_QRIS_MENU },
+      ],
       backAndHomeRow(CALLBACKS.SUPERADMIN_SETTINGS_MENU),
     ],
   };
+}
+
+export function buildFinanceQrisKeyboard(hasQris = false) {
+  const rows = [];
+
+  if (hasQris) {
+    rows.push([{ text: "👁️ Lihat QRIS", callback_data: CALLBACKS.SUPERADMIN_FINANCE_QRIS_VIEW }]);
+  }
+
+  rows.push([{ text: hasQris ? "♻️ Ganti Foto QRIS" : "📸 Set Foto QRIS", callback_data: CALLBACKS.SUPERADMIN_FINANCE_QRIS_SET }]);
+  rows.push(backAndHomeRow(CALLBACKS.SUPERADMIN_FINANCE_MENU));
+
+  return { inline_keyboard: rows };
 }
 
 export function buildFinancePricingKeyboard() {
