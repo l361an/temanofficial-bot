@@ -10,7 +10,6 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-    // Normalize: kalau ada //webhook jadi /webhook
     const pathname = url.pathname.replace(/\/{2,}/g, "/");
 
     if (pathname === "/webhook") {
