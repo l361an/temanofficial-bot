@@ -2,6 +2,7 @@
 
 import { getSetting } from "../repositories/settingsRepo.js";
 import { createPaymentTicket } from "../repositories/paymentTicketsRepo.js";
+import { sendPhoto, upsertCallbackMessage } from "../services/telegramApi.js";
 
 import {
   normalizeStatus,
@@ -27,6 +28,8 @@ import {
   buildPaymentHomeMessage,
   buildChooseDurationMessage,
   buildPaymentDurationKeyboard,
+  buildPaymentDurationConfirmKeyboard,
+  buildPaymentDurationConfirmMessage,
   buildPaymentTicketSummary,
   buildPaymentInstructionMessage,
   buildPaymentUploadInfoMessage,
@@ -133,6 +136,102 @@ async function sendDurationPicker(env, chatId, telegramId, options = {}) {
     sourceMessage,
     buildChooseDurationMessage(ctx),
     buildPaymentDurationKeyboard()
+  );
+}
+
+async function sendDurationConfirmation(env, chatId, telegramId, durationCode, options = {}) {
+  const { sourceMessage = null } = options;
+
+  const allowedDurationCodes = new Set(["1d", "3d", "7d", "1m"]);
+  const normalizedDurationCode = String(durationCode || "").trim().toLowerCase();
+  const finalDurationCode = allowedDurationCodes.has(normalizedDurationCode) ? normalizedDurationCode : "1m";
+
+  const ctx = await loadSelfPaymentContext(env, telegramId);
+  if (!ctx.profile) {
+    await sendHtml(env, chatId, "Data partner tidak ditemukan.", {
+      reply_markup: buildTeManMenuKeyboard(),
+    });
+    return;
+  }
+
+  const partnerStatus = normalizeStatus(ctx.profile.status);
+  if (partnerStatus === "pending_approval") {
+    await renderPaymentScreen(
+      env,
+      chatId,
+      sourceMessage,
+      "⚠️ Akun kamu masih <b>Pending</b>.\nTiket pembayaran baru bisa diajukan setelah registrasi disetujui.",
+      buildPaymentMenuKeyboard({
+        hasOpenTicket: false,
+        primaryActionText: ctx.primaryActionText,
+      })
+    );
+    return;
+  }
+
+  if (partnerStatus === "suspended") {
+    await renderPaymentScreen(
+      env,
+      chatId,
+      sourceMessage,
+      "⚠️ Status partner kamu saat ini <b>Suspended</b>.\nSilakan hubungi admin TeMan untuk informasi lebih lanjut.",
+      buildPaymentMenuKeyboard({
+        hasOpenTicket: false,
+        primaryActionText: ctx.primaryActionText,
+      })
+    );
+    return;
+  }
+
+  const paymentEnabled = (await getSetting(env, "payment_manual_enabled")) ?? "1";
+  if (String(paymentEnabled) === "0") {
+    await renderPaymentScreen(
+      env,
+      chatId,
+      sourceMessage,
+      "⚠️ Payment manual sedang dinonaktifkan oleh Superadmin.",
+      buildPaymentMenuKeyboard({
+        hasOpenTicket: false,
+        primaryActionText: ctx.primaryActionText,
+      })
+    );
+    return;
+  }
+
+  if (ctx.openTicket) {
+    await renderPaymentScreen(
+      env,
+      chatId,
+      sourceMessage,
+      buildOpenTicketWarningMessage(ctx.openTicket),
+      buildPaymentMenuKeyboard({
+        hasOpenTicket: true,
+        primaryActionText: ctx.primaryActionText,
+      })
+    );
+    return;
+  }
+
+  const classId = normalizeClassId(ctx.profile.class_id || "bronze");
+  const price = await resolvePriceByClassAndDuration(env, classId, finalDurationCode);
+
+  if (!Number(price.amount)) {
+    await renderPaymentScreen(
+      env,
+      chatId,
+      sourceMessage,
+      `⚠️ Harga untuk class <b>${classId === "bronze" ? "Bronze" : classId === "gold" ? "Gold" : classId === "platinum" ? "Platinum" : classId}</b> durasi <b>${price.durationLabel}</b> belum diset di settings.`,
+      buildPaymentDurationKeyboard()
+    );
+    return;
+  }
+
+  await renderPaymentScreen(
+    env,
+    chatId,
+    sourceMessage,
+    buildPaymentDurationConfirmMessage(ctx, price),
+    buildPaymentDurationConfirmKeyboard(price.durationCode)
   );
 }
 
@@ -265,15 +364,41 @@ async function createPartnerPaymentTicket(env, chatId, telegramId, durationCode,
     }),
   });
 
+  const keyboard = buildPaymentMenuKeyboard({
+    hasOpenTicket: true,
+    primaryActionText: ctx.primaryActionText,
+  });
+
+  const qrisPhotoFileId = String((await getSetting(env, "payment_qris_photo_file_id")) || "").trim();
+
+  if (sourceMessage) {
+    await upsertCallbackMessage(env, sourceMessage, "✅ Tiket pembayaran berhasil dibuat.\nLihat detail pembayaran di pesan berikutnya.", {
+      parse_mode: "HTML",
+      reply_markup: keyboard,
+      disable_web_page_preview: true,
+    }).catch(() => {});
+  }
+
+  if (qrisPhotoFileId) {
+    await sendPhoto(
+      env,
+      chatId,
+      qrisPhotoFileId,
+      buildPaymentInstructionMessage(created, price.durationLabel, { hasQrisPhoto: true }),
+      {
+        parse_mode: "HTML",
+        reply_markup: keyboard,
+      }
+    );
+    return;
+  }
+
   await renderPaymentScreen(
     env,
     chatId,
-    sourceMessage,
-    buildPaymentInstructionMessage(created, price.durationLabel),
-    buildPaymentMenuKeyboard({
-      hasOpenTicket: true,
-      primaryActionText: ctx.primaryActionText,
-    })
+    null,
+    buildPaymentInstructionMessage(created, price.durationLabel, { hasQrisPhoto: false }),
+    keyboard
   );
 }
 
@@ -361,22 +486,42 @@ export async function handleSelfPaymentInlineCallback(update, env) {
     return true;
   }
 
-  if (data === "self:payment:create:1d") {
+  if (data === "self:payment:pick:1d") {
+    await sendDurationConfirmation(env, chatId, telegramId, "1d", { sourceMessage: msg });
+    return true;
+  }
+
+  if (data === "self:payment:pick:3d") {
+    await sendDurationConfirmation(env, chatId, telegramId, "3d", { sourceMessage: msg });
+    return true;
+  }
+
+  if (data === "self:payment:pick:7d") {
+    await sendDurationConfirmation(env, chatId, telegramId, "7d", { sourceMessage: msg });
+    return true;
+  }
+
+  if (data === "self:payment:pick:1m") {
+    await sendDurationConfirmation(env, chatId, telegramId, "1m", { sourceMessage: msg });
+    return true;
+  }
+
+  if (data === "self:payment:confirm:1d") {
     await createPartnerPaymentTicket(env, chatId, telegramId, "1d", { sourceMessage: msg });
     return true;
   }
 
-  if (data === "self:payment:create:3d") {
+  if (data === "self:payment:confirm:3d") {
     await createPartnerPaymentTicket(env, chatId, telegramId, "3d", { sourceMessage: msg });
     return true;
   }
 
-  if (data === "self:payment:create:7d") {
+  if (data === "self:payment:confirm:7d") {
     await createPartnerPaymentTicket(env, chatId, telegramId, "7d", { sourceMessage: msg });
     return true;
   }
 
-  if (data === "self:payment:create:1m") {
+  if (data === "self:payment:confirm:1m") {
     await createPartnerPaymentTicket(env, chatId, telegramId, "1m", { sourceMessage: msg });
     return true;
   }
