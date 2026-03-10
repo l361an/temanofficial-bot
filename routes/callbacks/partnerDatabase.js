@@ -95,6 +95,59 @@ function formatDateTime(value) {
   return String(value);
 }
 
+function formatMoney(value) {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n)) return "Rp 0";
+  return `Rp ${n.toLocaleString("id-ID")}`;
+}
+
+function normalizeDurationCode(raw) {
+  const v = String(raw || "").trim().toLowerCase();
+  if (v === "1d" || v === "3d" || v === "7d" || v === "1m") return v;
+  return "";
+}
+
+function resolveDurationCode(row) {
+  const metaRaw = String(row?.metadata_json || "").trim();
+  if (metaRaw) {
+    try {
+      const meta = JSON.parse(metaRaw);
+      const code = normalizeDurationCode(meta?.duration_code);
+      if (code) return code;
+    } catch {}
+  }
+
+  const snapRaw = String(row?.pricing_snapshot_json || "").trim();
+  if (snapRaw) {
+    try {
+      const snap = JSON.parse(snapRaw);
+      const code = normalizeDurationCode(snap?.duration_code);
+      if (code) return code;
+    } catch {}
+  }
+
+  const months = Number(row?.duration_months || 0);
+  if (months === 1) return "1m";
+
+  return "";
+}
+
+function formatDurationLabelFromRow(row) {
+  const code = resolveDurationCode(row);
+
+  if (code === "1d") return "1 Hari";
+  if (code === "3d") return "3 Hari";
+  if (code === "7d") return "7 Hari";
+  if (code === "1m") return "1 Bulan";
+
+  const months = Number(row?.duration_months || 0);
+  if (Number.isFinite(months) && months > 0) {
+    return `${months} Bulan`;
+  }
+
+  return "-";
+}
+
 function readSourceMessage(session, fallbackMessage = null, adminId = null) {
   const sourceChatId =
     session?.data?.source_chat_id ??
@@ -190,6 +243,22 @@ async function persistPartnerViewSession(
   });
 }
 
+async function getLatestPaymentTicket(env, partnerId) {
+  const row = await env.DB.prepare(
+    `
+    SELECT *
+    FROM payment_tickets
+    WHERE partner_id = ?
+    ORDER BY datetime(created_at) DESC, datetime(updated_at) DESC, id DESC
+    LIMIT 1
+  `
+  )
+    .bind(String(partnerId))
+    .first();
+
+  return row ?? null;
+}
+
 async function loadPartnerContext(env, telegramId) {
   const profile = await getProfileFullByTelegramId(env, telegramId);
   if (!profile) return null;
@@ -216,22 +285,7 @@ async function loadPartnerContext(env, telegramId) {
     row: null,
   }));
 
-  let latestPayment = null;
-  try {
-    latestPayment = await env.DB.prepare(
-      `
-      SELECT *
-      FROM payment_tickets
-      WHERE partner_id = ?
-      ORDER BY datetime(created_at) DESC, datetime(updated_at) DESC, id DESC
-      LIMIT 1
-    `
-    )
-      .bind(String(telegramId))
-      .first();
-  } catch {
-    latestPayment = null;
-  }
+  const latestPayment = await getLatestPaymentTicket(env, telegramId).catch(() => null);
 
   return {
     profile,
@@ -246,7 +300,8 @@ function buildPartnerControlPanelText(context) {
   const { profile, subInfo } = context;
   const premiumAccess = premiumAccessLabel(profile, subInfo);
   const subscriptionStatus = subInfo?.row?.status || "-";
-  const selectedLabel = profile?.username ? `@${profile.username}` : profile?.telegram_id || "-";
+  const username = cleanHandle(profile?.username);
+  const selectedLabel = username || profile?.telegram_id || "-";
 
   return [
     "🎛️ <b>Partner Control Panel</b>",
@@ -272,7 +327,7 @@ function buildPartnerDetailsText(context) {
     "",
     `Nama Lengkap: <b>${escapeHtml(profile?.nama_lengkap || "-")}</b>`,
     `Nickname: <b>${escapeHtml(profile?.nickname || "-")}</b>`,
-    `Username: <b>${escapeHtml(cleanHandle(profile?.username))}</b>`,
+    `Username: <b>${escapeHtml(cleanHandle(profile?.username) || "-")}</b>`,
     `Telegram ID: <code>${escapeHtml(profile?.telegram_id || "-")}</code>`,
     `NIK: <b>${escapeHtml(profile?.nik || "-")}</b>`,
     `No. Whatsapp: <b>${escapeHtml(profile?.no_whatsapp || "-")}</b>`,
@@ -289,6 +344,7 @@ function buildPartnerSubscriptionText(context) {
   const { profile, subInfo, latestPayment } = context;
   const premiumAccess = premiumAccessLabel(profile, subInfo);
   const row = subInfo?.row || null;
+  const durationLabel = formatDurationLabelFromRow(row);
 
   const lines = [
     "💳 <b>Partner Subscription</b>",
@@ -296,7 +352,7 @@ function buildPartnerSubscriptionText(context) {
     `Akses Premium: <b>${escapeHtml(premiumAccess)}</b>`,
     `Class Partner: <b>${escapeHtml(fmtClassId(profile?.class_id))}</b>`,
     `Subscription Status: <b>${escapeHtml(row?.status || "-")}</b>`,
-    `Duration: <b>${escapeHtml(row?.duration_months ?? "-")}</b>`,
+    `Durasi: <b>${escapeHtml(durationLabel)}</b>`,
     `Start At: <b>${escapeHtml(formatDateTime(row?.start_at))}</b>`,
     `End At: <b>${escapeHtml(formatDateTime(row?.end_at))}</b>`,
     `Activated At: <b>${escapeHtml(formatDateTime(row?.activated_at))}</b>`,
@@ -308,9 +364,12 @@ function buildPartnerSubscriptionText(context) {
   if (latestPayment) {
     lines.push("");
     lines.push("🧾 <b>Latest Payment</b>");
-    lines.push(`Ticket ID: <b>${escapeHtml(latestPayment.id || "-")}</b>`);
+    lines.push(`Kode Tiket: <b>${escapeHtml(latestPayment.ticket_code || "-")}</b>`);
     lines.push(`Status: <b>${escapeHtml(latestPayment.status || "-")}</b>`);
-    lines.push(`Amount: <b>${escapeHtml(latestPayment.total_amount ?? "-")}</b>`);
+    lines.push(`Durasi: <b>${escapeHtml(formatDurationLabelFromRow(latestPayment))}</b>`);
+    lines.push(`Harga Dasar: <b>${escapeHtml(formatMoney(latestPayment.amount_base))}</b>`);
+    lines.push(`Kode Unik: <b>${escapeHtml(latestPayment.unique_code ?? "0")}</b>`);
+    lines.push(`Total Bayar: <b>${escapeHtml(formatMoney(latestPayment.amount_final))}</b>`);
     lines.push(`Requested At: <b>${escapeHtml(formatDateTime(latestPayment.requested_at))}</b>`);
     lines.push(`Expires At: <b>${escapeHtml(formatDateTime(latestPayment.expires_at))}</b>`);
     lines.push(`Confirmed At: <b>${escapeHtml(formatDateTime(latestPayment.confirmed_at))}</b>`);
@@ -339,13 +398,19 @@ export async function renderPartnerControlPanel(
     return false;
   }
 
-  await persistPartnerViewSession(env, adminId, session, {
-    step: "selected",
-    data: {
-      selected_partner_id: String(context.profile.telegram_id),
-      selected_input: selectedInput ?? session?.data?.selected_input ?? null,
+  await persistPartnerViewSession(
+    env,
+    adminId,
+    session,
+    {
+      step: "selected",
+      data: {
+        selected_partner_id: String(context.profile.telegram_id),
+        selected_input: selectedInput ?? session?.data?.selected_input ?? null,
+      },
     },
-  }, fallbackMessage);
+    fallbackMessage
+  );
 
   const text = buildPartnerControlPanelText(context);
   const replyMarkup = buildPartnerControlPanelKeyboard(context.profile.telegram_id, role);
@@ -372,16 +437,22 @@ export async function renderPartnerDetailsPage(
       env,
       adminId,
       "⚠️ Data partner tidak ditemukan.",
-      buildBackToPartnerDatabaseKeyboard(role),
+      buildPartnerDatabaseKeyboard(role),
       { session, fallbackMessage }
     );
     return false;
   }
 
-  await persistPartnerViewSession(env, adminId, session, {
-    step: "selected",
-    data: { selected_partner_id: String(context.profile.telegram_id) },
-  }, fallbackMessage);
+  await persistPartnerViewSession(
+    env,
+    adminId,
+    session,
+    {
+      step: "selected",
+      data: { selected_partner_id: String(context.profile.telegram_id) },
+    },
+    fallbackMessage
+  );
 
   await renderPartnerDatabaseMessage(
     env,
@@ -408,16 +479,22 @@ export async function renderPartnerSubscriptionPage(
       env,
       adminId,
       "⚠️ Data partner tidak ditemukan.",
-      buildBackToPartnerDatabaseKeyboard(role),
+      buildPartnerDatabaseKeyboard(role),
       { session, fallbackMessage }
     );
     return false;
   }
 
-  await persistPartnerViewSession(env, adminId, session, {
-    step: "selected",
-    data: { selected_partner_id: String(context.profile.telegram_id) },
-  }, fallbackMessage);
+  await persistPartnerViewSession(
+    env,
+    adminId,
+    session,
+    {
+      step: "selected",
+      data: { selected_partner_id: String(context.profile.telegram_id) },
+    },
+    fallbackMessage
+  );
 
   await renderPartnerDatabaseMessage(
     env,
@@ -500,9 +577,15 @@ export function buildPartnerDatabaseHandlers() {
   EXACT[CALLBACKS.PARTNER_DATABASE_VIEW] = async (ctx) => {
     const { env, adminId, msg, role } = ctx;
 
-    await persistPartnerViewSession(env, adminId, null, {
-      step: "await_target",
-    }, msg);
+    await persistPartnerViewSession(
+      env,
+      adminId,
+      null,
+      {
+        step: "await_target",
+      },
+      msg
+    );
 
     const text = buildPartnerViewPromptText();
     const extra = {
