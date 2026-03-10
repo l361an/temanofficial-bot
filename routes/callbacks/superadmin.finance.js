@@ -1,6 +1,6 @@
 // routes/callbacks/superadmin.finance.js
 
-import { sendMessage, upsertCallbackMessage } from "../../services/telegramApi.js";
+import { sendMessage, sendPhoto, upsertCallbackMessage } from "../../services/telegramApi.js";
 import { getSetting, upsertSetting } from "../../repositories/settingsRepo.js";
 import { saveSession, clearSession } from "../../utils/session.js";
 
@@ -8,6 +8,7 @@ import {
   buildFinanceKeyboard,
   buildFinancePricingKeyboard,
   buildFinanceClassPricingKeyboard,
+  buildFinanceQrisKeyboard,
 } from "./keyboards.js";
 
 import { CALLBACKS, SESSION_MODES } from "../telegram.constants.js";
@@ -38,6 +39,7 @@ function formatMoney(value) {
 async function getFinanceState(env) {
   const manualRaw = (await getSetting(env, "payment_manual_enabled")) ?? "1";
   const manualOn = String(manualRaw) !== "0";
+  const qrisPhotoFileId = String((await getSetting(env, "payment_qris_photo_file_id")) || "").trim();
 
   const keys = [
     "payment_price_bronze_1d",
@@ -61,7 +63,12 @@ async function getFinanceState(env) {
     values[key] = Number((await getSetting(env, key)) || 0);
   }
 
-  return { manualOn, prices: values };
+  return {
+    manualOn,
+    prices: values,
+    qrisPhotoFileId,
+    hasQris: Boolean(qrisPhotoFileId),
+  };
 }
 
 function buildFinanceText(state) {
@@ -69,6 +76,7 @@ function buildFinanceText(state) {
     "💰 <b>Finance</b>",
     "",
     `Set Manual: <b>${state.manualOn ? "ON" : "OFF"}</b>`,
+    `Foto QRIS: <b>${state.hasQris ? "Sudah Diset" : "Belum Diset"}</b>`,
   ].join("\n");
 }
 
@@ -120,6 +128,29 @@ function buildFinancePromptText(classId, durationCode) {
   ].join("\n");
 }
 
+function buildFinanceQrisText(state) {
+  return [
+    "🖼️ <b>QRIS Payment</b>",
+    "",
+    `Status Foto QRIS: <b>${state.hasQris ? "Sudah Diset" : "Belum Diset"}</b>`,
+    "",
+    state.hasQris
+      ? "Gunakan menu di bawah untuk melihat atau mengganti foto QRIS."
+      : "Upload foto QRIS agar partner bisa langsung melihat QRIS setelah tiket payment dibuat.",
+  ].join("\n");
+}
+
+function buildFinanceQrisPromptText() {
+  return [
+    "📸 <b>UPLOAD FOTO QRIS</b>",
+    "",
+    "Kirim <b>photo</b> QRIS di chat ini.",
+    "Format yang diproses hanya <b>photo</b>, bukan file atau dokumen.",
+    "",
+    "Ketik <b>batal</b> untuk keluar.",
+  ].join("\n");
+}
+
 async function renderMenuMessage(ctx, text, extra) {
   const { env, adminId, msg } = ctx;
 
@@ -162,6 +193,54 @@ export function buildSuperadminFinanceHandlers() {
     return renderMenuMessage(ctx, `✅ Set Manual sekarang: ${state.manualOn ? "ON" : "OFF"}`, {
       reply_markup: buildFinanceKeyboard(state.manualOn),
     });
+  };
+
+  EXACT[CALLBACKS.SUPERADMIN_FINANCE_QRIS_MENU] = async (ctx) => {
+    const { env, adminId } = ctx;
+
+    await clearSession(env, `state:${adminId}`).catch(() => {});
+
+    const state = await getFinanceState(env);
+
+    return renderMenuMessage(ctx, buildFinanceQrisText(state), {
+      parse_mode: "HTML",
+      reply_markup: buildFinanceQrisKeyboard(state.hasQris),
+    });
+  };
+
+  EXACT[CALLBACKS.SUPERADMIN_FINANCE_QRIS_SET] = async (ctx) => {
+    const { env, adminId } = ctx;
+
+    await saveSession(env, `state:${adminId}`, {
+      mode: SESSION_MODES.SA_FINANCE,
+      area: "qris",
+      step: "await_photo",
+    });
+
+    await sendMessage(env, adminId, buildFinanceQrisPromptText(), {
+      parse_mode: "HTML",
+      reply_markup: buildFinanceQrisKeyboard(Boolean(await getSetting(env, "payment_qris_photo_file_id"))),
+    });
+
+    return true;
+  };
+
+  EXACT[CALLBACKS.SUPERADMIN_FINANCE_QRIS_VIEW] = async (ctx) => {
+    const { env, adminId } = ctx;
+
+    const photoFileId = String((await getSetting(env, "payment_qris_photo_file_id")) || "").trim();
+    if (!photoFileId) {
+      return renderMenuMessage(ctx, "⚠️ Foto QRIS belum diset.", {
+        reply_markup: buildFinanceQrisKeyboard(false),
+      });
+    }
+
+    await sendPhoto(env, adminId, photoFileId, "🖼️ <b>Preview QRIS Saat Ini</b>", {
+      parse_mode: "HTML",
+      reply_markup: buildFinanceQrisKeyboard(true),
+    });
+
+    return true;
   };
 
   EXACT[CALLBACKS.SUPERADMIN_FINANCE_PRICING_MENU] = async (ctx) => {
