@@ -196,13 +196,13 @@ export async function getSubscriptionById(env, id) {
 export async function createPartnerSubscription(env, payload) {
   const {
     id,
-    partnerId = null,
+    partnerId,
     paymentTicketId = null,
-    classId = null,
+    classId,
     durationMonths = 0,
     status = "active",
-    startAt = null,
-    endAt = null,
+    startAt,
+    endAt,
     activatedAt = null,
     expiredAt = null,
     cancelledAt = null,
@@ -261,8 +261,8 @@ export async function createPartnerSubscription(env, payload) {
       String(classId || "bronze").toLowerCase(),
       safeDurationMonths,
       String(status),
-      startAt == null ? null : String(startAt),
-      endAt == null ? null : String(endAt),
+      String(startAt),
+      String(endAt),
       activatedAt == null ? null : String(activatedAt),
       expiredAt == null ? null : String(expiredAt),
       cancelledAt == null ? null : String(cancelledAt),
@@ -418,10 +418,7 @@ export async function listSubscriptionsDueForReminder(
   const safeReminderKey = normalizeReminderKey(reminderKey);
   const reminderColumn = normalizeReminderColumn(safeReminderKey);
   const nowSql = nowOverride ? toSqlDateTime(nowOverride) : toSqlDateTime(new Date());
-  const { lowerExpr, upperExpr, bindValues } = buildReminderWindow(
-    safeReminderKey,
-    nowSql
-  );
+  const { lowerExpr, upperExpr, bindValues } = buildReminderWindow(safeReminderKey, nowSql);
   const safeLimit =
     Number.isFinite(Number(limit)) && Number(limit) > 0
       ? Math.min(Number(limit), 1000)
