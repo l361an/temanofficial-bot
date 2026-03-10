@@ -9,6 +9,7 @@ import {
   markSubscriptionReminderSent,
 } from "../repositories/partnerSubscriptionsRepo.js";
 import { markSubscriptionExpired } from "./partnerStatusService.js";
+import { syncPartnerGroupRole } from "./partnerGroupRoleService.js";
 
 function buildReminderMessage(reminderKey, row) {
   const endAtText = formatDateTime(row?.end_at);
@@ -51,17 +52,30 @@ async function runExpireSubscriptions(env) {
 
   const partnerIds = Array.isArray(expired?.partnerIds) ? expired.partnerIds : [];
   let statusUpdatedCount = 0;
+  const groupRoleSyncResults = [];
 
   for (const partnerId of partnerIds) {
     try {
       await markSubscriptionExpired(env, partnerId, null);
       statusUpdatedCount += 1;
 
+      const groupRoleSync = await syncPartnerGroupRole(env, partnerId).catch((error) => ({
+        ok: false,
+        reason: error?.message || String(error),
+      }));
+
+      groupRoleSyncResults.push({
+        partner_id: String(partnerId),
+        result: groupRoleSync,
+      });
+
       await sendMessage(
         env,
         partnerId,
         [
           "⛔ <b>Masa aktif Premium TeMan kamu sudah berakhir.</b>",
+          "",
+          "Status admin partner kamu di grup telah dinonaktifkan dan akun kamu telah di-mute otomatis.",
           "",
           "Silakan lakukan <b>Pembayaran / Renewal</b> di <b>Menu Premium Partner</b> agar <b>Akses Premium</b> aktif kembali dan kamu tetap dapat menggunakan <b>Fitur Premium TeMan</b>.",
         ].join("\n"),
@@ -84,6 +98,7 @@ async function runExpireSubscriptions(env) {
     count: partnerIds.length,
     statusUpdatedCount,
     partnerIds,
+    groupRoleSyncResults,
   };
 }
 
