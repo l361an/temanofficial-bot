@@ -327,7 +327,7 @@ async function createPartnerPaymentTicket(env, chatId, telegramId, durationCode,
   const amountBase = Number(price.amount);
   const amountFinal = amountBase + uniqueCode;
 
-  const now = new Date();
+  const now = nowJakarta();
   const expiryHours = await getPaymentExpiryHours(env);
   const expiresAt = makeSqlDate(addHours(now, expiryHours));
 
