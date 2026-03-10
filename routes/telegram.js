@@ -12,6 +12,8 @@ import { handleUserCommand, handleUserEditFlow } from "./telegram.commands.user.
 import { buildSelfMenuMessage, buildSelfMenuKeyboard } from "./telegram.flow.selfProfile.menu.js";
 import { buildTeManMenuKeyboard } from "./telegram.user.shared.js";
 import { handleRegistrationFlow } from "./telegram.flow.js";
+import { handleSuperadminFinanceInput } from "./telegram.flow.superadminFinance.js";
+import { handlePaymentProofUpload } from "./telegram.flow.paymentProof.js";
 import {
   getProfileFullByTelegramId,
   syncProfileUsernameFromTelegram,
@@ -137,6 +139,30 @@ export async function handleTelegramWebhook(request, env) {
     }
 
     const session = await loadSession(env, STATE_KEY);
+
+    if (session?.mode === "sa_finance" && isAdminRole(role)) {
+      const handledFinance = await handleSuperadminFinanceInput({
+        env,
+        chatId,
+        telegramId,
+        username,
+        text,
+        session,
+        STATE_KEY,
+        update,
+      });
+      if (handledFinance) return json({ ok: true });
+    }
+
+    if (!isAdminRole(role)) {
+      const handledProofUpload = await handlePaymentProofUpload({
+        env,
+        chatId,
+        telegramId,
+        update,
+      });
+      if (handledProofUpload) return json({ ok: true });
+    }
 
     if (!session && isAdminRole(role)) {
       await sendMessage(env, chatId, "Halo Officer.\nKetik /help untuk daftar command.");
