@@ -40,6 +40,9 @@ export const CALLBACKS = {
   SUPERADMIN_FINANCE_MENU: "sa:fin:menu",
   SUPERADMIN_FINANCE_MANUAL_TOGGLE: "sa:fin:manual_toggle",
   SUPERADMIN_FINANCE_PRICING_MENU: "sa:fin:pricing:menu",
+  SUPERADMIN_FINANCE_QRIS_MENU: "sa:fin:qris:menu",
+  SUPERADMIN_FINANCE_QRIS_SET: "sa:fin:qris:set",
+  SUPERADMIN_FINANCE_QRIS_VIEW: "sa:fin:qris:view",
 
   SUPERADMIN_FINANCE_PRICING_BRONZE_MENU: "sa:fin:pricing:bronze",
   SUPERADMIN_FINANCE_PRICING_GOLD_MENU: "sa:fin:pricing:gold",
