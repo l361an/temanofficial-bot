@@ -57,15 +57,20 @@ async function runExpireSubscriptions(env) {
       await markSubscriptionExpired(env, partnerId, null);
       statusUpdatedCount += 1;
 
-      await sendMessage(env, partnerId, [
-        "⛔ <b>Masa aktif Premium TeMan kamu sudah berakhir.</b>",
-        "",
-        "Silakan lakukan <b>Pembayaran / Renewal</b> di <b>Menu Premium Partner</b> agar <b>Akses Premium</b> aktif kembali dan kamu tetap dapat menggunakan <b>Fitur Premium TeMan</b>.",
-      ].join("\n"), {
-        parse_mode: "HTML",
-        disable_web_page_preview: true,
-        reply_markup: buildTeManMenuKeyboard(),
-      }).catch(() => {});
+      await sendMessage(
+        env,
+        partnerId,
+        [
+          "⛔ <b>Masa aktif Premium TeMan kamu sudah berakhir.</b>",
+          "",
+          "Silakan lakukan <b>Pembayaran / Renewal</b> di <b>Menu Premium Partner</b> agar <b>Akses Premium</b> aktif kembali dan kamu tetap dapat menggunakan <b>Fitur Premium TeMan</b>.",
+        ].join("\n"),
+        {
+          parse_mode: "HTML",
+          disable_web_page_preview: true,
+          reply_markup: buildTeManMenuKeyboard(),
+        }
+      ).catch(() => {});
     } catch (error) {
       console.error("[cron] markSubscriptionExpired error:", {
         partnerId,
