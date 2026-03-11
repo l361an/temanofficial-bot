@@ -6,6 +6,7 @@ import {
   rejectPaymentTicket,
 } from "../../repositories/paymentTicketsRepo.js";
 import { getSetting } from "../../repositories/settingsRepo.js";
+import { getAdminByTelegramId, getFirstActiveSuperadminId } from "../../repositories/adminsRepo.js";
 import { confirmPaymentAndActivateSubscription } from "../../services/paymentActivationService.js";
 import { buildFinanceKeyboard } from "./keyboards.js";
 import { escapeHtml } from "./shared.js";
@@ -50,7 +51,9 @@ function formatDateTime(value) {
   const d = new Date(raw);
   if (Number.isNaN(d.getTime())) return raw;
 
-  return `${pad2(d.getDate())}-${pad2(d.getMonth() + 1)}-${d.getFullYear()} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  return `${pad2(d.getDate())}-${pad2(d.getMonth() + 1)}-${d.getFullYear()} ${pad2(
+    d.getHours()
+  )}:${pad2(d.getMinutes())}`;
 }
 
 async function getFinanceState(env) {
@@ -58,6 +61,43 @@ async function getFinanceState(env) {
   return {
     manualOn: String(manualRaw) !== "0",
   };
+}
+
+async function getPrimarySuperadminContact(env) {
+  const superadminId = await getFirstActiveSuperadminId(env).catch(() => null);
+  if (!superadminId) return null;
+
+  const admin = await getAdminByTelegramId(env, superadminId).catch(() => null);
+  if (!admin) return null;
+
+  const username = String(admin.username || "").trim().replace(/^@/, "");
+  return {
+    telegram_id: String(admin.telegram_id || superadminId),
+    username: username || null,
+    label: admin.label || (username ? `@${username}` : String(admin.telegram_id || superadminId)),
+    url: username ? `https://t.me/${username}` : null,
+  };
+}
+
+function buildPartnerMenuKeyboard() {
+  return {
+    inline_keyboard: [[{ text: "📋 Menu TeMan", callback_data: "teman:menu" }]],
+  };
+}
+
+async function buildPartnerRejectKeyboard(env) {
+  const contact = await getPrimarySuperadminContact(env);
+
+  if (contact?.url) {
+    return {
+      inline_keyboard: [[
+        { text: "☎️ Hubungi Superadmin", url: contact.url },
+        { text: "📋 Menu TeMan", callback_data: "teman:menu" },
+      ]],
+    };
+  }
+
+  return buildPartnerMenuKeyboard();
 }
 
 function buildPaymentConfirmSummary(ticket, profile = null, subscription = null) {
@@ -179,8 +219,10 @@ export function buildSuperadminPaymentReviewHandlers() {
         await sendMessage(
           env,
           ticket.partner_id,
-          "❌ Bukti pembayaran kamu ditolak. Silakan hubungi admin TeMan atau upload ulang sesuai instruksi.",
-          {}
+          "❌ Bukti pembayaran kamu ditolak. Silakan hubungi Superadmin untuk pengecekan lebih lanjut atau kembali ke Menu TeMan.",
+          {
+            reply_markup: await buildPartnerRejectKeyboard(env),
+          }
         ).catch(() => {});
 
         return true;
