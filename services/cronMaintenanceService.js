@@ -7,9 +7,39 @@ import {
   expireDueSubscriptions,
   listSubscriptionsDueForReminder,
   markSubscriptionReminderSent,
+  listActiveSubscriptionsByTelegramId,
 } from "../repositories/partnerSubscriptionsRepo.js";
 import { markSubscriptionExpired } from "./partnerStatusService.js";
 import { syncPartnerGroupRole } from "./partnerGroupRoleService.js";
+
+function parseSqlDateTime(value) {
+  if (!value) return null;
+
+  const raw = String(value).trim();
+  const normalized = raw.includes("T") ? raw : raw.replace(" ", "T");
+  const d = new Date(normalized);
+
+  if (Number.isNaN(d.getTime())) return null;
+  return d;
+}
+
+function hasWindowCoverage(row, nowDate) {
+  const startAt = parseSqlDateTime(row?.start_at);
+  const endAt = parseSqlDateTime(row?.end_at);
+
+  if (!endAt) return false;
+  if (startAt && startAt.getTime() > nowDate.getTime()) return false;
+
+  return endAt.getTime() > nowDate.getTime();
+}
+
+async function hasActiveCoverageNow(env, partnerId) {
+  const rows = await listActiveSubscriptionsByTelegramId(env, partnerId).catch(() => []);
+  if (!Array.isArray(rows) || !rows.length) return false;
+
+  const nowDate = new Date();
+  return rows.some((row) => hasWindowCoverage(row, nowDate));
+}
 
 function buildReminderMessage(reminderKey, row) {
   const endAtText = formatDateTime(row?.end_at);
@@ -52,10 +82,29 @@ async function runExpireSubscriptions(env) {
 
   const partnerIds = Array.isArray(expired?.partnerIds) ? expired.partnerIds : [];
   let statusUpdatedCount = 0;
+  let skippedHasActiveCoverage = 0;
+  const notifiedPartnerIds = [];
+  const skippedPartnerIds = [];
   const groupRoleSyncResults = [];
 
   for (const partnerId of partnerIds) {
     try {
+      const stillHasCoverage = await hasActiveCoverageNow(env, partnerId);
+
+      if (stillHasCoverage) {
+        skippedHasActiveCoverage += 1;
+        skippedPartnerIds.push(String(partnerId));
+        groupRoleSyncResults.push({
+          partner_id: String(partnerId),
+          result: {
+            ok: true,
+            skipped: true,
+            reason: "active_coverage_still_exists",
+          },
+        });
+        continue;
+      }
+
       await markSubscriptionExpired(env, partnerId, null);
       statusUpdatedCount += 1;
 
@@ -85,6 +134,8 @@ async function runExpireSubscriptions(env) {
           reply_markup: buildTeManMenuKeyboard(),
         }
       ).catch(() => {});
+
+      notifiedPartnerIds.push(String(partnerId));
     } catch (error) {
       console.error("[cron] markSubscriptionExpired error:", {
         partnerId,
@@ -97,7 +148,10 @@ async function runExpireSubscriptions(env) {
     ok: Boolean(expired?.ok),
     count: partnerIds.length,
     statusUpdatedCount,
+    skippedHasActiveCoverage,
     partnerIds,
+    notifiedPartnerIds,
+    skippedPartnerIds,
     groupRoleSyncResults,
   };
 }
