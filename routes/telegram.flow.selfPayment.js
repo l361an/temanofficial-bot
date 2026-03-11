@@ -34,13 +34,22 @@ import {
   buildPaymentTicketSummary,
   buildPaymentInstructionMessage,
   buildPaymentUploadInfoMessage,
+  buildPaymentUploadModeKeyboard,
   buildOpenTicketWarningMessage,
   buildExpiredTicketHelpMessage,
   renderPaymentScreen,
 } from "./telegram.flow.selfPayment.ui.js";
 
+function isPrivateChat(chat) {
+  return String(chat?.type || "").trim().toLowerCase() === "private";
+}
+
 async function sendPaymentMenu(env, chatId, telegramId, options = {}) {
   const { sourceMessage = null } = options;
+
+  if (sourceMessage?.chat && !isPrivateChat(sourceMessage.chat)) {
+    return { ok: false, reason: "non_private_source_chat" };
+  }
 
   const ctx = await loadSelfPaymentContext(env, telegramId);
   if (!ctx.profile) {
@@ -64,6 +73,10 @@ async function sendPaymentMenu(env, chatId, telegramId, options = {}) {
 
 async function sendDurationPicker(env, chatId, telegramId, options = {}) {
   const { sourceMessage = null } = options;
+
+  if (sourceMessage?.chat && !isPrivateChat(sourceMessage.chat)) {
+    return { ok: false, reason: "non_private_source_chat" };
+  }
 
   const ctx = await loadSelfPaymentContext(env, telegramId);
   if (!ctx.profile) {
@@ -142,6 +155,10 @@ async function sendDurationPicker(env, chatId, telegramId, options = {}) {
 
 async function sendDurationConfirmation(env, chatId, telegramId, durationCode, options = {}) {
   const { sourceMessage = null } = options;
+
+  if (sourceMessage?.chat && !isPrivateChat(sourceMessage.chat)) {
+    return { ok: false, reason: "non_private_source_chat" };
+  }
 
   const allowedDurationCodes = new Set(["1d", "3d", "7d", "1m"]);
   const normalizedDurationCode = String(durationCode || "").trim().toLowerCase();
@@ -238,6 +255,10 @@ async function sendDurationConfirmation(env, chatId, telegramId, durationCode, o
 
 async function createPartnerPaymentTicket(env, chatId, telegramId, durationCode, options = {}) {
   const { sourceMessage = null } = options;
+
+  if (sourceMessage?.chat && !isPrivateChat(sourceMessage.chat)) {
+    return { ok: false, reason: "non_private_source_chat" };
+  }
 
   const allowedDurationCodes = new Set(["1d", "3d", "7d", "1m"]);
   const normalizedDurationCode = String(durationCode || "").trim().toLowerCase();
@@ -401,6 +422,10 @@ async function createPartnerPaymentTicket(env, chatId, telegramId, durationCode,
 async function sendPaymentTicketStatus(env, chatId, telegramId, options = {}) {
   const { sourceMessage = null } = options;
 
+  if (sourceMessage?.chat && !isPrivateChat(sourceMessage.chat)) {
+    return { ok: false, reason: "non_private_source_chat" };
+  }
+
   const ctx = await loadSelfPaymentContext(env, telegramId);
   if (!ctx.profile) {
     await sendHtml(env, chatId, "Data partner tidak ditemukan.", {
@@ -472,6 +497,10 @@ export async function handleSelfPaymentInlineCallback(update, env) {
 
   if (!chatId || !telegramId) return true;
 
+  if (!isPrivateChat(msg?.chat)) {
+    return true;
+  }
+
   if (data === "self:payment") {
     await sendPaymentMenu(env, chatId, telegramId, { sourceMessage: msg });
     return true;
@@ -541,10 +570,7 @@ export async function handleSelfPaymentInlineCallback(update, env) {
       chatId,
       msg,
       buildPaymentUploadInfoMessage(ctx.openTicket),
-      buildPaymentMenuKeyboard({
-        hasOpenTicket: Boolean(ctx.openTicket),
-        primaryActionText: ctx.primaryActionText,
-      })
+      buildPaymentUploadModeKeyboard()
     );
     return true;
   }
