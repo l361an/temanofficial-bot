@@ -88,26 +88,6 @@ export function buildPartnerControlPanelKeyboard(telegramId, role) {
 }
 
 export function buildPartnerDetailsKeyboard(telegramId, role) {
-  return {
-    inline_keyboard: [
-      [
-        { text: "⬅️ Back to Panel", callback_data: cb.pmPanelBack(telegramId) },
-        officerHomeButton(),
-      ],
-    ],
-  };
-}
-
-export function buildPartnerSubscriptionKeyboard(telegramId, role) {
-  return {
-    inline_keyboard: [
-      [{ text: "⬅️ Back to Panel", callback_data: cb.pmPanelBack(telegramId) }],
-      [officerHomeButton()],
-    ],
-  };
-}
-
-export function buildPartnerDetailActionsKeyboard(telegramId, role) {
   const rows = [];
 
   if (isSuperadminRole(role)) {
@@ -129,8 +109,25 @@ export function buildPartnerDetailActionsKeyboard(telegramId, role) {
     ]);
   }
 
-  rows.push([officerHomeButton()]);
+  rows.push([
+    { text: "⬅️ Back to Panel", callback_data: cb.pmPanelBack(telegramId) },
+    officerHomeButton(),
+  ]);
+
   return { inline_keyboard: rows };
+}
+
+export function buildPartnerSubscriptionKeyboard(telegramId, role) {
+  return {
+    inline_keyboard: [
+      [{ text: "⬅️ Back to Panel", callback_data: cb.pmPanelBack(telegramId) }],
+      [officerHomeButton()],
+    ],
+  };
+}
+
+export function buildPartnerDetailActionsKeyboard(telegramId, role) {
+  return buildPartnerDetailsKeyboard(telegramId, role);
 }
 
 export function buildPartnerClassPickerKeyboard(telegramId, role) {
@@ -374,7 +371,12 @@ export function buildFinanceQrisKeyboard(hasQris = false) {
     rows.push([{ text: "👁️ Lihat QRIS", callback_data: CALLBACKS.SUPERADMIN_FINANCE_QRIS_VIEW }]);
   }
 
-  rows.push([{ text: hasQris ? "♻️ Ganti Foto QRIS" : "📸 Set Foto QRIS", callback_data: CALLBACKS.SUPERADMIN_FINANCE_QRIS_SET }]);
+  rows.push([
+    {
+      text: hasQris ? "♻️ Ganti Foto QRIS" : "📸 Set Foto QRIS",
+      callback_data: CALLBACKS.SUPERADMIN_FINANCE_QRIS_SET,
+    },
+  ]);
   rows.push(backAndHomeRow(CALLBACKS.SUPERADMIN_FINANCE_MENU));
 
   return { inline_keyboard: rows };
