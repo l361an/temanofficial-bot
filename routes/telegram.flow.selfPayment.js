@@ -26,6 +26,10 @@ import {
 
 import {
   buildPaymentMenuKeyboard,
+  buildWaitingPaymentKeyboard,
+  buildWaitingConfirmationKeyboard,
+  buildRejectedPaymentKeyboard,
+  buildExpiredPaymentKeyboard,
   buildPaymentHomeMessage,
   buildChooseDurationMessage,
   buildPaymentDurationKeyboard,
@@ -42,6 +46,32 @@ import {
 
 function isPrivateChat(chat) {
   return String(chat?.type || "").trim().toLowerCase() === "private";
+}
+
+function resolveTicketKeyboard(ticket, primaryActionText = "💳 Aktivasi Premium") {
+  const status = normalizeStatus(ticket?.status);
+
+  if (status === "waiting_payment") {
+    return buildWaitingPaymentKeyboard();
+  }
+
+  if (status === "waiting_confirmation") {
+    return buildWaitingConfirmationKeyboard();
+  }
+
+  if (status === "rejected") {
+    return buildRejectedPaymentKeyboard();
+  }
+
+  if (status === "expired" || status === "cancelled") {
+    return buildExpiredPaymentKeyboard(primaryActionText);
+  }
+
+  return buildPaymentMenuKeyboard({
+    hasOpenTicket: false,
+    primaryActionText,
+    ticketStatus: status,
+  });
 }
 
 async function sendPaymentMenu(env, chatId, telegramId, options = {}) {
@@ -67,6 +97,7 @@ async function sendPaymentMenu(env, chatId, telegramId, options = {}) {
     buildPaymentMenuKeyboard({
       hasOpenTicket: Boolean(ctx.openTicket),
       primaryActionText: ctx.primaryActionText,
+      ticketStatus: ctx.openTicket?.status || null,
     })
   );
 }
@@ -136,10 +167,7 @@ async function sendDurationPicker(env, chatId, telegramId, options = {}) {
       chatId,
       sourceMessage,
       buildOpenTicketWarningMessage(ctx.openTicket),
-      buildPaymentMenuKeyboard({
-        hasOpenTicket: true,
-        primaryActionText: ctx.primaryActionText,
-      })
+      resolveTicketKeyboard(ctx.openTicket, ctx.primaryActionText)
     );
     return;
   }
@@ -222,10 +250,7 @@ async function sendDurationConfirmation(env, chatId, telegramId, durationCode, o
       chatId,
       sourceMessage,
       buildOpenTicketWarningMessage(ctx.openTicket),
-      buildPaymentMenuKeyboard({
-        hasOpenTicket: true,
-        primaryActionText: ctx.primaryActionText,
-      })
+      resolveTicketKeyboard(ctx.openTicket, ctx.primaryActionText)
     );
     return;
   }
@@ -322,10 +347,7 @@ async function createPartnerPaymentTicket(env, chatId, telegramId, durationCode,
       chatId,
       sourceMessage,
       buildOpenTicketWarningMessage(ctx.openTicket),
-      buildPaymentMenuKeyboard({
-        hasOpenTicket: true,
-        primaryActionText: ctx.primaryActionText,
-      })
+      resolveTicketKeyboard(ctx.openTicket, ctx.primaryActionText)
     );
     return;
   }
@@ -386,13 +408,7 @@ async function createPartnerPaymentTicket(env, chatId, telegramId, durationCode,
     }),
   });
 
-  const finalKeyboard = {
-    inline_keyboard: [
-      [{ text: "📄 Cek Status", callback_data: "self:payment:status" }],
-      [{ text: "📤 Upload Bukti Transfer", callback_data: "self:payment:upload_info" }],
-      [{ text: "📋 Menu TeMan", callback_data: "teman:menu" }],
-    ],
-  };
+  const finalKeyboard = buildWaitingPaymentKeyboard();
 
   const qrisPhotoFileId = String((await getSetting(env, "payment_qris_photo_file_id")) || "").trim();
 
@@ -434,21 +450,7 @@ async function sendPaymentTicketStatus(env, chatId, telegramId, options = {}) {
     return;
   }
 
-  if (ctx.openTicket) {
-    await renderPaymentScreen(
-      env,
-      chatId,
-      sourceMessage,
-      buildPaymentTicketSummary(ctx.openTicket),
-      buildPaymentMenuKeyboard({
-        hasOpenTicket: true,
-        primaryActionText: ctx.primaryActionText,
-      })
-    );
-    return;
-  }
-
-  const latestTicket = await getLatestPaymentTicket(env, telegramId);
+  const latestTicket = ctx.openTicket || (await getLatestPaymentTicket(env, telegramId));
   if (!latestTicket) {
     await renderPaymentScreen(
       env,
@@ -469,10 +471,7 @@ async function sendPaymentTicketStatus(env, chatId, telegramId, options = {}) {
       chatId,
       sourceMessage,
       buildExpiredTicketHelpMessage(latestTicket),
-      buildPaymentMenuKeyboard({
-        hasOpenTicket: false,
-        primaryActionText: ctx.primaryActionText,
-      })
+      buildExpiredPaymentKeyboard(ctx.primaryActionText)
     );
     return;
   }
@@ -482,10 +481,7 @@ async function sendPaymentTicketStatus(env, chatId, telegramId, options = {}) {
     chatId,
     sourceMessage,
     buildPaymentTicketSummary(latestTicket),
-    buildPaymentMenuKeyboard({
-      hasOpenTicket: false,
-      primaryActionText: ctx.primaryActionText,
-    })
+    resolveTicketKeyboard(latestTicket, ctx.primaryActionText)
   );
 }
 
