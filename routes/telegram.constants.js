@@ -5,6 +5,7 @@ export const SESSION_MODES = {
   PARTNER_MODERATION: "partner_moderation",
   PARTNER_VIEW: "partner_view",
   PARTNER_EDIT_CLOSEUP: "partner_edit_closeup",
+  PARTNER_EDIT_TEXT: "partner_edit_text",
   SA_CONFIG: "sa_config",
   SA_CATEGORY: "sa_category",
   SA_FINANCE: "sa_finance",
@@ -87,6 +88,8 @@ export const CALLBACK_PREFIX = {
   PM_VER_BACK: "pmver:back:",
 
   PM_PHOTO_START: "pmphoto:start:",
+  PM_EDIT_START: "pmedit:start:",
+  PM_EDIT_BACK: "pmedit:back:",
 
   PICK_VER: "pickver:",
   SET_VER: "setver:",
@@ -141,6 +144,8 @@ export const cb = {
   pmVerBack: (telegramId) => `${CALLBACK_PREFIX.PM_VER_BACK}${telegramId}`,
 
   pmPhotoStart: (telegramId) => `${CALLBACK_PREFIX.PM_PHOTO_START}${telegramId}`,
+  pmEditStart: (telegramId, field) => `${CALLBACK_PREFIX.PM_EDIT_START}${telegramId}:${field}`,
+  pmEditBack: (telegramId) => `${CALLBACK_PREFIX.PM_EDIT_BACK}${telegramId}`,
 
   pickVer: (telegramId) => `${CALLBACK_PREFIX.PICK_VER}${telegramId}`,
   setVer: (telegramId, verificatorId) => `${CALLBACK_PREFIX.SET_VER}${telegramId}:${verificatorId}`,
