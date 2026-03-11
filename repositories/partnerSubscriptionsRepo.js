@@ -1,5 +1,7 @@
 // repositories/partnerSubscriptionsRepo.js
 
+import { nowJakartaSql } from "../utils/time.js";
+
 function normalizeReminderColumn(reminderKey) {
   const raw = String(reminderKey || "").trim().toLowerCase();
   if (raw === "h3d") return "reminder_h3d_sent_at";
@@ -27,6 +29,13 @@ function toSqlDateTime(value = new Date()) {
   const ss = String(d.getSeconds()).padStart(2, "0");
 
   return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
+}
+
+function resolveNowSql(nowOverride = null) {
+  if (nowOverride) {
+    return toSqlDateTime(nowOverride);
+  }
+  return nowJakartaSql();
 }
 
 function readDurationCode(row) {
@@ -347,7 +356,7 @@ export async function replaceActiveSubscriptionByTelegramId(
 }
 
 export async function expireDueSubscriptions(env, nowOverride = null) {
-  const nowSql = nowOverride ? toSqlDateTime(nowOverride) : toSqlDateTime(new Date());
+  const nowSql = resolveNowSql(nowOverride);
 
   const { results } = await env.DB.prepare(
     `
@@ -417,7 +426,7 @@ export async function listSubscriptionsDueForReminder(
 ) {
   const safeReminderKey = normalizeReminderKey(reminderKey);
   const reminderColumn = normalizeReminderColumn(safeReminderKey);
-  const nowSql = nowOverride ? toSqlDateTime(nowOverride) : toSqlDateTime(new Date());
+  const nowSql = resolveNowSql(nowOverride);
   const { lowerExpr, upperExpr, bindValues } = buildReminderWindow(safeReminderKey, nowSql);
   const safeLimit =
     Number.isFinite(Number(limit)) && Number(limit) > 0
@@ -461,10 +470,7 @@ export async function markSubscriptionReminderSent(
   sentAt = null
 ) {
   const reminderColumn = normalizeReminderColumn(reminderKey);
-  const safeSentAt =
-    sentAt == null
-      ? new Date().toISOString().slice(0, 19).replace("T", " ")
-      : String(sentAt);
+  const safeSentAt = sentAt == null ? nowJakartaSql() : String(sentAt);
 
   const sql = `
     UPDATE partner_subscriptions
@@ -509,7 +515,7 @@ export async function listReminderDebugRows(
       ? Math.min(Number(limit), 100)
       : 20;
 
-  const nowSql = nowOverride ? toSqlDateTime(nowOverride) : toSqlDateTime(new Date());
+  const nowSql = resolveNowSql(nowOverride);
 
   const { results } = await env.DB.prepare(
     `
