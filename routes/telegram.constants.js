@@ -8,6 +8,7 @@ export const SESSION_MODES = {
   SA_CONFIG: "sa_config",
   SA_CATEGORY: "sa_category",
   SA_FINANCE: "sa_finance",
+  SA_ADMIN_MANAGER: "sa_admin_manager",
 };
 
 export const CALLBACKS = {
@@ -62,6 +63,11 @@ export const CALLBACKS = {
   SUPERADMIN_FINANCE_PRICE_PLATINUM_3D: "sa:fin:price:platinum:3d",
   SUPERADMIN_FINANCE_PRICE_PLATINUM_7D: "sa:fin:price:platinum:7d",
   SUPERADMIN_FINANCE_PRICE_PLATINUM_1M: "sa:fin:price:platinum:1m",
+
+  SUPERADMIN_ADMIN_MENU: "sa:admin:menu",
+  SUPERADMIN_ADMIN_LIST: "sa:admin:list",
+  SUPERADMIN_ADMIN_ADD: "sa:admin:add",
+  SUPERADMIN_ADMIN_BACK: "sa:admin:back",
 };
 
 export const CALLBACK_PREFIX = {
@@ -95,6 +101,17 @@ export const CALLBACK_PREFIX = {
 
   PAYCONFIRM_OK: "payconfirm_ok:",
   PAYCONFIRM_REJECT: "payconfirm_reject:",
+
+  SA_ADMIN_OPEN: "saadmin:open:",
+  SA_ADMIN_EDIT_USERNAME: "saadmin:edit:username:",
+  SA_ADMIN_EDIT_NAMA: "saadmin:edit:nama:",
+  SA_ADMIN_EDIT_ROLE: "saadmin:edit:role:",
+  SA_ADMIN_EDIT_STATUS: "saadmin:edit:status:",
+  SA_ADMIN_ROLE_SET: "saadmin:role:set:",
+  SA_ADMIN_STATUS_SET: "saadmin:status:set:",
+  SA_ADMIN_DEACTIVATE: "saadmin:deactivate:",
+  SA_ADMIN_ACTIVATE: "saadmin:activate:",
+  SA_ADMIN_DELETE: "saadmin:delete:",
 };
 
 export const OBSOLETE_ADMIN_COMMANDS = new Set([
@@ -138,4 +155,15 @@ export const cb = {
 
   payConfirmOk: (ticketId) => `${CALLBACK_PREFIX.PAYCONFIRM_OK}${ticketId}`,
   payConfirmReject: (ticketId) => `${CALLBACK_PREFIX.PAYCONFIRM_REJECT}${ticketId}`,
+
+  saAdminOpen: (telegramId) => `${CALLBACK_PREFIX.SA_ADMIN_OPEN}${telegramId}`,
+  saAdminEditUsername: (telegramId) => `${CALLBACK_PREFIX.SA_ADMIN_EDIT_USERNAME}${telegramId}`,
+  saAdminEditNama: (telegramId) => `${CALLBACK_PREFIX.SA_ADMIN_EDIT_NAMA}${telegramId}`,
+  saAdminEditRole: (telegramId) => `${CALLBACK_PREFIX.SA_ADMIN_EDIT_ROLE}${telegramId}`,
+  saAdminEditStatus: (telegramId) => `${CALLBACK_PREFIX.SA_ADMIN_EDIT_STATUS}${telegramId}`,
+  saAdminRoleSet: (telegramId, role) => `${CALLBACK_PREFIX.SA_ADMIN_ROLE_SET}${telegramId}:${role}`,
+  saAdminStatusSet: (telegramId, status) => `${CALLBACK_PREFIX.SA_ADMIN_STATUS_SET}${telegramId}:${status}`,
+  saAdminDeactivate: (telegramId) => `${CALLBACK_PREFIX.SA_ADMIN_DEACTIVATE}${telegramId}`,
+  saAdminActivate: (telegramId) => `${CALLBACK_PREFIX.SA_ADMIN_ACTIVATE}${telegramId}`,
+  saAdminDelete: (telegramId) => `${CALLBACK_PREFIX.SA_ADMIN_DELETE}${telegramId}`,
 };
