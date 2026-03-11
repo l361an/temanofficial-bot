@@ -1,4 +1,3 @@
-// routes/callbacks/partnerClass.js
 import { sendMessage, sendPhoto, sendLongMessage, editMessageReplyMarkup } from "../../services/telegramApi.js";
 import { saveSession } from "../../utils/session.js";
 import { getAdminByTelegramId, listActiveVerificators } from "../../repositories/adminsRepo.js";
@@ -20,6 +19,15 @@ const fmtKV = (label, value) => {
   const v = value === null || value === undefined || value === "" ? "-" : String(value);
   return `• <b>${escapeHtml(label)}:</b> ${escapeHtml(v)}`;
 };
+
+function getPartnerEditFieldMeta(field) {
+  const key = String(field || "").trim();
+  if (key === "nickname") return { key, label: "Nickname", currentKey: "nickname" };
+  if (key === "no_whatsapp") return { key, label: "No. Whatsapp", currentKey: "no_whatsapp" };
+  if (key === "kecamatan") return { key, label: "Kecamatan", currentKey: "kecamatan" };
+  if (key === "kota") return { key, label: "Kota", currentKey: "kota" };
+  return null;
+}
 
 export async function buildPartnerDetailText(env, profile) {
   const categories = profile?.id ? await listCategoryKodesByProfileId(env, profile.id) : [];
@@ -104,9 +112,6 @@ export function buildPartnerClassHandlers() {
   const EXACT = {};
   const PREFIX = [];
 
-  // =========================
-  // UBAH CLASS
-  // =========================
   PREFIX.push({
     match: (d) => d.startsWith(CALLBACK_PREFIX.PM_CLASS_START),
     run: async (ctx) => {
@@ -244,9 +249,6 @@ export function buildPartnerClassHandlers() {
     },
   });
 
-  // =========================
-  // UBAH VERIFICATOR
-  // =========================
   PREFIX.push({
     match: (d) => d.startsWith(CALLBACK_PREFIX.PM_VER_START),
     run: async (ctx) => {
@@ -390,9 +392,6 @@ export function buildPartnerClassHandlers() {
     },
   });
 
-  // =========================
-  // UBAH FOTO CLOSEUP
-  // =========================
   PREFIX.push({
     match: (d) => d.startsWith(CALLBACK_PREFIX.PM_PHOTO_START),
     run: async (ctx) => {
@@ -436,6 +435,93 @@ export function buildPartnerClassHandlers() {
           reply_markup: buildPartnerDetailActionsKeyboard(profile.telegram_id, role),
         }
       );
+      return true;
+    },
+  });
+
+  PREFIX.push({
+    match: (d) => d.startsWith(CALLBACK_PREFIX.PM_EDIT_START),
+    run: async (ctx) => {
+      const { env, data, adminId, msgChatId, msgId, role } = ctx;
+      const payload = String(data.slice(CALLBACK_PREFIX.PM_EDIT_START.length) || "");
+      const [telegramId, field] = payload.split(":");
+
+      if (!telegramId || !field) {
+        await sendMessage(env, adminId, "⚠️ Target partner / field tidak valid.", {
+          reply_markup: buildBackToPartnerDatabaseViewKeyboard(),
+        });
+        return true;
+      }
+
+      const meta = getPartnerEditFieldMeta(field);
+      if (!meta) {
+        await sendMessage(env, adminId, "⚠️ Field partner tidak didukung.", {
+          reply_markup: buildBackToPartnerDatabaseViewKeyboard(),
+        });
+        return true;
+      }
+
+      const profile = await getProfileFullByTelegramId(env, telegramId);
+      if (!profile) {
+        await sendMessage(env, adminId, "⚠️ Data partner tidak ditemukan.", {
+          reply_markup: buildBackToPartnerDatabaseViewKeyboard(),
+        });
+        return true;
+      }
+
+      await saveSession(env, `state:${adminId}`, {
+        mode: SESSION_MODES.PARTNER_EDIT_TEXT,
+        targetTelegramId: profile.telegram_id,
+        field: meta.key,
+      });
+
+      if (msgChatId && msgId) {
+        await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
+      }
+
+      const currentValue = profile?.[meta.currentKey] ?? "-";
+
+      await sendMessage(
+        env,
+        adminId,
+        `📝 <b>Edit ${escapeHtml(meta.label)}</b>\n\n` +
+          `Partner: <b>${escapeHtml(profile.nama_lengkap || "-")}</b>\n` +
+          `Telegram ID: <code>${escapeHtml(profile.telegram_id || "-")}</code>\n` +
+          `Current: <b>${escapeHtml(currentValue || "-")}</b>\n\n` +
+          `Kirim nilai baru sekarang.\n` +
+          `Ketik <b>-</b> untuk kosongkan field.\n\n` +
+          `Ketik <b>batal</b> untuk keluar.`,
+        {
+          parse_mode: "HTML",
+          reply_markup: buildPartnerDetailActionsKeyboard(profile.telegram_id, role),
+        }
+      );
+      return true;
+    },
+  });
+
+  PREFIX.push({
+    match: (d) => d.startsWith(CALLBACK_PREFIX.PM_EDIT_BACK),
+    run: async (ctx) => {
+      const { env, data, adminId, role } = ctx;
+      const telegramId = String(data.slice(CALLBACK_PREFIX.PM_EDIT_BACK.length) || "").trim();
+
+      if (!telegramId) {
+        await sendMessage(env, adminId, "⚠️ Target partner tidak valid.", {
+          reply_markup: buildBackToPartnerDatabaseViewKeyboard(),
+        });
+        return true;
+      }
+
+      const profile = await getProfileFullByTelegramId(env, telegramId);
+      if (!profile) {
+        await sendMessage(env, adminId, "⚠️ Data partner tidak ditemukan.", {
+          reply_markup: buildBackToPartnerDatabaseViewKeyboard(),
+        });
+        return true;
+      }
+
+      await sendPartnerDetailOutput(env, adminId, role, profile);
       return true;
     },
   });
