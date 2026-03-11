@@ -1,5 +1,7 @@
 // repositories/paymentTicketsRepo.js
 
+import { nowJakartaSql } from "../utils/time.js";
+
 export async function getOpenPaymentTicketByPartnerId(env, partnerId) {
   const row = await env.DB.prepare(
     `
@@ -65,6 +67,8 @@ export async function createPaymentTicket(env, payload) {
     metadataJson = null,
   } = payload || {};
 
+  const nowSql = nowJakartaSql();
+
   await env.DB.prepare(
     `
     INSERT INTO payment_tickets (
@@ -86,7 +90,7 @@ export async function createPaymentTicket(env, payload) {
       created_at,
       updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?, datetime('now'), datetime('now'))
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `
   )
     .bind(
@@ -101,9 +105,12 @@ export async function createPaymentTicket(env, payload) {
       String(currency || "IDR").toUpperCase(),
       String(provider || "manual"),
       String(status || "waiting_payment"),
+      nowSql,
       String(expiresAt),
       String(pricingSnapshotJson || "{}"),
-      metadataJson == null ? null : String(metadataJson)
+      metadataJson == null ? null : String(metadataJson),
+      nowSql,
+      nowSql
     )
     .run();
 
@@ -120,6 +127,8 @@ export async function markPaymentProofUploaded(
   payerNotes = null,
   proofAssetUrl = null
 ) {
+  const nowSql = nowJakartaSql();
+
   await env.DB.prepare(
     `
     UPDATE payment_tickets
@@ -128,9 +137,9 @@ export async function markPaymentProofUploaded(
         proof_caption = COALESCE(?, proof_caption),
         payer_name = COALESCE(?, payer_name),
         payer_notes = COALESCE(?, payer_notes),
-        proof_uploaded_at = datetime('now'),
+        proof_uploaded_at = ?,
         status = 'waiting_confirmation',
-        updated_at = datetime('now')
+        updated_at = ?
     WHERE id = ?
   `
   )
@@ -140,6 +149,8 @@ export async function markPaymentProofUploaded(
       proofCaption == null ? null : String(proofCaption),
       payerName == null ? null : String(payerName),
       payerNotes == null ? null : String(payerNotes),
+      nowSql,
+      nowSql,
       ticketId
     )
     .run();
@@ -148,20 +159,24 @@ export async function markPaymentProofUploaded(
 }
 
 export async function confirmPaymentTicket(env, ticketId, actorId, payerNotes = null) {
+  const nowSql = nowJakartaSql();
+
   await env.DB.prepare(
     `
     UPDATE payment_tickets
     SET status = 'confirmed',
-        confirmed_at = datetime('now'),
+        confirmed_at = ?,
         confirmed_by = ?,
         payer_notes = COALESCE(?, payer_notes),
-        updated_at = datetime('now')
+        updated_at = ?
     WHERE id = ?
   `
   )
     .bind(
+      nowSql,
       actorId == null ? null : String(actorId),
       payerNotes == null ? null : String(payerNotes),
+      nowSql,
       ticketId
     )
     .run();
@@ -170,20 +185,24 @@ export async function confirmPaymentTicket(env, ticketId, actorId, payerNotes = 
 }
 
 export async function rejectPaymentTicket(env, ticketId, actorId, rejectionReason = null) {
+  const nowSql = nowJakartaSql();
+
   await env.DB.prepare(
     `
     UPDATE payment_tickets
     SET status = 'rejected',
-        rejected_at = datetime('now'),
+        rejected_at = ?,
         rejected_by = ?,
         rejection_reason = ?,
-        updated_at = datetime('now')
+        updated_at = ?
     WHERE id = ?
   `
   )
     .bind(
+      nowSql,
       actorId == null ? null : String(actorId),
       rejectionReason == null ? null : String(rejectionReason),
+      nowSql,
       ticketId
     )
     .run();
@@ -192,26 +211,32 @@ export async function rejectPaymentTicket(env, ticketId, actorId, rejectionReaso
 }
 
 export async function expireDuePaymentTickets(env) {
+  const nowSql = nowJakartaSql();
+
   const { results } = await env.DB.prepare(
     `
     SELECT id, partner_id, ticket_code
     FROM payment_tickets
     WHERE status IN ('waiting_payment')
       AND expires_at IS NOT NULL
-      AND datetime(expires_at) <= datetime('now')
+      AND datetime(expires_at) <= datetime(?)
   `
-  ).all();
+  )
+    .bind(nowSql)
+    .all();
 
   await env.DB.prepare(
     `
     UPDATE payment_tickets
     SET status = 'expired',
-        updated_at = datetime('now')
+        updated_at = ?
     WHERE status IN ('waiting_payment')
       AND expires_at IS NOT NULL
-      AND datetime(expires_at) <= datetime('now')
+      AND datetime(expires_at) <= datetime(?)
   `
-  ).run();
+  )
+    .bind(nowSql, nowSql)
+    .run();
 
   return {
     ok: true,
