@@ -13,6 +13,7 @@ import { buildSelfMenuMessage, buildSelfMenuKeyboard } from "./telegram.flow.sel
 import { buildTeManMenuKeyboard } from "./telegram.user.shared.js";
 import { handleRegistrationFlow } from "./telegram.flow.js";
 import { handleSuperadminFinanceInput } from "./telegram.flow.superadminFinance.js";
+import { handleSuperadminAdminManagerInput } from "./telegram.flow.superadminAdminManager.js";
 import { handlePaymentProofUpload } from "./telegram.flow.paymentProof.js";
 import { handlePartnerModerationInput } from "./telegram.flow.partnerModeration.js";
 
@@ -114,6 +115,21 @@ export async function handleTelegramWebhook(request, env) {
 
     const session = await loadSession(env, STATE_KEY);
 
+    // ADMIN MANAGER FLOW
+    if (session?.mode === "sa_admin_manager" && isSuperadminRole(role)) {
+      const handledAdminManager = await handleSuperadminAdminManagerInput({
+        env,
+        chatId,
+        telegramId,
+        username,
+        text,
+        session,
+        STATE_KEY,
+      });
+
+      if (handledAdminManager) return json({ ok: true });
+    }
+
     // FINANCE FLOW
     if (session?.mode === "sa_finance" && isAdminRole(role)) {
       const handledFinance = await handleSuperadminFinanceInput({
@@ -130,7 +146,7 @@ export async function handleTelegramWebhook(request, env) {
       if (handledFinance) return json({ ok: true });
     }
 
-    // 🔧 PARTNER MODERATION FLOW (FIX)
+    // PARTNER MODERATION FLOW
     if (session?.mode === "partner_moderation" && isAdminRole(role)) {
       const handledModeration = await handlePartnerModerationInput({
         env,
@@ -207,7 +223,6 @@ export async function handleTelegramWebhook(request, env) {
     });
 
     return json({ ok: true });
-
   } catch (err) {
     console.error("ERROR TELEGRAM WEBHOOK:", err);
     return json({ ok: true });
