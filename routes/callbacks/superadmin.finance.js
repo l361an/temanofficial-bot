@@ -1,331 +1,453 @@
-// routes/callbacks/superadmin.finance.js
+// routes/callbacks/keyboards.js
+import { isSuperadminRole } from "../../utils/roles.js";
+import { CALLBACKS, cb } from "../telegram.constants.js";
 
-import { sendMessage, sendPhoto, upsertCallbackMessage } from "../../services/telegramApi.js";
-import { getSetting, upsertSetting } from "../../repositories/settingsRepo.js";
-import { saveSession, clearSession } from "../../utils/session.js";
+const HOME_LABEL = "🏠 Officer Home";
 
-import {
-  buildFinanceKeyboard,
-  buildFinancePricingKeyboard,
-  buildFinanceClassPricingKeyboard,
-  buildFinanceQrisKeyboard,
-} from "./keyboards.js";
-
-import { CALLBACKS, SESSION_MODES } from "../telegram.constants.js";
-import { escapeHtml } from "./shared.js";
-
-function formatClassLabel(value) {
-  const raw = String(value || "").trim().toLowerCase();
-  if (raw === "bronze") return "Bronze";
-  if (raw === "gold") return "Gold";
-  if (raw === "platinum") return "Platinum";
-  return raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : "-";
+function officerHomeButton() {
+  return { text: HOME_LABEL, callback_data: CALLBACKS.OFFICER_HOME };
 }
 
-function formatDurationLabel(value) {
-  const raw = String(value || "").trim().toLowerCase();
-  if (raw === "1d") return "1 Hari";
-  if (raw === "3d") return "3 Hari";
-  if (raw === "7d") return "7 Hari";
-  return "1 Bulan";
+function backButton(callbackData, text = "⬅️ Back") {
+  return { text, callback_data: callbackData };
 }
 
-function formatMoney(value) {
-  const n = Number(value || 0);
-  if (!Number.isFinite(n)) return "Rp 0";
-  return `Rp ${n.toLocaleString("id-ID")}`;
+function backAndHomeRow(backCallbackData, backText = "⬅️ Back") {
+  return [backButton(backCallbackData, backText), officerHomeButton()];
 }
 
-async function getFinanceState(env) {
-  const manualRaw = (await getSetting(env, "payment_manual_enabled")) ?? "1";
-  const manualOn = String(manualRaw) !== "0";
-  const qrisPhotoFileId = String((await getSetting(env, "payment_qris_photo_file_id")) || "").trim();
+// Officer Home
+export function buildOfficerHomeKeyboard(role) {
+  const rows = [];
 
-  const keys = [
-    "payment_price_bronze_1d",
-    "payment_price_bronze_3d",
-    "payment_price_bronze_7d",
-    "payment_price_bronze_1m",
-
-    "payment_price_gold_1d",
-    "payment_price_gold_3d",
-    "payment_price_gold_7d",
-    "payment_price_gold_1m",
-
-    "payment_price_platinum_1d",
-    "payment_price_platinum_3d",
-    "payment_price_platinum_7d",
-    "payment_price_platinum_1m",
-  ];
-
-  const values = {};
-  for (const key of keys) {
-    values[key] = Number((await getSetting(env, key)) || 0);
+  if (isSuperadminRole(role)) {
+    rows.push([
+      { text: "🧰 Partner Tools", callback_data: CALLBACKS.PARTNER_TOOLS_MENU },
+      { text: "⚙️ Superadmin Tools", callback_data: CALLBACKS.SUPERADMIN_TOOLS_MENU },
+    ]);
+  } else {
+    rows.push([{ text: "🧰 Partner Tools", callback_data: CALLBACKS.PARTNER_TOOLS_MENU }]);
   }
 
+  return { inline_keyboard: rows };
+}
+
+// Partner Tools
+export function buildPartnerToolsKeyboard() {
   return {
-    manualOn,
-    prices: values,
-    qrisPhotoFileId,
-    hasQris: Boolean(qrisPhotoFileId),
+    inline_keyboard: [
+      [
+        { text: "🗃️ Partner Database", callback_data: CALLBACKS.PARTNER_DATABASE_MENU },
+        { text: "🛠️ Partner Moderation", callback_data: CALLBACKS.PARTNER_MODERATION_MENU },
+      ],
+      [officerHomeButton()],
+    ],
   };
 }
 
-function buildFinanceText(state) {
-  return [
-    "💰 <b>Finance</b>",
-    "",
-    `Set Manual: <b>${state.manualOn ? "ON" : "OFF"}</b>`,
-    `Foto QRIS: <b>${state.hasQris ? "Sudah Diset" : "Belum Diset"}</b>`,
-  ].join("\n");
+// Partner Database
+export function buildPartnerDatabaseKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "🔎 View Partner", callback_data: CALLBACKS.PARTNER_DATABASE_VIEW }],
+      [
+        { text: "👥 All Partner", callback_data: cb.pmList("all") },
+        { text: "🕒 Pending", callback_data: cb.pmList("pending_approval") },
+      ],
+      [
+        { text: "✅ Approved", callback_data: cb.pmList("approved") },
+        { text: "⛔ Suspended", callback_data: cb.pmList("suspended") },
+      ],
+      backAndHomeRow(CALLBACKS.PARTNER_TOOLS_MENU),
+    ],
+  };
 }
 
-function buildFinancePricingText(state) {
-  return [
-    "🏷️ <b>Set Pricing</b>",
-    "",
-    `Bronze 1 Hari: <b>${escapeHtml(formatMoney(state.prices.payment_price_bronze_1d))}</b>`,
-    `Bronze 3 Hari: <b>${escapeHtml(formatMoney(state.prices.payment_price_bronze_3d))}</b>`,
-    `Bronze 7 Hari: <b>${escapeHtml(formatMoney(state.prices.payment_price_bronze_7d))}</b>`,
-    `Bronze 1 Bulan: <b>${escapeHtml(formatMoney(state.prices.payment_price_bronze_1m))}</b>`,
-    "",
-    `Gold 1 Hari: <b>${escapeHtml(formatMoney(state.prices.payment_price_gold_1d))}</b>`,
-    `Gold 3 Hari: <b>${escapeHtml(formatMoney(state.prices.payment_price_gold_3d))}</b>`,
-    `Gold 7 Hari: <b>${escapeHtml(formatMoney(state.prices.payment_price_gold_7d))}</b>`,
-    `Gold 1 Bulan: <b>${escapeHtml(formatMoney(state.prices.payment_price_gold_1m))}</b>`,
-    "",
-    `Platinum 1 Hari: <b>${escapeHtml(formatMoney(state.prices.payment_price_platinum_1d))}</b>`,
-    `Platinum 3 Hari: <b>${escapeHtml(formatMoney(state.prices.payment_price_platinum_3d))}</b>`,
-    `Platinum 7 Hari: <b>${escapeHtml(formatMoney(state.prices.payment_price_platinum_7d))}</b>`,
-    `Platinum 1 Bulan: <b>${escapeHtml(formatMoney(state.prices.payment_price_platinum_1m))}</b>`,
-  ].join("\n");
+export function buildBackToPartnerDatabaseKeyboard() {
+  return {
+    inline_keyboard: [backAndHomeRow(CALLBACKS.PARTNER_DATABASE_MENU)],
+  };
 }
 
-function buildFinanceClassText(state, classId) {
-  const key1d = `payment_price_${classId}_1d`;
-  const key3d = `payment_price_${classId}_3d`;
-  const key7d = `payment_price_${classId}_7d`;
-  const key1m = `payment_price_${classId}_1m`;
-
-  return [
-    `🏷️ <b>Pricing ${escapeHtml(formatClassLabel(classId))}</b>`,
-    "",
-    `1 Hari: <b>${escapeHtml(formatMoney(state.prices[key1d]))}</b>`,
-    `3 Hari: <b>${escapeHtml(formatMoney(state.prices[key3d]))}</b>`,
-    `7 Hari: <b>${escapeHtml(formatMoney(state.prices[key7d]))}</b>`,
-    `1 Bulan: <b>${escapeHtml(formatMoney(state.prices[key1m]))}</b>`,
-  ].join("\n");
+export function buildBackToPartnerDatabaseViewKeyboard() {
+  return {
+    inline_keyboard: [backAndHomeRow(CALLBACKS.PARTNER_DATABASE_MENU)],
+  };
 }
 
-function buildFinancePromptText(classId, durationCode) {
-  return [
-    `💰 <b>Set Harga ${escapeHtml(formatClassLabel(classId))} - ${escapeHtml(formatDurationLabel(durationCode))}</b>`,
-    "",
-    "Ketik Harga Baru.",
-    "Contoh: <code>150000</code>",
-    "",
-    "Ketik <b>batal</b> untuk keluar.",
-  ].join("\n");
+export function buildPartnerControlPanelKeyboard(telegramId) {
+  return {
+    inline_keyboard: [
+      [
+        { text: "👤 Details", callback_data: cb.pmDetailsOpen(telegramId) },
+        { text: "💳 Subscription", callback_data: cb.pmSubscriptionOpen(telegramId) },
+      ],
+      [officerHomeButton()],
+    ],
+  };
 }
 
-function buildFinanceQrisText(state) {
-  return [
-    "🖼️ <b>QRIS Payment</b>",
-    "",
-    `Status Foto QRIS: <b>${state.hasQris ? "Sudah Diset" : "Belum Diset"}</b>`,
-    "",
-    state.hasQris
-      ? "Gunakan menu di bawah untuk melihat atau mengganti foto QRIS."
-      : "Upload foto QRIS agar partner bisa langsung melihat QRIS setelah tiket payment dibuat.",
-  ].join("\n");
+export function buildPartnerDetailsKeyboard(telegramId) {
+  return {
+    inline_keyboard: [
+      [
+        { text: "⬅️ Back to Panel", callback_data: cb.pmPanelBack(telegramId) },
+        officerHomeButton(),
+      ],
+    ],
+  };
 }
 
-function buildFinanceQrisPromptText() {
-  return [
-    "📸 <b>UPLOAD FOTO QRIS</b>",
-    "",
-    "Kirim <b>photo</b> QRIS di chat ini.",
-    "Format yang diproses hanya <b>photo</b>, bukan file atau dokumen.",
-    "",
-    "Ketik <b>batal</b> untuk keluar.",
-  ].join("\n");
+export function buildPartnerSubscriptionKeyboard(telegramId) {
+  return {
+    inline_keyboard: [
+      [{ text: "⬅️ Back to Panel", callback_data: cb.pmPanelBack(telegramId) }],
+      [officerHomeButton()],
+    ],
+  };
 }
 
-async function renderMenuMessage(ctx, text, extra) {
-  const { env, adminId, msg } = ctx;
+export function buildPartnerDetailActionsKeyboard(telegramId, role) {
+  const rows = [];
 
-  if (msg) {
-    await upsertCallbackMessage(env, msg, text, extra).catch(async () => {
-      await sendMessage(env, adminId, text, extra);
-    });
-    return true;
+  if (isSuperadminRole(role)) {
+    rows.push([
+      { text: "🏷️ Class", callback_data: cb.pmClassStart(telegramId) },
+      { text: "👤 Verificator", callback_data: cb.pmVerStart(telegramId) },
+    ]);
+    rows.push([
+      { text: "📸 Foto", callback_data: cb.pmPhotoStart(telegramId) },
+      { text: "📝 Nickname", callback_data: cb.pmEditStart(telegramId, "nickname") },
+    ]);
+    rows.push([
+      { text: "📱 Whatsapp", callback_data: cb.pmEditStart(telegramId, "no_whatsapp") },
+      { text: "📍 Kecamatan", callback_data: cb.pmEditStart(telegramId, "kecamatan") },
+    ]);
+    rows.push([
+      { text: "🏙️ Kota", callback_data: cb.pmEditStart(telegramId, "kota") },
+      { text: "🗃️ Database", callback_data: CALLBACKS.PARTNER_DATABASE_MENU },
+    ]);
   }
 
-  await sendMessage(env, adminId, text, extra);
-  return true;
+  rows.push([officerHomeButton()]);
+  return { inline_keyboard: rows };
 }
 
-export function buildSuperadminFinanceHandlers() {
-  const EXACT = {};
-
-  EXACT[CALLBACKS.SUPERADMIN_FINANCE_MENU] = async (ctx) => {
-    const { env, adminId } = ctx;
-
-    await clearSession(env, `state:${adminId}`).catch(() => {});
-
-    const state = await getFinanceState(env);
-
-    return renderMenuMessage(ctx, buildFinanceText(state), {
-      parse_mode: "HTML",
-      reply_markup: buildFinanceKeyboard(state.manualOn),
-    });
+export function buildPartnerClassPickerKeyboard(telegramId) {
+  return {
+    inline_keyboard: [
+      [
+        { text: "Bronze", callback_data: cb.pmClassSet(telegramId, "bronze") },
+        { text: "Gold", callback_data: cb.pmClassSet(telegramId, "gold") },
+      ],
+      [{ text: "Platinum", callback_data: cb.pmClassSet(telegramId, "platinum") }],
+      backAndHomeRow(cb.pmClassBack(telegramId)),
+      [
+        { text: "🗃️ Partner Database", callback_data: CALLBACKS.PARTNER_DATABASE_MENU },
+        { text: "🧰 Partner Tools", callback_data: CALLBACKS.PARTNER_TOOLS_MENU },
+      ],
+    ],
   };
+}
 
-  EXACT[CALLBACKS.SUPERADMIN_FINANCE_MANUAL_TOGGLE] = async (ctx) => {
-    const { env } = ctx;
+export function buildPartnerVerificatorPickerKeyboard(telegramId, verificators) {
+  const rows = [];
+  const max = Math.min(Array.isArray(verificators) ? verificators.length : 0, 20);
 
-    const raw = (await getSetting(env, "payment_manual_enabled")) ?? "1";
-    const manualOn = String(raw) !== "0";
-    await upsertSetting(env, "payment_manual_enabled", manualOn ? "0" : "1");
+  for (let i = 0; i < max; i += 2) {
+    const a = verificators[i];
+    const b = verificators[i + 1];
 
-    const state = await getFinanceState(env);
+    const row = [{ text: a.label, callback_data: cb.pmVerSet(telegramId, a.telegram_id) }];
+    if (b) row.push({ text: b.label, callback_data: cb.pmVerSet(telegramId, b.telegram_id) });
+    rows.push(row);
+  }
 
-    return renderMenuMessage(ctx, `✅ Set Manual sekarang: ${state.manualOn ? "ON" : "OFF"}`, {
-      reply_markup: buildFinanceKeyboard(state.manualOn),
-    });
+  rows.push(backAndHomeRow(cb.pmVerBack(telegramId)));
+  rows.push([
+    { text: "🗃️ Partner Database", callback_data: CALLBACKS.PARTNER_DATABASE_MENU },
+    { text: "🧰 Partner Tools", callback_data: CALLBACKS.PARTNER_TOOLS_MENU },
+  ]);
+
+  return { inline_keyboard: rows };
+}
+
+// Partner Moderation
+export function buildPartnerModerationKeyboard(role) {
+  const rows = [[
+    { text: "✅ Restore", callback_data: CALLBACKS.PARTNER_MOD_RESTORE },
+    { text: "⛔ Suspend", callback_data: CALLBACKS.PARTNER_MOD_SUSPEND },
+  ]];
+
+  if (isSuperadminRole(role)) {
+    rows.push([{ text: "❌ Delete", callback_data: CALLBACKS.PARTNER_MOD_DELETE }]);
+  }
+
+  rows.push(backAndHomeRow(CALLBACKS.PARTNER_TOOLS_MENU));
+  return { inline_keyboard: rows };
+}
+
+export function buildBackToPartnerModerationKeyboard() {
+  return {
+    inline_keyboard: [backAndHomeRow(CALLBACKS.PARTNER_MODERATION_MENU)],
   };
+}
 
-  EXACT[CALLBACKS.SUPERADMIN_FINANCE_QRIS_MENU] = async (ctx) => {
-    const { env, adminId } = ctx;
-
-    await clearSession(env, `state:${adminId}`).catch(() => {});
-
-    const state = await getFinanceState(env);
-
-    return renderMenuMessage(ctx, buildFinanceQrisText(state), {
-      parse_mode: "HTML",
-      reply_markup: buildFinanceQrisKeyboard(state.hasQris),
-    });
+// Superadmin Tools
+export function buildSuperadminToolsKeyboard() {
+  return {
+    inline_keyboard: [
+      [
+        { text: "👮 Admin Manager", callback_data: CALLBACKS.SUPERADMIN_ADMIN_MENU },
+      ],
+      [
+        { text: "🧩 Config", callback_data: CALLBACKS.SUPERADMIN_CONFIG_MENU },
+        { text: "⚙️ Settings", callback_data: CALLBACKS.SUPERADMIN_SETTINGS_MENU },
+      ],
+      [officerHomeButton()],
+    ],
   };
+}
 
-  EXACT[CALLBACKS.SUPERADMIN_FINANCE_QRIS_SET] = async (ctx) => {
-    const { env, adminId } = ctx;
-
-    await saveSession(env, `state:${adminId}`, {
-      mode: SESSION_MODES.SA_FINANCE,
-      area: "qris",
-      step: "await_photo",
-    });
-
-    await sendMessage(env, adminId, buildFinanceQrisPromptText(), {
-      parse_mode: "HTML",
-      reply_markup: buildFinanceQrisKeyboard(Boolean(await getSetting(env, "payment_qris_photo_file_id"))),
-    });
-
-    return true;
+export function buildAdminManagerKeyboard() {
+  return {
+    inline_keyboard: [
+      [
+        { text: "📋 List Admin", callback_data: CALLBACKS.SUPERADMIN_ADMIN_LIST },
+        { text: "➕ Add Admin", callback_data: CALLBACKS.SUPERADMIN_ADMIN_ADD },
+      ],
+      backAndHomeRow(CALLBACKS.SUPERADMIN_TOOLS_MENU),
+    ],
   };
+}
 
-  EXACT[CALLBACKS.SUPERADMIN_FINANCE_QRIS_VIEW] = async (ctx) => {
-    const { env, adminId } = ctx;
+export function buildAdminListKeyboard(admins = []) {
+  const rows = [];
+  const max = Math.min(Array.isArray(admins) ? admins.length : 0, 40);
 
-    const photoFileId = String((await getSetting(env, "payment_qris_photo_file_id")) || "").trim();
-    if (!photoFileId) {
-      return renderMenuMessage(ctx, "⚠️ Foto QRIS belum diset.", {
-        reply_markup: buildFinanceQrisKeyboard(false),
+  for (let i = 0; i < max; i += 2) {
+    const a = admins[i];
+    const b = admins[i + 1];
+
+    const row = [
+      {
+        text: a.label,
+        callback_data: cb.saAdminOpen(a.telegram_id),
+      },
+    ];
+
+    if (b) {
+      row.push({
+        text: b.label,
+        callback_data: cb.saAdminOpen(b.telegram_id),
       });
     }
 
-    await sendPhoto(env, adminId, photoFileId, "🖼️ <b>Preview QRIS Saat Ini</b>", {
-      parse_mode: "HTML",
-      reply_markup: buildFinanceQrisKeyboard(true),
-    });
-
-    return true;
-  };
-
-  EXACT[CALLBACKS.SUPERADMIN_FINANCE_PRICING_MENU] = async (ctx) => {
-    const { env } = ctx;
-
-    const state = await getFinanceState(env);
-
-    return renderMenuMessage(ctx, buildFinancePricingText(state), {
-      parse_mode: "HTML",
-      reply_markup: buildFinancePricingKeyboard(),
-    });
-  };
-
-  EXACT[CALLBACKS.SUPERADMIN_FINANCE_PRICING_BRONZE_MENU] = async (ctx) => {
-    const { env } = ctx;
-
-    const state = await getFinanceState(env);
-
-    return renderMenuMessage(ctx, buildFinanceClassText(state, "bronze"), {
-      parse_mode: "HTML",
-      reply_markup: buildFinanceClassPricingKeyboard("bronze"),
-    });
-  };
-
-  EXACT[CALLBACKS.SUPERADMIN_FINANCE_PRICING_GOLD_MENU] = async (ctx) => {
-    const { env } = ctx;
-
-    const state = await getFinanceState(env);
-
-    return renderMenuMessage(ctx, buildFinanceClassText(state, "gold"), {
-      parse_mode: "HTML",
-      reply_markup: buildFinanceClassPricingKeyboard("gold"),
-    });
-  };
-
-  EXACT[CALLBACKS.SUPERADMIN_FINANCE_PRICING_PLATINUM_MENU] = async (ctx) => {
-    const { env } = ctx;
-
-    const state = await getFinanceState(env);
-
-    return renderMenuMessage(ctx, buildFinanceClassText(state, "platinum"), {
-      parse_mode: "HTML",
-      reply_markup: buildFinanceClassPricingKeyboard("platinum"),
-    });
-  };
-
-  const financePriceActions = [
-    [CALLBACKS.SUPERADMIN_FINANCE_PRICE_BRONZE_1D, "bronze", "1d"],
-    [CALLBACKS.SUPERADMIN_FINANCE_PRICE_BRONZE_3D, "bronze", "3d"],
-    [CALLBACKS.SUPERADMIN_FINANCE_PRICE_BRONZE_7D, "bronze", "7d"],
-    [CALLBACKS.SUPERADMIN_FINANCE_PRICE_BRONZE_1M, "bronze", "1m"],
-
-    [CALLBACKS.SUPERADMIN_FINANCE_PRICE_GOLD_1D, "gold", "1d"],
-    [CALLBACKS.SUPERADMIN_FINANCE_PRICE_GOLD_3D, "gold", "3d"],
-    [CALLBACKS.SUPERADMIN_FINANCE_PRICE_GOLD_7D, "gold", "7d"],
-    [CALLBACKS.SUPERADMIN_FINANCE_PRICE_GOLD_1M, "gold", "1m"],
-
-    [CALLBACKS.SUPERADMIN_FINANCE_PRICE_PLATINUM_1D, "platinum", "1d"],
-    [CALLBACKS.SUPERADMIN_FINANCE_PRICE_PLATINUM_3D, "platinum", "3d"],
-    [CALLBACKS.SUPERADMIN_FINANCE_PRICE_PLATINUM_7D, "platinum", "7d"],
-    [CALLBACKS.SUPERADMIN_FINANCE_PRICE_PLATINUM_1M, "platinum", "1m"],
-  ];
-
-  for (const [callbackKey, classId, durationCode] of financePriceActions) {
-    EXACT[callbackKey] = async (ctx) => {
-      const { env, adminId } = ctx;
-
-      await saveSession(env, `state:${adminId}`, {
-        mode: SESSION_MODES.SA_FINANCE,
-        area: "price",
-        class_id: classId,
-        duration_code: durationCode,
-        step: "await_text",
-      });
-
-      await sendMessage(env, adminId, buildFinancePromptText(classId, durationCode), {
-        parse_mode: "HTML",
-        reply_markup: {
-          inline_keyboard: [[{ text: "⬅️ Back", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICING_MENU }]],
-        },
-      });
-
-      return true;
-    };
+    rows.push(row);
   }
 
-  return { EXACT, PREFIX: [] };
+  rows.push(backAndHomeRow(CALLBACKS.SUPERADMIN_ADMIN_MENU));
+  return { inline_keyboard: rows };
+}
+
+export function buildAdminControlPanelKeyboard(telegramId, row) {
+  const rows = [
+    [
+      { text: "✏️ Username", callback_data: cb.saAdminEditUsername(telegramId) },
+      { text: "✏️ Nama", callback_data: cb.saAdminEditNama(telegramId) },
+    ],
+    [
+      { text: "✏️ Role", callback_data: cb.saAdminEditRole(telegramId) },
+      { text: "✏️ Status", callback_data: cb.saAdminEditStatus(telegramId) },
+    ],
+  ];
+
+  if (row?.normStatus === "active") {
+    rows.push([{ text: "⛔ Nonaktifkan", callback_data: cb.saAdminDeactivate(telegramId) }]);
+  } else {
+    rows.push([{ text: "✅ Aktifkan", callback_data: cb.saAdminActivate(telegramId) }]);
+  }
+
+  rows.push(backAndHomeRow(CALLBACKS.SUPERADMIN_ADMIN_LIST));
+  return { inline_keyboard: rows };
+}
+
+export function buildAdminRolePickerKeyboard(telegramId) {
+  return {
+    inline_keyboard: [
+      [
+        { text: "admin", callback_data: cb.saAdminRoleSet(telegramId, "admin") },
+        { text: "superadmin", callback_data: cb.saAdminRoleSet(telegramId, "superadmin") },
+      ],
+      backAndHomeRow(cb.saAdminOpen(telegramId)),
+    ],
+  };
+}
+
+export function buildAdminStatusPickerKeyboard(telegramId) {
+  return {
+    inline_keyboard: [
+      [
+        { text: "active", callback_data: cb.saAdminStatusSet(telegramId, "active") },
+        { text: "inactive", callback_data: cb.saAdminStatusSet(telegramId, "inactive") },
+      ],
+      backAndHomeRow(cb.saAdminOpen(telegramId)),
+    ],
+  };
+}
+
+export function buildConfigKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "👋 Update Welcome Message", callback_data: CALLBACKS.SUPERADMIN_CONFIG_WELCOME }],
+      [{ text: "🔗 Update Link Aturan", callback_data: CALLBACKS.SUPERADMIN_CONFIG_ATURAN }],
+      backAndHomeRow(CALLBACKS.SUPERADMIN_TOOLS_MENU),
+    ],
+  };
+}
+
+export function buildConfigWelcomeKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "✏️ Edit", callback_data: CALLBACKS.SUPERADMIN_CONFIG_WELCOME_EDIT }],
+      backAndHomeRow(CALLBACKS.SUPERADMIN_CONFIG_MENU),
+    ],
+  };
+}
+
+export function buildConfigAturanKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "✏️ Edit", callback_data: CALLBACKS.SUPERADMIN_CONFIG_ATURAN_EDIT }],
+      backAndHomeRow(CALLBACKS.SUPERADMIN_CONFIG_MENU),
+    ],
+  };
+}
+
+export function buildSettingsKeyboard() {
+  return {
+    inline_keyboard: [
+      [
+        { text: "🗂️ Category", callback_data: CALLBACKS.SUPERADMIN_CATEGORY_MENU },
+        { text: "💰 Finance", callback_data: CALLBACKS.SUPERADMIN_FINANCE_MENU },
+      ],
+      backAndHomeRow(CALLBACKS.SUPERADMIN_TOOLS_MENU),
+    ],
+  };
+}
+
+export function buildCategoryKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "📚 Category List", callback_data: CALLBACKS.SUPERADMIN_CATEGORY_LIST }],
+      [
+        { text: "➕ Add Category", callback_data: CALLBACKS.SUPERADMIN_CATEGORY_ADD },
+        { text: "➖ Delete Category", callback_data: CALLBACKS.SUPERADMIN_CATEGORY_DEL },
+      ],
+      backAndHomeRow(CALLBACKS.SUPERADMIN_SETTINGS_MENU),
+    ],
+  };
+}
+
+export function buildFinanceKeyboard(manualOn) {
+  return {
+    inline_keyboard: [
+      [
+        {
+          text: manualOn ? "🛑 Set Manual OFF" : "✅ Set Manual ON",
+          callback_data: CALLBACKS.SUPERADMIN_FINANCE_MANUAL_TOGGLE,
+        },
+      ],
+      [
+        { text: "🏷️ Set Pricing", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICING_MENU },
+      ],
+      backAndHomeRow(CALLBACKS.SUPERADMIN_SETTINGS_MENU),
+    ],
+  };
+}
+
+export function buildFinancePricingKeyboard() {
+  return {
+    inline_keyboard: [
+      [
+        { text: "🥉 Bronze", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICING_BRONZE_MENU },
+        { text: "🥇 Gold", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICING_GOLD_MENU },
+      ],
+      [
+        { text: "💠 Platinum", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICING_PLATINUM_MENU },
+      ],
+      backAndHomeRow(CALLBACKS.SUPERADMIN_FINANCE_MENU),
+    ],
+  };
+}
+
+export function buildFinanceClassPricingKeyboard(classId) {
+  const normalized = String(classId || "").trim().toLowerCase();
+
+  return {
+    inline_keyboard: [
+      [
+        { text: "1 Hari", callback_data: `sa:fin:price:${normalized}:1d` },
+        { text: "3 Hari", callback_data: `sa:fin:price:${normalized}:3d` },
+      ],
+      [
+        { text: "7 Hari", callback_data: `sa:fin:price:${normalized}:7d` },
+        { text: "1 Bulan", callback_data: `sa:fin:price:${normalized}:1m` },
+      ],
+      backAndHomeRow(CALLBACKS.SUPERADMIN_FINANCE_PRICING_MENU),
+    ],
+  };
+}
+
+export function buildPaymentReviewKeyboard(ticketId) {
+  return {
+    inline_keyboard: [
+      [
+        { text: "✅ Confirm Payment", callback_data: cb.payConfirmOk(ticketId) },
+        { text: "❌ Reject Payment", callback_data: cb.payConfirmReject(ticketId) },
+      ],
+      [
+        { text: "⬅️ Finance", callback_data: CALLBACKS.SUPERADMIN_FINANCE_MENU },
+        officerHomeButton(),
+      ],
+    ],
+  };
+}
+
+// Verificator / Approve
+export function buildMainKeyboard(telegramId) {
+  return {
+    inline_keyboard: [
+      [{ text: "👤 Pilih Verificator", callback_data: cb.pickVer(telegramId) }],
+      [officerHomeButton()],
+    ],
+  };
+}
+
+export function buildApproveRejectKeyboard(telegramId) {
+  return {
+    inline_keyboard: [
+      [
+        { text: "✅ Approve", callback_data: cb.approve(telegramId) },
+        { text: "❌ Reject", callback_data: cb.reject(telegramId) },
+      ],
+      [officerHomeButton()],
+    ],
+  };
+}
+
+export function buildVerificatorKeyboard(telegramId, verificators) {
+  const rows = [];
+  const max = Math.min(Array.isArray(verificators) ? verificators.length : 0, 20);
+
+  for (let i = 0; i < max; i += 2) {
+    const a = verificators[i];
+    const b = verificators[i + 1];
+    const row = [{ text: a.label, callback_data: cb.setVer(telegramId, a.telegram_id) }];
+    if (b) row.push({ text: b.label, callback_data: cb.setVer(telegramId, b.telegram_id) });
+    rows.push(row);
+  }
+
+  rows.push(backAndHomeRow(cb.backVer(telegramId)));
+  return { inline_keyboard: rows };
 }
