@@ -1,5 +1,5 @@
 // services/paymentActivationService.js
-
+import { nowJakartaSql } from "../utils/time.js";
 import { getProfileFullByTelegramId } from "../repositories/profilesRepo.js";
 import { getPaymentTicketById, confirmPaymentTicket } from "../repositories/paymentTicketsRepo.js";
 import {
@@ -235,7 +235,7 @@ export async function confirmPaymentAndActivateSubscription(env, ticketId, actor
   const profile = await getProfileFullByTelegramId(env, partnerId);
   if (!profile) return { ok: false, reason: "profile_not_found" };
 
-  const nowSql = toSqlDateTime(new Date());
+  const nowSql = nowJakartaSql();
   const durationCode = getDurationCode(ticket);
   const durationMonths = durationCode === "1m" ? 1 : 0;
   const classId = resolvePartnerClassId(profile);
