@@ -1,7 +1,7 @@
 // routes/telegram.flow.partnerModeration.js
 
 import { clearSession } from "../utils/session.js";
-import { sendMessage, upsertCallbackMessage } from "../services/telegramApi.js";
+import { sendMessage } from "../services/telegramApi.js";
 import {
   getProfileFullByTelegramId,
   deleteProfileByTelegramId,
@@ -16,35 +16,12 @@ import { fmtClassId, resolveTelegramId } from "../utils/partnerHelpers.js";
 import { manualSuspendPartner, manualRestorePartner } from "../services/partnerStatusService.js";
 import { syncPartnerGroupRole } from "../services/partnerGroupRoleService.js";
 
-function readSourceMessage(chatId, session) {
-  const sourceChatId = session?.data?.source_chat_id ?? chatId ?? null;
-  const sourceMessageId = session?.data?.source_message_id ?? null;
-
-  if (!sourceChatId || !sourceMessageId) return null;
-
-  return {
-    chat: { id: sourceChatId },
-    message_id: sourceMessageId,
-    text: "Partner Moderation",
-  };
-}
-
-async function renderModerationPanel(env, chatId, session, text, replyMarkup, extra = {}) {
-  const sourceMessage = readSourceMessage(chatId, session);
-  const payload = {
+async function sendModerationPanel(env, chatId, text, replyMarkup, extra = {}) {
+  await sendMessage(env, chatId, text, {
     parse_mode: "HTML",
     reply_markup: replyMarkup,
     ...extra,
-  };
-
-  if (sourceMessage) {
-    await upsertCallbackMessage(env, sourceMessage, text, payload).catch(async () => {
-      await sendMessage(env, chatId, text, payload);
-    });
-    return;
-  }
-
-  await sendMessage(env, chatId, text, payload);
+  });
 }
 
 export async function handlePartnerModerationInput({
@@ -61,10 +38,9 @@ export async function handlePartnerModerationInput({
   if (/^(batal|cancel|keluar)$/i.test(raw)) {
     await clearSession(env, STATE_KEY);
 
-    await renderModerationPanel(
+    await sendModerationPanel(
       env,
       chatId,
-      session,
       "✅ Oke, sesi Partner Moderation dibatalkan.",
       buildPartnerModerationKeyboard(role)
     );
@@ -73,10 +49,9 @@ export async function handlePartnerModerationInput({
 
   const targetId = await resolveTelegramId(env, raw);
   if (!targetId) {
-    await renderModerationPanel(
+    await sendModerationPanel(
       env,
       chatId,
-      session,
       "⚠️ Target tidak valid / tidak ditemukan.\nKirim <b>@username</b> atau <b>telegram_id</b> ya.\n\nKetik <b>batal</b> untuk keluar.",
       buildBackToPartnerModerationKeyboard()
     );
@@ -85,10 +60,9 @@ export async function handlePartnerModerationInput({
 
   const profile = await getProfileFullByTelegramId(env, targetId);
   if (!profile) {
-    await renderModerationPanel(
+    await sendModerationPanel(
       env,
       chatId,
-      session,
       "⚠️ Data partner tidak ditemukan.",
       buildBackToPartnerModerationKeyboard()
     );
@@ -101,10 +75,9 @@ export async function handlePartnerModerationInput({
   if (!["restore", "suspend", "delete"].includes(action)) {
     await clearSession(env, STATE_KEY);
 
-    await renderModerationPanel(
+    await sendModerationPanel(
       env,
       chatId,
-      session,
       "⚠️ Aksi moderation tidak valid. Balik ke menu ya.",
       buildPartnerModerationKeyboard(role)
     );
@@ -115,10 +88,9 @@ export async function handlePartnerModerationInput({
     await deleteProfileByTelegramId(env, targetId);
     await clearSession(env, STATE_KEY);
 
-    await renderModerationPanel(
+    await sendModerationPanel(
       env,
       chatId,
-      session,
       `❌ Partner ${label} berhasil dihapus.\nClass ID: ${classId}`,
       buildPartnerModerationKeyboard(role)
     );
@@ -138,17 +110,22 @@ export async function handlePartnerModerationInput({
       reply_markup: buildTeManMenuKeyboard(),
     }).catch(() => {});
 
-    await renderModerationPanel(
+    await sendMessage(
       env,
       chatId,
-      session,
       [
         `✅ Partner ${label} berhasil di-suspend.`,
         `Status akhir: ${res.status}`,
         `Class ID: ${classId}`,
         "",
         `Group role sync: ${groupRoleSync?.ok ? "OK" : "FAILED"}`,
-      ].join("\n"),
+      ].join("\n")
+    );
+
+    await sendModerationPanel(
+      env,
+      chatId,
+      "Pilih aksi Partner Moderation berikutnya:",
       buildPartnerModerationKeyboard(role)
     );
     return true;
@@ -174,17 +151,22 @@ export async function handlePartnerModerationInput({
       reply_markup: buildTeManMenuKeyboard(),
     }).catch(() => {});
 
-    await renderModerationPanel(
+    await sendMessage(
       env,
       chatId,
-      session,
       [
         `✅ Partner ${label} berhasil di-restore.`,
         `Status akhir: ${res.status}`,
         `Class ID: ${classId}`,
         "",
         `Group role sync: ${groupRoleSync?.ok ? "OK" : "FAILED"}`,
-      ].join("\n"),
+      ].join("\n")
+    );
+
+    await sendModerationPanel(
+      env,
+      chatId,
+      "Pilih aksi Partner Moderation berikutnya:",
       buildPartnerModerationKeyboard(role)
     );
     return true;
