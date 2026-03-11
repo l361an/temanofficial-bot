@@ -20,6 +20,10 @@ import {
   mapIndexesToCategoryIds,
 } from "../utils/categoryFlow.js";
 
+function isPrivateChat(chat) {
+  return String(chat?.type || "").trim().toLowerCase() === "private";
+}
+
 function statusMessage(status) {
   const raw = String(status || "").trim().toLowerCase();
 
@@ -41,6 +45,7 @@ function statusMessage(status) {
 export async function handleRegistrationFlow({
   update,
   env,
+  chat,
   chatId,
   telegramId,
   username,
@@ -48,9 +53,25 @@ export async function handleRegistrationFlow({
   session,
   STATE_KEY,
 }) {
+  // HARD GUARD
+  if (!isPrivateChat(chat)) {
+    return false;
+  }
+
+  if (!session?.step) {
+    return false;
+  }
+
+  const safeText = String(text || "").trim();
+
   // 1. NAMA
   if (session.step === "input_nama") {
-    session.data.nama_lengkap = text.trim();
+    if (!safeText) {
+      await sendMessage(env, chatId, "Masukkan Nama Lengkap:");
+      return true;
+    }
+
+    session.data.nama_lengkap = safeText;
     session.step = "input_nickname";
     await saveSession(env, STATE_KEY, session);
     await sendMessage(env, chatId, "Masukkan Nickname (tanpa spasi):");
@@ -59,7 +80,7 @@ export async function handleRegistrationFlow({
 
   // 2. NICKNAME
   if (session.step === "input_nickname") {
-    const nickname = text.trim().replace(/\s+/g, "");
+    const nickname = safeText.replace(/\s+/g, "");
 
     if (nickname.length < 3) {
       await sendMessage(env, chatId, "Nickname minimal 3 karakter.");
@@ -75,7 +96,12 @@ export async function handleRegistrationFlow({
 
   // 3. NIK
   if (session.step === "input_nik") {
-    session.data.nik = text;
+    if (!safeText) {
+      await sendMessage(env, chatId, "Masukkan NIK (16 digit):");
+      return true;
+    }
+
+    session.data.nik = safeText;
     session.step = "input_whatsapp";
     await saveSession(env, STATE_KEY, session);
     await sendMessage(env, chatId, "Masukkan No WhatsApp:");
@@ -84,12 +110,11 @@ export async function handleRegistrationFlow({
 
   // 4. WHATSAPP
   if (session.step === "input_whatsapp") {
-    session.data.no_whatsapp = text.replace(/\D/g, "");
+    session.data.no_whatsapp = safeText.replace(/\D/g, "");
 
     try {
       const categories = await loadCategoriesForChoice(env);
 
-      // kalau belum ada kategori di DB, lanjut tanpa pilih
       if (!categories.length) {
         session.step = "input_kecamatan";
         await saveSession(env, STATE_KEY, session);
@@ -97,7 +122,6 @@ export async function handleRegistrationFlow({
         return true;
       }
 
-      // ada kategori -> wajib pilih minimal 1
       session.data._category_list = categories;
       session.step = "select_categories";
       await saveSession(env, STATE_KEY, session);
@@ -115,13 +139,12 @@ export async function handleRegistrationFlow({
     }
   }
 
-  // 4b. SELECT CATEGORIES (required)
+  // 4b. SELECT CATEGORIES
   if (session.step === "select_categories") {
     const categories = Array.isArray(session.data._category_list)
       ? session.data._category_list
       : [];
 
-    // fallback: kalau somehow kosong, lanjut
     if (!categories.length) {
       delete session.data._category_list;
       session.step = "input_kecamatan";
@@ -130,7 +153,7 @@ export async function handleRegistrationFlow({
       return true;
     }
 
-    const parsed = parseMultiIndexInputRequired(text, categories.length);
+    const parsed = parseMultiIndexInputRequired(safeText, categories.length);
     if (!parsed.ok) {
       await sendMessage(
         env,
@@ -157,7 +180,12 @@ export async function handleRegistrationFlow({
 
   // 5. KECAMATAN
   if (session.step === "input_kecamatan") {
-    session.data.kecamatan = text.trim();
+    if (!safeText) {
+      await sendMessage(env, chatId, "Masukkan Kecamatan:");
+      return true;
+    }
+
+    session.data.kecamatan = safeText;
     session.step = "input_kota";
     await saveSession(env, STATE_KEY, session);
     await sendMessage(env, chatId, "Masukkan Kota:");
@@ -166,7 +194,12 @@ export async function handleRegistrationFlow({
 
   // 6. KOTA
   if (session.step === "input_kota") {
-    session.data.kota = text.trim();
+    if (!safeText) {
+      await sendMessage(env, chatId, "Masukkan Kota:");
+      return true;
+    }
+
+    session.data.kota = safeText;
     session.step = "upload_closeup";
     await saveSession(env, STATE_KEY, session);
     await sendMessage(env, chatId, "📸 Upload FOTO CLOSEUP:");
@@ -175,7 +208,7 @@ export async function handleRegistrationFlow({
 
   // 7. FOTO CLOSEUP
   if (session.step === "upload_closeup") {
-    if (!update.message.photo) {
+    if (!update?.message?.photo) {
       await sendMessage(env, chatId, "Kirim foto closeup.");
       return true;
     }
@@ -191,7 +224,7 @@ export async function handleRegistrationFlow({
 
   // 8. FOTO FULL BODY
   if (session.step === "upload_fullbody") {
-    if (!update.message.photo) {
+    if (!update?.message?.photo) {
       await sendMessage(env, chatId, "Kirim foto full body.");
       return true;
     }
@@ -207,7 +240,7 @@ export async function handleRegistrationFlow({
 
   // 9. FOTO KTP + FINALIZE
   if (session.step === "upload_ktp") {
-    if (!update.message.photo) {
+    if (!update?.message?.photo) {
       await sendMessage(env, chatId, "Kirim foto KTP.");
       return true;
     }
@@ -226,7 +259,6 @@ export async function handleRegistrationFlow({
         return true;
       }
 
-      // simpan foto KTP file_id
       session.data.foto_ktp_file_id =
         update.message.photo[update.message.photo.length - 1].file_id;
 
@@ -248,7 +280,6 @@ export async function handleRegistrationFlow({
         foto_fullbody_file_id: d.foto_fullbody_file_id,
       });
 
-      // ✅ set kategori (wajib kalau kategori tersedia)
       const categoryIds = Array.isArray(d.category_ids) ? d.category_ids : [];
       if (categoryIds.length) {
         await setProfileCategoriesByProfileId(env, id, categoryIds);
