@@ -24,8 +24,7 @@ import {
 } from "../repositories/profilesRepo.js";
 
 function isPrivateChat(chat) {
-  if (!chat) return false;
-  return chat.type === "private";
+  return String(chat?.type || "").trim().toLowerCase() === "private";
 }
 
 function buildHelp(role) {
@@ -72,21 +71,22 @@ export async function handleTelegramWebhook(request, env) {
     if (!update.message) return json({ ok: true });
 
     const message = update.message;
-    const chat = message.chat || null;
+    const chat = message?.chat || null;
 
     const { chatId, telegramId, username, text } = parseMessage(message);
+
+    if (!chatId || !telegramId) return json({ ok: true });
 
     const STATE_KEY = `state:${telegramId}`;
     const role = await getAdminRole(env, telegramId);
 
     await syncProfileUsernameFromTelegram(env, telegramId, username).catch(() => {});
 
-    // HARD GUARD:
-    // Semua flow user / partner hanya boleh jalan di private chat.
-    // Group / supergroup / topic / channel harus di-ignore total
-    // kecuali flow officer/admin.
     const privateChat = isPrivateChat(chat);
 
+    // HARD GUARD:
+    // semua flow user / partner / payment / registrasi harus private chat only.
+    // group / supergroup / topic / channel untuk non-admin di-ignore total.
     if (!privateChat && !isAdminRole(role)) {
       return json({ ok: true });
     }
@@ -125,6 +125,7 @@ export async function handleTelegramWebhook(request, env) {
 
       if (handledUser) return json({ ok: true });
 
+      // non-admin di luar private / command user yang tidak valid -> diamkan
       if (!isAdminRole(role)) {
         return json({ ok: true });
       }
@@ -198,6 +199,7 @@ export async function handleTelegramWebhook(request, env) {
     if (!isAdminRole(role)) {
       const handledProofUpload = await handlePaymentProofUpload({
         env,
+        chat,
         chatId,
         telegramId,
         update,
@@ -212,6 +214,9 @@ export async function handleTelegramWebhook(request, env) {
     }
 
     if (!session && !isAdminRole(role)) {
+      // user non-admin hanya boleh dapat fallback di private chat
+      if (!privateChat) return json({ ok: true });
+
       const profile = await getProfileFullByTelegramId(env, telegramId);
 
       if (profile) {
@@ -231,7 +236,7 @@ export async function handleTelegramWebhook(request, env) {
     }
 
     if (session?.mode === "edit_profile") {
-      await handleUserEditFlow({
+      const handledEdit = await handleUserEditFlow({
         env,
         chat,
         chatId,
@@ -243,12 +248,19 @@ export async function handleTelegramWebhook(request, env) {
         update,
       });
 
+      if (handledEdit) return json({ ok: true });
       return json({ ok: true });
     }
 
-    await handleRegistrationFlow({
+    // registrasi user hanya boleh lanjut di private chat
+    if (!isAdminRole(role) && !privateChat) {
+      return json({ ok: true });
+    }
+
+    const handledRegistration = await handleRegistrationFlow({
       update,
       env,
+      chat,
       chatId,
       telegramId,
       username,
@@ -256,6 +268,8 @@ export async function handleTelegramWebhook(request, env) {
       session,
       STATE_KEY,
     });
+
+    if (handledRegistration) return json({ ok: true });
 
     return json({ ok: true });
   } catch (err) {
