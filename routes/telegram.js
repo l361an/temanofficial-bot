@@ -23,6 +23,11 @@ import {
   syncProfileUsernameFromTelegram,
 } from "../repositories/profilesRepo.js";
 
+function isPrivateChat(chat) {
+  if (!chat) return false;
+  return chat.type === "private";
+}
+
 function buildHelp(role) {
   if (isSuperadminRole(role)) {
     return (
@@ -66,13 +71,25 @@ export async function handleTelegramWebhook(request, env) {
 
     if (!update.message) return json({ ok: true });
 
-    const { chatId, telegramId, username, text } = parseMessage(update.message);
+    const message = update.message;
+    const chat = message.chat || null;
+
+    const { chatId, telegramId, username, text } = parseMessage(message);
 
     const STATE_KEY = `state:${telegramId}`;
-
     const role = await getAdminRole(env, telegramId);
 
     await syncProfileUsernameFromTelegram(env, telegramId, username).catch(() => {});
+
+    // HARD GUARD:
+    // Semua flow user / partner hanya boleh jalan di private chat.
+    // Group / supergroup / topic / channel harus di-ignore total
+    // kecuali flow officer/admin.
+    const privateChat = isPrivateChat(chat);
+
+    if (!privateChat && !isAdminRole(role)) {
+      return json({ ok: true });
+    }
 
     if (text && text.startsWith("/")) {
       const raw = String(text || "").trim();
@@ -98,6 +115,7 @@ export async function handleTelegramWebhook(request, env) {
 
       const handledUser = await handleUserCommand({
         env,
+        chat,
         chatId,
         telegramId,
         role,
@@ -106,6 +124,10 @@ export async function handleTelegramWebhook(request, env) {
       });
 
       if (handledUser) return json({ ok: true });
+
+      if (!isAdminRole(role)) {
+        return json({ ok: true });
+      }
 
       await sendMessage(env, chatId, "Command tidak dikenali.", {
         reply_markup: buildTeManMenuKeyboard(),
@@ -211,6 +233,7 @@ export async function handleTelegramWebhook(request, env) {
     if (session?.mode === "edit_profile") {
       await handleUserEditFlow({
         env,
+        chat,
         chatId,
         telegramId,
         username,
