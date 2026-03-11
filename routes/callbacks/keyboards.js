@@ -33,7 +33,7 @@ export function buildOfficerHomeKeyboard(role) {
 }
 
 // Partner Tools
-export function buildPartnerToolsKeyboard(role) {
+export function buildPartnerToolsKeyboard() {
   return {
     inline_keyboard: [
       [
@@ -46,7 +46,7 @@ export function buildPartnerToolsKeyboard(role) {
 }
 
 // Partner Database
-export function buildPartnerDatabaseKeyboard(role) {
+export function buildPartnerDatabaseKeyboard() {
   return {
     inline_keyboard: [
       [{ text: "🔎 View Partner", callback_data: CALLBACKS.PARTNER_DATABASE_VIEW }],
@@ -63,19 +63,19 @@ export function buildPartnerDatabaseKeyboard(role) {
   };
 }
 
-export function buildBackToPartnerDatabaseKeyboard(role) {
+export function buildBackToPartnerDatabaseKeyboard() {
   return {
     inline_keyboard: [backAndHomeRow(CALLBACKS.PARTNER_DATABASE_MENU)],
   };
 }
 
-export function buildBackToPartnerDatabaseViewKeyboard(role) {
+export function buildBackToPartnerDatabaseViewKeyboard() {
   return {
     inline_keyboard: [backAndHomeRow(CALLBACKS.PARTNER_DATABASE_MENU)],
   };
 }
 
-export function buildPartnerControlPanelKeyboard(telegramId, role) {
+export function buildPartnerControlPanelKeyboard(telegramId) {
   return {
     inline_keyboard: [
       [
@@ -87,7 +87,7 @@ export function buildPartnerControlPanelKeyboard(telegramId, role) {
   };
 }
 
-export function buildPartnerDetailsKeyboard(telegramId, role) {
+export function buildPartnerDetailsKeyboard(telegramId) {
   return {
     inline_keyboard: [
       [
@@ -98,7 +98,7 @@ export function buildPartnerDetailsKeyboard(telegramId, role) {
   };
 }
 
-export function buildPartnerSubscriptionKeyboard(telegramId, role) {
+export function buildPartnerSubscriptionKeyboard(telegramId) {
   return {
     inline_keyboard: [
       [{ text: "⬅️ Back to Panel", callback_data: cb.pmPanelBack(telegramId) }],
@@ -133,7 +133,7 @@ export function buildPartnerDetailActionsKeyboard(telegramId, role) {
   return { inline_keyboard: rows };
 }
 
-export function buildPartnerClassPickerKeyboard(telegramId, role) {
+export function buildPartnerClassPickerKeyboard(telegramId) {
   return {
     inline_keyboard: [
       [
@@ -150,9 +150,9 @@ export function buildPartnerClassPickerKeyboard(telegramId, role) {
   };
 }
 
-export function buildPartnerVerificatorPickerKeyboard(telegramId, verificators, role) {
+export function buildPartnerVerificatorPickerKeyboard(telegramId, verificators) {
   const rows = [];
-  const max = Math.min(verificators.length, 20);
+  const max = Math.min(Array.isArray(verificators) ? verificators.length : 0, 20);
 
   for (let i = 0; i < max; i += 2) {
     const a = verificators[i];
@@ -187,7 +187,7 @@ export function buildPartnerModerationKeyboard(role) {
   return { inline_keyboard: rows };
 }
 
-export function buildBackToPartnerModerationKeyboard(role) {
+export function buildBackToPartnerModerationKeyboard() {
   return {
     inline_keyboard: [backAndHomeRow(CALLBACKS.PARTNER_MODERATION_MENU)],
   };
@@ -223,7 +223,7 @@ export function buildAdminManagerKeyboard() {
 
 export function buildAdminListKeyboard(admins = []) {
   const rows = [];
-  const max = Math.min(admins.length, 40);
+  const max = Math.min(Array.isArray(admins) ? admins.length : 0, 40);
 
   for (let i = 0; i < max; i += 2) {
     const a = admins[i];
@@ -354,58 +354,27 @@ export function buildFinanceKeyboard(manualOn) {
     inline_keyboard: [
       [
         {
-          text: manualOn ? "🛑 Manual Payment : OFF" : "✅ Manual Payment : ON",
+          text: manualOn ? "🛑 Set Manual OFF" : "✅ Set Manual ON",
           callback_data: CALLBACKS.SUPERADMIN_FINANCE_MANUAL_TOGGLE,
         },
       ],
       [
         { text: "🏷️ Set Pricing", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICING_MENU },
-        { text: "🖼️ QRIS", callback_data: CALLBACKS.SUPERADMIN_FINANCE_QRIS_MENU },
       ],
       backAndHomeRow(CALLBACKS.SUPERADMIN_SETTINGS_MENU),
     ],
   };
 }
 
-export function buildFinanceQrisKeyboard(hasQris = false) {
-  const rows = [];
-
-  if (hasQris) {
-    rows.push([{ text: "👁️ Lihat QRIS", callback_data: CALLBACKS.SUPERADMIN_FINANCE_QRIS_VIEW }]);
-  }
-
-  rows.push([{ text: hasQris ? "♻️ Ganti Foto QRIS" : "📸 Set Foto QRIS", callback_data: CALLBACKS.SUPERADMIN_FINANCE_QRIS_SET }]);
-  rows.push(backAndHomeRow(CALLBACKS.SUPERADMIN_FINANCE_MENU));
-
-  return { inline_keyboard: rows };
-}
-
 export function buildFinancePricingKeyboard() {
   return {
     inline_keyboard: [
       [
-        { text: "🥉 Bronze 1 Hari", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_BRONZE_1D },
-        { text: "🥉 Bronze 3 Hari", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_BRONZE_3D },
+        { text: "🥉 Bronze", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICING_BRONZE_MENU },
+        { text: "🥇 Gold", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICING_GOLD_MENU },
       ],
       [
-        { text: "🥉 Bronze 7 Hari", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_BRONZE_7D },
-        { text: "🥉 Bronze 1 Bulan", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_BRONZE_1M },
-      ],
-      [
-        { text: "🥇 Gold 1 Hari", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_GOLD_1D },
-        { text: "🥇 Gold 3 Hari", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_GOLD_3D },
-      ],
-      [
-        { text: "🥇 Gold 7 Hari", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_GOLD_7D },
-        { text: "🥇 Gold 1 Bulan", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_GOLD_1M },
-      ],
-      [
-        { text: "💠 Platinum 1 Hari", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_PLATINUM_1D },
-        { text: "💠 Platinum 3 Hari", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_PLATINUM_3D },
-      ],
-      [
-        { text: "💠 Platinum 7 Hari", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_PLATINUM_7D },
-        { text: "💠 Platinum 1 Bulan", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICE_PLATINUM_1M },
+        { text: "💠 Platinum", callback_data: CALLBACKS.SUPERADMIN_FINANCE_PRICING_PLATINUM_MENU },
       ],
       backAndHomeRow(CALLBACKS.SUPERADMIN_FINANCE_MENU),
     ],
@@ -413,15 +382,17 @@ export function buildFinancePricingKeyboard() {
 }
 
 export function buildFinanceClassPricingKeyboard(classId) {
+  const normalized = String(classId || "").trim().toLowerCase();
+
   return {
     inline_keyboard: [
       [
-        { text: "1 Hari", callback_data: `sa:fin:price:${classId}:1d` },
-        { text: "3 Hari", callback_data: `sa:fin:price:${classId}:3d` },
+        { text: "1 Hari", callback_data: `sa:fin:price:${normalized}:1d` },
+        { text: "3 Hari", callback_data: `sa:fin:price:${normalized}:3d` },
       ],
       [
-        { text: "7 Hari", callback_data: `sa:fin:price:${classId}:7d` },
-        { text: "1 Bulan", callback_data: `sa:fin:price:${classId}:1m` },
+        { text: "7 Hari", callback_data: `sa:fin:price:${normalized}:7d` },
+        { text: "1 Bulan", callback_data: `sa:fin:price:${normalized}:1m` },
       ],
       backAndHomeRow(CALLBACKS.SUPERADMIN_FINANCE_PRICING_MENU),
     ],
@@ -467,7 +438,7 @@ export function buildApproveRejectKeyboard(telegramId) {
 
 export function buildVerificatorKeyboard(telegramId, verificators) {
   const rows = [];
-  const max = Math.min(verificators.length, 20);
+  const max = Math.min(Array.isArray(verificators) ? verificators.length : 0, 20);
 
   for (let i = 0; i < max; i += 2) {
     const a = verificators[i];
