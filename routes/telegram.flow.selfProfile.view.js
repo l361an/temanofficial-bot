@@ -15,6 +15,16 @@ import {
   formatDateTime,
 } from "./telegram.user.shared.js";
 
+function buildPartnerStatusText(profile) {
+  const raw = String(profile?.status || "").trim().toLowerCase();
+
+  if (raw === "pending_approval") return "Pending";
+  if (raw === "approved") return "Approved";
+  if (raw === "suspended") return "Suspended";
+
+  return raw ? raw.replaceAll("_", " ") : "-";
+}
+
 function buildMasaAktifText(subInfo) {
   if (!subInfo?.found || !subInfo?.row) return "-";
 
@@ -26,12 +36,12 @@ function buildMasaAktifText(subInfo) {
 }
 
 function buildPremiumStatusText(profile, subInfo) {
-  if (subInfo?.is_active && subInfo?.row) return "Active";
-
   const partnerStatus = String(profile?.status || "").trim().toLowerCase();
-  if (partnerStatus === "suspended") return "Suspended";
-  if (partnerStatus === "active") return "Active";
-  return "Belum Aktif";
+  const isManualSuspended = Number(profile?.is_manual_suspended || 0) === 1;
+
+  if (partnerStatus === "suspended" || isManualSuspended) return "Non-aktif";
+  if (subInfo?.is_active && subInfo?.row) return "Aktif";
+  return "Non-aktif";
 }
 
 function buildProfileSummaryText(profile, kategoriText, premiumStatusText, masaAktifText) {
@@ -47,10 +57,10 @@ function buildProfileSummaryText(profile, kategoriText, premiumStatusText, masaA
     fmtKV("No. Whatsapp", profile.no_whatsapp),
     fmtKV("Kecamatan", profile.kecamatan),
     fmtKV("Kota", profile.kota),
-    fmtKV("Status Partner", profile.status),
+    fmtKV("Status Partner", buildPartnerStatusText(profile)),
     "",
     "💎 <b>PREMIUM PARTNER</b>",
-    fmtKV("Status Premium", premiumStatusText),
+    fmtKV("Akses Premium", premiumStatusText),
     fmtKV("Masa Aktif", masaAktifText),
   ].join("\n");
 }
