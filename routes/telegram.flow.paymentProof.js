@@ -9,6 +9,10 @@ import {
 import { getAdminByTelegramId, getFirstActiveSuperadminId } from "../repositories/adminsRepo.js";
 import * as paymentReviewMessageService from "../services/paymentReviewMessage.js";
 
+function isPrivateChat(chat) {
+  return String(chat?.type || "").trim().toLowerCase() === "private";
+}
+
 function normalizeStatus(value) {
   return String(value || "").trim().toLowerCase();
 }
@@ -175,7 +179,10 @@ async function sendTicketStatusMessage(env, chatId, ticket) {
   return true;
 }
 
-export async function handlePaymentProofUpload({ env, chatId, telegramId, update }) {
+export async function handlePaymentProofUpload({ env, chat, chatId, telegramId, update }) {
+  // HARD GUARD
+  if (!isPrivateChat(chat)) return false;
+
   const photos = update?.message?.photo || [];
   if (!photos.length) return false;
 
