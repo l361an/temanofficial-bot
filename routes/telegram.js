@@ -221,17 +221,17 @@ export async function handleTelegramWebhook(request, env) {
       return json({ ok: true });
     }
 
-    await handleRegistrationFlow({
-      update,
-      env,
-      chat,
-      chatId,
-      telegramId,
-      username,
-      text,
-      session,
-      STATE_KEY,
-    });
+      await handleRegistrationFlow({
+        update,
+        env,
+        chat,
+        chatId,
+        telegramId,
+        username,
+        text,
+        session,
+        STATE_KEY,
+      });
 
     return json({ ok: true });
   } catch (err) {
