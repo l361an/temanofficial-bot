@@ -18,6 +18,16 @@ import {
   handleSelfPaymentInlineCallback,
 } from "./telegram.flow.selfPayment.js";
 
+/**
+ * HARD RULE:
+ * Semua flow user / partner hanya boleh berjalan di PRIVATE CHAT.
+ * Jika dipanggil dari group / supergroup / channel / topic → langsung ignore.
+ */
+function isPrivateChat(chat) {
+  if (!chat) return false;
+  return chat.type === "private";
+}
+
 function sanitizeWelcome(text) {
   const raw = String(text || "").trim();
   if (!raw) return raw;
@@ -39,13 +49,29 @@ function sanitizeWelcome(text) {
 
 async function buildTeManWelcome(env) {
   const fromSetting = await getSetting(env, "welcome_partner");
-  const fallback = "👋 Selamat datang Partner Mandiri\n\nKlik <b>Menu TeMan</b> di bawah ya.";
+  const fallback =
+    "👋 Selamat datang Partner Mandiri\n\nKlik <b>Menu TeMan</b> di bawah ya.";
+
   return sanitizeWelcome(fromSetting || fallback);
 }
 
 export { buildTeManMenuKeyboard };
 
-export async function handleUserCommand({ env, chatId, telegramId, role, text }) {
+export async function handleUserCommand({
+  env,
+  chat,
+  chatId,
+  telegramId,
+  role,
+  text,
+}) {
+  /**
+   * PRIVATE CHAT ONLY
+   */
+  if (!isPrivateChat(chat)) {
+    return false;
+  }
+
   if (text === "/help") {
     await sendHtml(
       env,
@@ -63,11 +89,13 @@ export async function handleUserCommand({ env, chatId, telegramId, role, text })
     }
 
     const welcome = await buildTeManWelcome(env);
+
     await sendMessage(env, chatId, welcome, {
       parse_mode: "HTML",
       reply_markup: buildTeManMenuKeyboard(),
       disable_web_page_preview: true,
     });
+
     return true;
   }
 
@@ -76,8 +104,21 @@ export async function handleUserCommand({ env, chatId, telegramId, role, text })
 
 export async function handleSelfInlineCallback(update, env) {
   const data = update?.callback_query?.data || "";
+  const chat = update?.callback_query?.message?.chat;
 
-  if (data === "teman:menu" || data === "self:view" || data === "self:update" || data.startsWith("self:edit:")) {
+  /**
+   * PRIVATE CHAT ONLY
+   */
+  if (!isPrivateChat(chat)) {
+    return false;
+  }
+
+  if (
+    data === "teman:menu" ||
+    data === "self:view" ||
+    data === "self:update" ||
+    data.startsWith("self:edit:")
+  ) {
     return handleSelfProfileInlineCallback(update, env);
   }
 
@@ -89,5 +130,14 @@ export async function handleSelfInlineCallback(update, env) {
 }
 
 export async function handleUserEditFlow(args) {
+  const chat = args?.chat;
+
+  /**
+   * PRIVATE CHAT ONLY
+   */
+  if (!isPrivateChat(chat)) {
+    return false;
+  }
+
   return handleUserProfileEditFlow(args);
 }
