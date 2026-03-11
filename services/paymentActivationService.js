@@ -158,8 +158,8 @@ function resolveCoverageWindow(activeSubscriptions, fallbackNowSql) {
   if (!rows.length) {
     return {
       hasActiveCoverage: false,
-      startAt: fallbackNowSql,
-      anchorEndAt: fallbackNowSql,
+      earliestStartAt: fallbackNowSql,
+      latestEndAt: fallbackNowSql,
       mergedFromIds: [],
     };
   }
@@ -182,8 +182,8 @@ function resolveCoverageWindow(activeSubscriptions, fallbackNowSql) {
 
   return {
     hasActiveCoverage: Boolean(earliestStart && latestEnd),
-    startAt: earliestStart ? toSqlDateTime(earliestStart) : fallbackNowSql,
-    anchorEndAt: latestEnd ? toSqlDateTime(latestEnd) : fallbackNowSql,
+    earliestStartAt: earliestStart ? toSqlDateTime(earliestStart) : fallbackNowSql,
+    latestEndAt: latestEnd ? toSqlDateTime(latestEnd) : fallbackNowSql,
     mergedFromIds: rows.map((row) => String(row?.id || "")).filter(Boolean),
   };
 }
@@ -196,6 +196,29 @@ function resolvePartnerClassId(profile) {
     return raw;
   }
   return "bronze";
+}
+
+function resolveAccumulatedWindow(nowSql, coverage, durationCode) {
+  if (!coverage?.hasActiveCoverage) {
+    return {
+      startAt: nowSql,
+      endAt: resolveEndedAt(nowSql, durationCode),
+      activationMode: "fresh_activation",
+      previousCoverageStartAt: null,
+      previousCoverageEndAt: null,
+    };
+  }
+
+  const startAt = nowSql;
+  const endAt = resolveEndedAt(coverage.latestEndAt, durationCode);
+
+  return {
+    startAt,
+    endAt,
+    activationMode: "renewal_accumulation",
+    previousCoverageStartAt: coverage.earliestStartAt,
+    previousCoverageEndAt: coverage.latestEndAt,
+  };
 }
 
 export async function confirmPaymentAndActivateSubscription(env, ticketId, actorId, adminNote = null) {
@@ -215,14 +238,11 @@ export async function confirmPaymentAndActivateSubscription(env, ticketId, actor
   const nowSql = toSqlDateTime(new Date());
   const durationCode = getDurationCode(ticket);
   const durationMonths = durationCode === "1m" ? 1 : 0;
-
   const classId = resolvePartnerClassId(profile);
 
   const activeSubscriptions = await listActiveSubscriptionsByTelegramId(env, partnerId).catch(() => []);
   const coverage = resolveCoverageWindow(activeSubscriptions, nowSql);
-
-  const startedAt = coverage.hasActiveCoverage ? coverage.startAt : nowSql;
-  const endedAt = resolveEndedAt(coverage.anchorEndAt, durationCode);
+  const accumulated = resolveAccumulatedWindow(nowSql, coverage, durationCode);
 
   await confirmPaymentTicket(env, ticketId, actorId, adminNote);
 
@@ -236,17 +256,18 @@ export async function confirmPaymentAndActivateSubscription(env, ticketId, actor
       classId,
       durationMonths,
       status: "active",
-      startAt: startedAt,
-      endAt: endedAt,
+      startAt: accumulated.startAt,
+      endAt: accumulated.endAt,
       activatedAt: nowSql,
       sourceType: "payment_ticket",
       sourceRefId: String(ticket.id),
       notes: adminNote,
       metadataJson: JSON.stringify({
         duration_code: durationCode,
-        activation_mode: coverage.hasActiveCoverage ? "renewal_extension" : "fresh_activation",
+        activation_mode: accumulated.activationMode,
         merged_from_subscription_ids: coverage.mergedFromIds,
-        previous_coverage_end_at: coverage.hasActiveCoverage ? coverage.anchorEndAt : null,
+        previous_coverage_start_at: accumulated.previousCoverageStartAt,
+        previous_coverage_end_at: accumulated.previousCoverageEndAt,
         class_source: "profile",
         ticket_class_id: ticket?.class_id ? String(ticket.class_id).toLowerCase() : null,
         applied_class_id: classId,
@@ -255,7 +276,7 @@ export async function confirmPaymentAndActivateSubscription(env, ticketId, actor
     {
       cancelledBy: actorId,
       cancelReason: coverage.hasActiveCoverage
-        ? "replaced_by_renewal_extension"
+        ? "replaced_by_renewal_accumulation"
         : "replaced_by_fresh_payment_activation",
     }
   );
@@ -267,8 +288,8 @@ export async function confirmPaymentAndActivateSubscription(env, ticketId, actor
   }));
 
   const subscription = createdSubscription || {
-    start_at: startedAt,
-    end_at: endedAt,
+    start_at: accumulated.startAt,
+    end_at: accumulated.endAt,
     duration_months: durationMonths,
     duration_code: durationCode,
     class_id: classId,
