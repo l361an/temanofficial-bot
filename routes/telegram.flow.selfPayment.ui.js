@@ -56,10 +56,79 @@ function readDurationCodeFromTicket(ticket) {
   return "";
 }
 
+function normalizeTicketStatus(status) {
+  return String(status || "").trim().toLowerCase();
+}
+
+export function buildWaitingPaymentKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "📄 Cek Status", callback_data: "self:payment:status" }],
+      [{ text: "📤 Upload Bukti Transfer", callback_data: "self:payment:upload_info" }],
+      [{ text: "📋 Menu TeMan", callback_data: "teman:menu" }],
+    ],
+  };
+}
+
+export function buildWaitingConfirmationKeyboard() {
+  return {
+    inline_keyboard: [[
+      { text: "📄 Cek Status", callback_data: "self:payment:status" },
+      { text: "📋 Menu TeMan", callback_data: "teman:menu" },
+    ]],
+  };
+}
+
+export function buildRejectedPaymentKeyboard() {
+  return {
+    inline_keyboard: [[
+      { text: "📤 Upload Ulang Bukti", callback_data: "self:payment:upload_info" },
+      { text: "📋 Menu TeMan", callback_data: "teman:menu" },
+    ]],
+  };
+}
+
+export function buildExpiredPaymentKeyboard(primaryActionText = "💳 Aktivasi Premium") {
+  return {
+    inline_keyboard: [
+      [{ text: primaryActionText, callback_data: "self:payment:create" }],
+      [{ text: "📋 Menu TeMan", callback_data: "teman:menu" }],
+    ],
+  };
+}
+
+export function buildPaymentUploadModeKeyboard() {
+  return {
+    inline_keyboard: [[
+      { text: "⬅️ Batal", callback_data: "self:payment" },
+      { text: "📄 Cek Status", callback_data: "self:payment:status" },
+    ]],
+  };
+}
+
 export function buildPaymentMenuKeyboard({
   hasOpenTicket = false,
   primaryActionText = "💳 Aktivasi Premium",
+  ticketStatus = null,
 } = {}) {
+  const status = normalizeTicketStatus(ticketStatus);
+
+  if (status === "waiting_confirmation") {
+    return buildWaitingConfirmationKeyboard();
+  }
+
+  if (status === "rejected") {
+    return buildRejectedPaymentKeyboard();
+  }
+
+  if (status === "expired" || status === "cancelled") {
+    return buildExpiredPaymentKeyboard(primaryActionText);
+  }
+
+  if (status === "waiting_payment") {
+    return buildWaitingPaymentKeyboard();
+  }
+
   const rows = [];
 
   if (!hasOpenTicket) {
@@ -74,15 +143,6 @@ export function buildPaymentMenuKeyboard({
   rows.push([{ text: "📋 Menu TeMan", callback_data: "teman:menu" }]);
 
   return { inline_keyboard: rows };
-}
-
-export function buildPaymentUploadModeKeyboard() {
-  return {
-    inline_keyboard: [[
-      { text: "⬅️ Batal", callback_data: "self:payment" },
-      { text: "📄 Cek Status", callback_data: "self:payment:status" },
-    ]],
-  };
 }
 
 export function buildPaymentDurationKeyboard() {
