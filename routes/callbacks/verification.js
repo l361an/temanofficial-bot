@@ -15,6 +15,7 @@ import { buildMainKeyboard, buildVerificatorKeyboard, buildApproveRejectKeyboard
 import { buildTeManMenuKeyboard } from "../telegram.commands.user.js";
 import { CALLBACK_PREFIX, CALLBACKS } from "../telegram.constants.js";
 import { markRegistrationApproved } from "../../services/partnerStatusService.js";
+import { syncPartnerGroupRole } from "../../services/partnerGroupRoleService.js";
 import { fmtClassId } from "../../utils/partnerHelpers.js";
 
 function upsertVerificatorLine(caption, label) {
@@ -194,6 +195,11 @@ export function buildVerificationHandlers() {
         await approveProfile(env, telegramId, verificatorId);
         const approvedRes = await markRegistrationApproved(env, telegramId, verificatorId);
 
+        const groupRoleSync = await syncPartnerGroupRole(env, telegramId).catch((error) => ({
+          ok: false,
+          reason: error?.message || String(error),
+        }));
+
         try {
           const up = await uploadKtpToR2OnApprove(env, telegramId);
           await sendMessage(env, adminId, `☁️ Backup KTP ke R2: ${up.skipped ? "SKIP" : "OK"}\nKey: ${up.key}`);
@@ -215,7 +221,15 @@ export function buildVerificationHandlers() {
         await sendMessage(
           env,
           adminId,
-          `✅ APPROVED\nTelegram ID: ${telegramId}\nStatus akhir: approved\nClass ID: ${classLabel}\nVerificator: ${vLabel}`,
+          [
+            `✅ APPROVED`,
+            `Telegram ID: ${telegramId}`,
+            `Status akhir: approved`,
+            `Class ID: ${classLabel}`,
+            `Verificator: ${vLabel}`,
+            ``,
+            `Group role sync: ${groupRoleSync?.ok ? "OK" : "FAILED"}`,
+          ].join("\n"),
           {
             reply_markup: buildOfficerHomeOnlyKeyboard(),
           }
