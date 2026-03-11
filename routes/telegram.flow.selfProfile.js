@@ -23,8 +23,6 @@ export {
   buildSelfMenuKeyboard,
   buildSelfMenuMessage,
   handleUserProfileEditFlow,
-  sendSelfMenu,
-  sendSelfProfile,
 };
 
 export async function handleSelfProfileInlineCallback(update, env) {
@@ -50,29 +48,27 @@ export async function handleSelfProfileInlineCallback(update, env) {
   }
 
   const ensureRegistered = async () => {
-    const profile = await getProfileFullByTelegramId(env, telegramId).catch(() => null);
-
-    if (!profile) {
+    const p = await getProfileFullByTelegramId(env, telegramId);
+    if (!p) {
       await sendHtml(env, chatId, "Data partner tidak ditemukan.", {
         reply_markup: buildTeManMenuKeyboard(),
       });
       return null;
     }
-
-    return profile;
+    return p;
   };
 
   if (data === "self:view") {
-    const profile = await ensureRegistered();
-    if (!profile) return true;
+    const p = await ensureRegistered();
+    if (!p) return true;
 
     await sendSelfProfile(env, chatId, telegramId);
     return true;
   }
 
   if (data === "self:update" || data.startsWith("self:edit:")) {
-    const profile = await ensureRegistered();
-    if (!profile) return true;
+    const p = await ensureRegistered();
+    if (!p) return true;
 
     return handleSelfProfileEditCallback({
       env,
