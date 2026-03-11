@@ -7,6 +7,7 @@ import {
   markSubscriptionReminderSent,
   expireDueSubscriptions,
   listReminderDebugRows,
+  listActiveSubscriptionsByTelegramId,
 } from "../repositories/partnerSubscriptionsRepo.js";
 import { markSubscriptionExpired } from "./partnerStatusService.js";
 
@@ -23,6 +24,36 @@ function toSqlDateTime(value = new Date()) {
   }
 
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+}
+
+function parseSqlDateTime(value) {
+  if (!value) return null;
+
+  const raw = String(value).trim();
+  const normalized = raw.includes("T") ? raw : raw.replace(" ", "T");
+  const d = new Date(normalized);
+
+  if (Number.isNaN(d.getTime())) return null;
+  return d;
+}
+
+function hasWindowCoverage(row, nowDate) {
+  const startAt = parseSqlDateTime(row?.start_at);
+  const endAt = parseSqlDateTime(row?.end_at);
+
+  if (!endAt) return false;
+  if (startAt && startAt.getTime() > nowDate.getTime()) return false;
+
+  return endAt.getTime() > nowDate.getTime();
+}
+
+async function hasActiveCoverageAt(env, telegramId, nowOverride = null) {
+  const rows = await listActiveSubscriptionsByTelegramId(env, telegramId).catch(() => []);
+  if (!Array.isArray(rows) || !rows.length) return false;
+
+  const nowDate = nowOverride instanceof Date ? nowOverride : new Date();
+
+  return rows.some((row) => hasWindowCoverage(row, nowDate));
 }
 
 function formatDateTime(value) {
@@ -196,7 +227,10 @@ async function processExpiredSubscriptions(env, { dryRun = false, nowOverride = 
       expired_count: 0,
       notified: 0,
       failed: 0,
+      skipped_has_active_coverage: 0,
       partner_ids: [],
+      notified_partner_ids: [],
+      skipped_partner_ids: [],
     };
   }
 
@@ -205,9 +239,20 @@ async function processExpiredSubscriptions(env, { dryRun = false, nowOverride = 
 
   let notified = 0;
   let failed = 0;
+  let skippedHasActiveCoverage = 0;
+  const notifiedPartnerIds = [];
+  const skippedPartnerIds = [];
 
   for (const telegramId of partnerIds) {
     try {
+      const stillHasCoverage = await hasActiveCoverageAt(env, telegramId, nowOverride);
+
+      if (stillHasCoverage) {
+        skippedHasActiveCoverage += 1;
+        skippedPartnerIds.push(String(telegramId));
+        continue;
+      }
+
       const statusRes = await markSubscriptionExpired(env, telegramId);
 
       const res = await sendMessage(
@@ -229,6 +274,7 @@ async function processExpiredSubscriptions(env, { dryRun = false, nowOverride = 
       }
 
       notified += 1;
+      notifiedPartnerIds.push(String(telegramId));
     } catch (err) {
       console.error("EXPIRE SUBSCRIPTION NOTIFY ERROR:", telegramId, err);
       failed += 1;
@@ -239,7 +285,10 @@ async function processExpiredSubscriptions(env, { dryRun = false, nowOverride = 
     expired_count: partnerIds.length,
     notified,
     failed,
+    skipped_has_active_coverage: skippedHasActiveCoverage,
     partner_ids: partnerIds,
+    notified_partner_ids: notifiedPartnerIds,
+    skipped_partner_ids: skippedPartnerIds,
   };
 }
 
@@ -294,7 +343,10 @@ export async function runSubscriptionReminderCycle(
         expired_count: 0,
         notified: 0,
         failed: 0,
+        skipped_has_active_coverage: 0,
         partner_ids: [],
+        notified_partner_ids: [],
+        skipped_partner_ids: [],
       },
     };
   }
