@@ -24,8 +24,7 @@ import {
  * Jika dipanggil dari group / supergroup / channel / topic → langsung ignore.
  */
 function isPrivateChat(chat) {
-  if (!chat) return false;
-  return chat.type === "private";
+  return String(chat?.type || "").trim().toLowerCase() === "private";
 }
 
 function sanitizeWelcome(text) {
@@ -65,14 +64,13 @@ export async function handleUserCommand({
   role,
   text,
 }) {
-  /**
-   * PRIVATE CHAT ONLY
-   */
   if (!isPrivateChat(chat)) {
     return false;
   }
 
-  if (text === "/help") {
+  const raw = String(text || "").trim();
+
+  if (raw === "/help") {
     await sendHtml(
       env,
       chatId,
@@ -82,7 +80,7 @@ export async function handleUserCommand({
     return true;
   }
 
-  if (text === "/start") {
+  if (raw === "/start") {
     if (isAdminRole(role)) {
       await sendMessage(env, chatId, "Halo Officer, ketik /help jika butuh bantuan.");
       return true;
@@ -104,11 +102,8 @@ export async function handleUserCommand({
 
 export async function handleSelfInlineCallback(update, env) {
   const data = update?.callback_query?.data || "";
-  const chat = update?.callback_query?.message?.chat;
+  const chat = update?.callback_query?.message?.chat || null;
 
-  /**
-   * PRIVATE CHAT ONLY
-   */
   if (!isPrivateChat(chat)) {
     return false;
   }
@@ -130,11 +125,8 @@ export async function handleSelfInlineCallback(update, env) {
 }
 
 export async function handleUserEditFlow(args) {
-  const chat = args?.chat;
+  const chat = args?.chat || null;
 
-  /**
-   * PRIVATE CHAT ONLY
-   */
   if (!isPrivateChat(chat)) {
     return false;
   }
