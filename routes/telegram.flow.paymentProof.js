@@ -6,7 +6,10 @@ import {
   markPaymentProofUploaded,
   getPaymentTicketById,
 } from "../repositories/paymentTicketsRepo.js";
-import { getAdminByTelegramId, getFirstActiveSuperadminId } from "../repositories/adminsRepo.js";
+import {
+  getAdminByTelegramId,
+  getFirstActiveSuperadminId,
+} from "../repositories/adminsRepo.js";
 import * as paymentReviewMessageService from "../services/paymentReviewMessage.js";
 
 function isPrivateChat(chat) {
@@ -33,24 +36,12 @@ function escapeHtml(value) {
 }
 
 async function buildReviewPayload(env, ticketId) {
-  const candidates = [
-    paymentReviewMessageService.buildPaymentReviewMessage,
-    paymentReviewMessageService.createPaymentReviewMessage,
-    paymentReviewMessageService.makePaymentReviewMessage,
-    paymentReviewMessageService.getPaymentReviewMessage,
-    paymentReviewMessageService.default,
-  ].filter((fn) => typeof fn === "function");
-
-  for (const fn of candidates) {
-    try {
-      const res = await fn(env, ticketId);
-      if (res) return res;
-    } catch (err) {
-      console.error("PAYMENT REVIEW BUILDER ERROR:", err);
-    }
+  try {
+    return await paymentReviewMessageService.buildPaymentReviewMessage(env, ticketId);
+  } catch (err) {
+    console.error("PAYMENT REVIEW BUILDER ERROR:", err);
+    return null;
   }
-
-  return null;
 }
 
 async function getLatestTicket(env, partnerId) {
@@ -74,9 +65,7 @@ async function getPrimarySuperadminContact(env) {
   if (!superadminId) return null;
 
   const admin = await getAdminByTelegramId(env, superadminId).catch(() => null);
-  if (!admin) {
-    return null;
-  }
+  if (!admin) return null;
 
   const username = String(admin.username || "").trim().replace(/^@/, "");
   return {
@@ -87,31 +76,48 @@ async function getPrimarySuperadminContact(env) {
   };
 }
 
-async function buildSuperadminContactKeyboard(env) {
-  const contact = await getPrimarySuperadminContact(env);
-  if (!contact?.url) return undefined;
-
+function buildMenuKeyboard() {
   return {
-    inline_keyboard: [
-      [{ text: "📞 Hubungi Superadmin", url: contact.url }],
-    ],
+    inline_keyboard: [[{ text: "📋 Menu TeMan", callback_data: "teman:menu" }]],
   };
+}
+
+function buildStatusAndMenuKeyboard() {
+  return {
+    inline_keyboard: [[
+      { text: "📄 Cek Status", callback_data: "self:payment:status" },
+      { text: "📋 Menu TeMan", callback_data: "teman:menu" },
+    ]],
+  };
+}
+
+async function buildSupportAndMenuKeyboard(env) {
+  const contact = await getPrimarySuperadminContact(env);
+  if (contact?.url) {
+    return {
+      inline_keyboard: [[
+        { text: "☎️ Hubungi Superadmin", url: contact.url },
+        { text: "📋 Menu TeMan", callback_data: "teman:menu" },
+      ]],
+    };
+  }
+
+  return buildMenuKeyboard();
 }
 
 async function sendTicketStatusMessage(env, chatId, ticket) {
   const status = normalizeStatus(ticket?.status);
   const totalBayar = formatIDR(ticket?.amount_final);
   const ticketCode = String(ticket?.ticket_code || "-");
-  const keyboard = await buildSuperadminContactKeyboard(env);
 
   if (status === "waiting_confirmation") {
     await sendMessage(
       env,
       chatId,
-      `⏳ Bukti Pembayaran tiket kamu senilai <b>IDR ${escapeHtml(totalBayar)}</b> sedang dalam proses Review dan menunggu Konfirmasi dari SuperAdmin.`,
+      `⏳ Bukti pembayaran tiket kamu senilai <b>IDR ${escapeHtml(totalBayar)}</b> sedang dalam proses review dan menunggu konfirmasi dari Superadmin.`,
       {
         parse_mode: "HTML",
-        reply_markup: keyboard,
+        reply_markup: buildStatusAndMenuKeyboard(),
       }
     );
     return true;
@@ -124,7 +130,7 @@ async function sendTicketStatusMessage(env, chatId, ticket) {
       `⚠️ Tiket pembayaran <b>${escapeHtml(ticketCode)}</b> sudah melewati batas waktu dan tidak bisa diproses otomatis.\n\nJika kamu belum melakukan transfer, silakan buat tiket payment baru.\nJika kamu sudah terlanjur transfer, silakan hubungi Superadmin untuk pengecekan manual.`,
       {
         parse_mode: "HTML",
-        reply_markup: keyboard,
+        reply_markup: await buildSupportAndMenuKeyboard(env),
       }
     );
     return true;
@@ -137,6 +143,7 @@ async function sendTicketStatusMessage(env, chatId, ticket) {
       `✅ Pembayaran untuk tiket <b>${escapeHtml(ticketCode)}</b> sudah dikonfirmasi sebelumnya.\nTidak perlu mengirim bukti pembayaran lagi.`,
       {
         parse_mode: "HTML",
+        reply_markup: buildMenuKeyboard(),
       }
     );
     return true;
@@ -146,10 +153,10 @@ async function sendTicketStatusMessage(env, chatId, ticket) {
     await sendMessage(
       env,
       chatId,
-      `❌ Bukti pembayaran untuk tiket <b>${escapeHtml(ticketCode)}</b> ditolak.\nSilakan buat tiket payment baru atau hubungi Superadmin jika memerlukan bantuan.`,
+      `❌ Bukti pembayaran untuk tiket <b>${escapeHtml(ticketCode)}</b> ditolak.\nSilakan hubungi Superadmin untuk pengecekan atau kembali ke Menu TeMan.`,
       {
         parse_mode: "HTML",
-        reply_markup: keyboard,
+        reply_markup: await buildSupportAndMenuKeyboard(env),
       }
     );
     return true;
@@ -159,9 +166,10 @@ async function sendTicketStatusMessage(env, chatId, ticket) {
     await sendMessage(
       env,
       chatId,
-      `⚠️ Tiket pembayaran <b>${escapeHtml(ticketCode)}</b> sudah dibatalkan.\nSilakan buat tiket payment baru.`,
+      `⚠️ Tiket pembayaran <b>${escapeHtml(ticketCode)}</b> sudah dibatalkan.\nSilakan kembali ke Menu TeMan untuk membuat tiket payment baru.`,
       {
         parse_mode: "HTML",
+        reply_markup: buildMenuKeyboard(),
       }
     );
     return true;
@@ -173,6 +181,7 @@ async function sendTicketStatusMessage(env, chatId, ticket) {
     "⚠️ Tidak ada tiket payment aktif yang bisa menerima bukti transfer.\nSilakan buat tiket payment terlebih dahulu.",
     {
       parse_mode: "HTML",
+      reply_markup: buildMenuKeyboard(),
     }
   );
 
@@ -180,7 +189,6 @@ async function sendTicketStatusMessage(env, chatId, ticket) {
 }
 
 export async function handlePaymentProofUpload({ env, chat, chatId, telegramId, update }) {
-  // HARD GUARD
   if (!isPrivateChat(chat)) return false;
 
   const photos = update?.message?.photo || [];
@@ -200,7 +208,10 @@ export async function handlePaymentProofUpload({ env, chat, chatId, telegramId, 
         env,
         chatId,
         "⚠️ Tidak ada tiket payment aktif.\nSilakan buat tiket payment terlebih dahulu sebelum mengirim bukti transfer.",
-        { parse_mode: "HTML" }
+        {
+          parse_mode: "HTML",
+          reply_markup: buildMenuKeyboard(),
+        }
       );
       return true;
     }
@@ -240,15 +251,13 @@ export async function handlePaymentProofUpload({ env, chat, chatId, telegramId, 
     }
   }
 
-  const keyboard = await buildSuperadminContactKeyboard(env);
-
   await sendMessage(
     env,
     chatId,
-    `⏳ Bukti Pembayaran tiket kamu senilai <b>IDR ${escapeHtml(formatIDR(freshTicket?.amount_final))}</b> sedang dalam proses Review dan menunggu Konfirmasi dari SuperAdmin.`,
+    `⏳ Bukti pembayaran tiket kamu senilai <b>IDR ${escapeHtml(formatIDR(freshTicket?.amount_final))}</b> sedang dalam proses review dan menunggu konfirmasi dari Superadmin.`,
     {
       parse_mode: "HTML",
-      reply_markup: keyboard,
+      reply_markup: buildStatusAndMenuKeyboard(),
     }
   );
 
