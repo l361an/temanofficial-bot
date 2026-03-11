@@ -76,6 +76,15 @@ export function buildPaymentMenuKeyboard({
   return { inline_keyboard: rows };
 }
 
+export function buildPaymentUploadModeKeyboard() {
+  return {
+    inline_keyboard: [[
+      { text: "⬅️ Batal", callback_data: "self:payment" },
+      { text: "📄 Cek Status", callback_data: "self:payment:status" },
+    ]],
+  };
+}
+
 export function buildPaymentDurationKeyboard() {
   return {
     inline_keyboard: [
@@ -202,23 +211,28 @@ export function buildPaymentUploadInfoMessage(ticket = null) {
   const lines = [
     "📤 <b>UPLOAD BUKTI TRANSFER</b>",
     "",
-    "Kirim <b>foto bukti transfer</b> langsung di chat ini.",
-    "Format yang diproses hanya <b>photo</b>, bukan file atau dokumen.",
+    "Silakan kirim <b>1 foto bukti transfer</b> dengan klik icon lampiran / clip (📎), lalu pilih <b>Galeri</b>.",
     "",
-    "Rule:",
-    "• upload bukti hanya saat tiket status <b>Menunggu Pembayaran</b>",
-    "• setelah upload, tiket menjadi <b>Menunggu Konfirmasi Superadmin</b>",
-    "• kalau tiket sudah expired, sistem tidak proses otomatis",
+    "<b>Format yang diproses:</b>",
+    "• foto",
+    "",
+    "<b>Tidak diproses:</b>",
+    "• file",
+    "• dokumen",
+    "",
+    "Setelah foto dikirim, bukti pembayaran akan masuk ke proses review Superadmin.",
   ];
 
   if (ticket) {
     lines.push("");
-    lines.push(`Tiket Aktif: <code>${escapeHtml(String(ticket.ticket_code || "-"))}</code>`);
-    lines.push(`Status Tiket: <b>${escapeHtml(fmtTicketStatusLabel(ticket.status))}</b>`);
-    lines.push(`Nominal: <b>${escapeHtml(formatMoney(ticket.amount_final))}</b>`);
-    lines.push(`Batas Waktu: <b>${escapeHtml(formatDateTime(ticket.expires_at))}</b>`);
+    lines.push("<b>Detail Tiket</b>");
+    lines.push(`• Kode: <code>${escapeHtml(String(ticket.ticket_code || "-"))}</code>`);
+    lines.push(`• Status: <b>${escapeHtml(fmtTicketStatusLabel(ticket.status))}</b>`);
+    lines.push(`• Nominal: <b>${escapeHtml(formatMoney(ticket.amount_final))}</b>`);
+    lines.push(`• Batas Waktu: <b>${escapeHtml(formatDateTime(ticket.expires_at))}</b>`);
   } else {
-    lines.push("", "Saat ini belum ada tiket aktif.");
+    lines.push("");
+    lines.push("⚠️ Saat ini belum ada tiket aktif.");
   }
 
   return lines.join("\n");
