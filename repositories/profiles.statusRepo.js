@@ -59,16 +59,14 @@ export async function setProfileStatus(env, telegramId, status) {
     .run();
 }
 
-export async function setProfileStatusAuditFields(
-  env,
-  telegramId,
-  {
+export async function setProfileStatusAuditFields(env, telegramId, options = {}) {
+  const {
     status,
     statusReason = null,
     statusChangedBy = null,
     adminNote = null,
-  } = {}
-) {
+  } = options || {};
+
   await env.DB.prepare(
     `
     UPDATE profiles
@@ -91,11 +89,13 @@ export async function setProfileStatusAuditFields(
     .run();
 }
 
-export async function markManualSuspendProfile(
-  env,
-  telegramId,
-  { adminId, statusReason = "manual_suspend", adminNote = null } = {}
-) {
+export async function markManualSuspendProfile(env, telegramId, options = {}) {
+  const {
+    adminId = null,
+    statusReason = "manual_suspend",
+    adminNote = null,
+  } = options || {};
+
   await env.DB.prepare(
     `
     UPDATE profiles
