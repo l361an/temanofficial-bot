@@ -190,10 +190,100 @@ export function buildSuperadminToolsKeyboard() {
   return {
     inline_keyboard: [
       [
+        { text: "👮 Admin Manager", callback_data: CALLBACKS.SUPERADMIN_ADMIN_MENU },
+      ],
+      [
         { text: "🧩 Config", callback_data: CALLBACKS.SUPERADMIN_CONFIG_MENU },
         { text: "⚙️ Settings", callback_data: CALLBACKS.SUPERADMIN_SETTINGS_MENU },
       ],
       [officerHomeButton()],
+    ],
+  };
+}
+
+export function buildAdminManagerKeyboard() {
+  return {
+    inline_keyboard: [
+      [
+        { text: "📋 List Admin", callback_data: CALLBACKS.SUPERADMIN_ADMIN_LIST },
+        { text: "➕ Add Admin", callback_data: CALLBACKS.SUPERADMIN_ADMIN_ADD },
+      ],
+      backAndHomeRow(CALLBACKS.SUPERADMIN_TOOLS_MENU),
+    ],
+  };
+}
+
+export function buildAdminListKeyboard(admins = []) {
+  const rows = [];
+  const max = Math.min(admins.length, 40);
+
+  for (let i = 0; i < max; i += 2) {
+    const a = admins[i];
+    const b = admins[i + 1];
+
+    const row = [
+      {
+        text: a.label,
+        callback_data: cb.saAdminOpen(a.telegram_id),
+      },
+    ];
+
+    if (b) {
+      row.push({
+        text: b.label,
+        callback_data: cb.saAdminOpen(b.telegram_id),
+      });
+    }
+
+    rows.push(row);
+  }
+
+  rows.push(backAndHomeRow(CALLBACKS.SUPERADMIN_ADMIN_MENU));
+  return { inline_keyboard: rows };
+}
+
+export function buildAdminControlPanelKeyboard(telegramId, row) {
+  const rows = [
+    [
+      { text: "✏️ Username", callback_data: cb.saAdminEditUsername(telegramId) },
+      { text: "✏️ Nama", callback_data: cb.saAdminEditNama(telegramId) },
+    ],
+    [
+      { text: "✏️ Role", callback_data: cb.saAdminEditRole(telegramId) },
+      { text: "✏️ Status", callback_data: cb.saAdminEditStatus(telegramId) },
+    ],
+  ];
+
+  if (row?.normStatus === "active") {
+    rows.push([{ text: "⛔ Nonaktifkan", callback_data: cb.saAdminDeactivate(telegramId) }]);
+  } else {
+    rows.push([{ text: "✅ Aktifkan", callback_data: cb.saAdminActivate(telegramId) }]);
+  }
+
+  rows.push(backAndHomeRow(CALLBACKS.SUPERADMIN_ADMIN_LIST));
+  return { inline_keyboard: rows };
+}
+
+export function buildAdminRolePickerKeyboard(telegramId) {
+  return {
+    inline_keyboard: [
+      [
+        { text: "admin", callback_data: cb.saAdminRoleSet(telegramId, "admin") },
+        { text: "superadmin", callback_data: cb.saAdminRoleSet(telegramId, "superadmin") },
+      ],
+      backAndHomeRow(cb.saAdminOpen(telegramId)),
+    ],
+  };
+}
+
+export function buildAdminStatusPickerKeyboard(telegramId) {
+  return {
+    inline_keyboard: [
+      [
+        { text: "active", callback_data: cb.saAdminStatusSet(telegramId, "active") },
+        { text: "inactive", callback_data: cb.saAdminStatusSet(telegramId, "inactive") },
+      ],
+      backAndHomeRow(cb.saAdminOpen(telegramId)),
     ],
   };
 }
