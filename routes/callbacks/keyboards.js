@@ -117,6 +117,14 @@ export function buildPartnerDetailActionsKeyboard(telegramId, role) {
     ]);
     rows.push([
       { text: "📸 Foto", callback_data: cb.pmPhotoStart(telegramId) },
+      { text: "📝 Nickname", callback_data: cb.pmEditStart(telegramId, "nickname") },
+    ]);
+    rows.push([
+      { text: "📱 Whatsapp", callback_data: cb.pmEditStart(telegramId, "no_whatsapp") },
+      { text: "📍 Kecamatan", callback_data: cb.pmEditStart(telegramId, "kecamatan") },
+    ]);
+    rows.push([
+      { text: "🏙️ Kota", callback_data: cb.pmEditStart(telegramId, "kota") },
       { text: "🗃️ Database", callback_data: CALLBACKS.PARTNER_DATABASE_MENU },
     ]);
   }
