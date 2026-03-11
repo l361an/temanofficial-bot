@@ -27,6 +27,11 @@ function isPrivateChat(chat) {
   return String(chat?.type || "").trim().toLowerCase() === "private";
 }
 
+function isStrictPrivateUserChat(chat, chatId, telegramId) {
+  if (!isPrivateChat(chat)) return false;
+  return String(chatId || "") === String(telegramId || "");
+}
+
 function buildHelp(role) {
   if (isSuperadminRole(role)) {
     return (
@@ -83,11 +88,19 @@ export async function handleTelegramWebhook(request, env) {
     await syncProfileUsernameFromTelegram(env, telegramId, username).catch(() => {});
 
     const privateChat = isPrivateChat(chat);
+    const strictPrivateUserChat = isStrictPrivateUserChat(chat, chatId, telegramId);
 
     // HARD GUARD:
     // semua flow user / partner / payment / registrasi harus private chat only.
     // group / supergroup / topic / channel untuk non-admin di-ignore total.
     if (!privateChat && !isAdminRole(role)) {
+      return json({ ok: true });
+    }
+
+    // STRICT GUARD:
+    // untuk user non-admin, private chat juga harus benar-benar direct user chat.
+    // chat.id wajib sama dengan from.id.
+    if (!strictPrivateUserChat && !isAdminRole(role)) {
       return json({ ok: true });
     }
 
@@ -214,8 +227,8 @@ export async function handleTelegramWebhook(request, env) {
     }
 
     if (!session && !isAdminRole(role)) {
-      // user non-admin hanya boleh dapat fallback di private chat
-      if (!privateChat) return json({ ok: true });
+      // user non-admin hanya boleh dapat fallback di strict private chat
+      if (!strictPrivateUserChat) return json({ ok: true });
 
       const profile = await getProfileFullByTelegramId(env, telegramId);
 
@@ -252,8 +265,8 @@ export async function handleTelegramWebhook(request, env) {
       return json({ ok: true });
     }
 
-    // registrasi user hanya boleh lanjut di private chat
-    if (!isAdminRole(role) && !privateChat) {
+    // registrasi user hanya boleh lanjut di strict private chat
+    if (!isAdminRole(role) && !strictPrivateUserChat) {
       return json({ ok: true });
     }
 
