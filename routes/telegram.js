@@ -13,10 +13,9 @@ import { buildSelfMenuMessage, buildSelfMenuKeyboard } from "./telegram.flow.sel
 import { buildTeManMenuKeyboard } from "./telegram.user.shared.js";
 import { handleRegistrationFlow } from "./telegram.flow.js";
 import { handleSuperadminFinanceInput } from "./telegram.flow.superadminFinance.js";
-import { handleSuperadminAdminManagerInput } from "./telegram.flow.superadminAdminManager.js";
-import { handlePartnerTextEditInput } from "./telegram.flow.partnerTextEdit.js";
 import { handlePaymentProofUpload } from "./telegram.flow.paymentProof.js";
 import { handlePartnerModerationInput } from "./telegram.flow.partnerModeration.js";
+import { handlePartnerViewSearchInput } from "./callbacks/partnerDatabase.js";
 
 import {
   getProfileFullByTelegramId,
@@ -25,11 +24,6 @@ import {
 
 function isPrivateChat(chat) {
   return String(chat?.type || "").trim().toLowerCase() === "private";
-}
-
-function isStrictPrivateUserChat(chat, chatId, telegramId) {
-  if (!isPrivateChat(chat)) return false;
-  return String(chatId || "") === String(telegramId || "");
 }
 
 function buildHelp(role) {
@@ -75,34 +69,18 @@ export async function handleTelegramWebhook(request, env) {
 
     if (!update.message) return json({ ok: true });
 
-    const message = update.message;
-    const chat = message?.chat || null;
+    const msg = update.message;
+    const chat = msg?.chat || null;
+    const { chatId, telegramId, username, text } = parseMessage(msg);
 
-    const { chatId, telegramId, username, text } = parseMessage(message);
-
-    if (!chatId || !telegramId) return json({ ok: true });
+    if (!chatId || !telegramId) {
+      return json({ ok: true });
+    }
 
     const STATE_KEY = `state:${telegramId}`;
     const role = await getAdminRole(env, telegramId);
 
     await syncProfileUsernameFromTelegram(env, telegramId, username).catch(() => {});
-
-    const privateChat = isPrivateChat(chat);
-    const strictPrivateUserChat = isStrictPrivateUserChat(chat, chatId, telegramId);
-
-    // HARD GUARD:
-    // semua flow user / partner / payment / registrasi harus private chat only.
-    // group / supergroup / topic / channel untuk non-admin di-ignore total.
-    if (!privateChat && !isAdminRole(role)) {
-      return json({ ok: true });
-    }
-
-    // STRICT GUARD:
-    // untuk user non-admin, private chat juga harus benar-benar direct user chat.
-    // chat.id wajib sama dengan from.id.
-    if (!strictPrivateUserChat && !isAdminRole(role)) {
-      return json({ ok: true });
-    }
 
     if (text && text.startsWith("/")) {
       const raw = String(text || "").trim();
@@ -119,7 +97,6 @@ export async function handleTelegramWebhook(request, env) {
           env,
           chatId,
           text: raw,
-          telegramId,
           role,
         });
 
@@ -133,15 +110,9 @@ export async function handleTelegramWebhook(request, env) {
         telegramId,
         role,
         text: raw,
-        STATE_KEY,
       });
 
       if (handledUser) return json({ ok: true });
-
-      // non-admin di luar private / command user yang tidak valid -> diamkan
-      if (!isAdminRole(role)) {
-        return json({ ok: true });
-      }
 
       await sendMessage(env, chatId, "Command tidak dikenali.", {
         reply_markup: buildTeManMenuKeyboard(),
@@ -152,41 +123,11 @@ export async function handleTelegramWebhook(request, env) {
 
     const session = await loadSession(env, STATE_KEY);
 
-    if (session?.mode === "sa_admin_manager" && isSuperadminRole(role)) {
-      const handledAdminManager = await handleSuperadminAdminManagerInput({
-        env,
-        chatId,
-        telegramId,
-        username,
-        text,
-        session,
-        STATE_KEY,
-      });
-
-      if (handledAdminManager) return json({ ok: true });
-    }
-
-    if (session?.mode === "partner_edit_text" && isSuperadminRole(role)) {
-      const handledPartnerTextEdit = await handlePartnerTextEditInput({
-        env,
-        chatId,
-        telegramId,
-        username,
-        text,
-        session,
-        STATE_KEY,
-        role,
-      });
-
-      if (handledPartnerTextEdit) return json({ ok: true });
-    }
-
     if (session?.mode === "sa_finance" && isAdminRole(role)) {
       const handledFinance = await handleSuperadminFinanceInput({
         env,
         chatId,
         telegramId,
-        username,
         text,
         session,
         STATE_KEY,
@@ -194,6 +135,21 @@ export async function handleTelegramWebhook(request, env) {
       });
 
       if (handledFinance) return json({ ok: true });
+    }
+
+    if (session?.mode === "partner_view" && isAdminRole(role)) {
+      const handledPartnerView = await handlePartnerViewSearchInput({
+        env,
+        chatId,
+        adminId: telegramId,
+        text,
+        role,
+        session,
+        STATE_KEY,
+        msg,
+      });
+
+      if (handledPartnerView) return json({ ok: true });
     }
 
     if (session?.mode === "partner_moderation" && isAdminRole(role)) {
@@ -227,8 +183,9 @@ export async function handleTelegramWebhook(request, env) {
     }
 
     if (!session && !isAdminRole(role)) {
-      // user non-admin hanya boleh dapat fallback di strict private chat
-      if (!strictPrivateUserChat) return json({ ok: true });
+      if (!isPrivateChat(chat)) {
+        return json({ ok: true });
+      }
 
       const profile = await getProfileFullByTelegramId(env, telegramId);
 
@@ -249,7 +206,7 @@ export async function handleTelegramWebhook(request, env) {
     }
 
     if (session?.mode === "edit_profile") {
-      const handledEdit = await handleUserEditFlow({
+      await handleUserEditFlow({
         env,
         chat,
         chatId,
@@ -261,16 +218,10 @@ export async function handleTelegramWebhook(request, env) {
         update,
       });
 
-      if (handledEdit) return json({ ok: true });
       return json({ ok: true });
     }
 
-    // registrasi user hanya boleh lanjut di strict private chat
-    if (!isAdminRole(role) && !strictPrivateUserChat) {
-      return json({ ok: true });
-    }
-
-    const handledRegistration = await handleRegistrationFlow({
+    await handleRegistrationFlow({
       update,
       env,
       chat,
@@ -281,8 +232,6 @@ export async function handleTelegramWebhook(request, env) {
       session,
       STATE_KEY,
     });
-
-    if (handledRegistration) return json({ ok: true });
 
     return json({ ok: true });
   } catch (err) {
