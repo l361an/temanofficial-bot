@@ -133,6 +133,25 @@ function buildInviteAdminText({ inviteUrl, token, role = "admin", expiresAt }) {
   return lines.join("\n");
 }
 
+function buildOwnerOnlyText() {
+  return "⛔ Hanya owner yang boleh mengelola data admin.";
+}
+
+async function isOwnerActor(env, adminId) {
+  const actor = await getAdminByTelegramId(env, adminId);
+  return actor?.normRole === "owner";
+}
+
+async function denyOwnerOnly(ctx) {
+  const { env, adminId } = ctx;
+  await clearSession(env, `state:${adminId}`).catch(() => {});
+  await sendMessage(env, adminId, buildOwnerOnlyText(), {
+    parse_mode: "HTML",
+    reply_markup: buildAdminManagerKeyboard(),
+  });
+  return true;
+}
+
 async function renderMenuMessage(ctx, text, extra) {
   const { env, adminId, msg } = ctx;
 
@@ -199,6 +218,10 @@ export function buildSuperadminAdminManagerHandlers() {
 
     await clearSession(env, `state:${adminId}`).catch(() => {});
 
+    if (!(await isOwnerActor(env, adminId))) {
+      return denyOwnerOnly(ctx);
+    }
+
     const created = await createAdminInviteToken(env, {
       createdBy: adminId,
       role: "admin",
@@ -254,6 +277,10 @@ export function buildSuperadminAdminManagerHandlers() {
       }
 
       if (data.startsWith(CALLBACK_PREFIX.SA_ADMIN_EDIT_USERNAME)) {
+        if (!(await isOwnerActor(env, adminId))) {
+          return denyOwnerOnly(ctx);
+        }
+
         const targetTelegramId = String(data.slice(CALLBACK_PREFIX.SA_ADMIN_EDIT_USERNAME.length) || "").trim();
         const row = await getAdminByTelegramId(env, targetTelegramId);
 
@@ -295,6 +322,10 @@ export function buildSuperadminAdminManagerHandlers() {
       }
 
       if (data.startsWith(CALLBACK_PREFIX.SA_ADMIN_EDIT_NAMA)) {
+        if (!(await isOwnerActor(env, adminId))) {
+          return denyOwnerOnly(ctx);
+        }
+
         const targetTelegramId = String(data.slice(CALLBACK_PREFIX.SA_ADMIN_EDIT_NAMA.length) || "").trim();
         const row = await getAdminByTelegramId(env, targetTelegramId);
 
@@ -335,6 +366,10 @@ export function buildSuperadminAdminManagerHandlers() {
       }
 
       if (data.startsWith(CALLBACK_PREFIX.SA_ADMIN_EDIT_KOTA)) {
+        if (!(await isOwnerActor(env, adminId))) {
+          return denyOwnerOnly(ctx);
+        }
+
         const targetTelegramId = String(data.slice(CALLBACK_PREFIX.SA_ADMIN_EDIT_KOTA.length) || "").trim();
         const row = await getAdminByTelegramId(env, targetTelegramId);
 
@@ -376,6 +411,10 @@ export function buildSuperadminAdminManagerHandlers() {
       }
 
       if (data.startsWith(CALLBACK_PREFIX.SA_ADMIN_EDIT_ROLE)) {
+        if (!(await isOwnerActor(env, adminId))) {
+          return denyOwnerOnly(ctx);
+        }
+
         const targetTelegramId = String(data.slice(CALLBACK_PREFIX.SA_ADMIN_EDIT_ROLE.length) || "").trim();
         const row = await getAdminByTelegramId(env, targetTelegramId);
 
@@ -393,6 +432,10 @@ export function buildSuperadminAdminManagerHandlers() {
       }
 
       if (data.startsWith(CALLBACK_PREFIX.SA_ADMIN_EDIT_STATUS)) {
+        if (!(await isOwnerActor(env, adminId))) {
+          return denyOwnerOnly(ctx);
+        }
+
         const targetTelegramId = String(data.slice(CALLBACK_PREFIX.SA_ADMIN_EDIT_STATUS.length) || "").trim();
         const row = await getAdminByTelegramId(env, targetTelegramId);
 
@@ -410,6 +453,10 @@ export function buildSuperadminAdminManagerHandlers() {
       }
 
       if (data.startsWith(CALLBACK_PREFIX.SA_ADMIN_ROLE_SET)) {
+        if (!(await isOwnerActor(env, adminId))) {
+          return denyOwnerOnly(ctx);
+        }
+
         const raw = String(data.slice(CALLBACK_PREFIX.SA_ADMIN_ROLE_SET.length) || "").trim();
         const [targetTelegramId, nextRole = ""] = raw.split(":");
 
@@ -432,6 +479,10 @@ export function buildSuperadminAdminManagerHandlers() {
       }
 
       if (data.startsWith(CALLBACK_PREFIX.SA_ADMIN_STATUS_SET)) {
+        if (!(await isOwnerActor(env, adminId))) {
+          return denyOwnerOnly(ctx);
+        }
+
         const raw = String(data.slice(CALLBACK_PREFIX.SA_ADMIN_STATUS_SET.length) || "").trim();
         const [targetTelegramId, nextStatus = ""] = raw.split(":");
 
@@ -454,6 +505,10 @@ export function buildSuperadminAdminManagerHandlers() {
       }
 
       if (data.startsWith(CALLBACK_PREFIX.SA_ADMIN_DEACTIVATE)) {
+        if (!(await isOwnerActor(env, adminId))) {
+          return denyOwnerOnly(ctx);
+        }
+
         const targetTelegramId = String(data.slice(CALLBACK_PREFIX.SA_ADMIN_DEACTIVATE.length) || "").trim();
 
         const res = await deactivateAdminByTelegramId(env, targetTelegramId);
@@ -475,6 +530,10 @@ export function buildSuperadminAdminManagerHandlers() {
       }
 
       if (data.startsWith(CALLBACK_PREFIX.SA_ADMIN_ACTIVATE)) {
+        if (!(await isOwnerActor(env, adminId))) {
+          return denyOwnerOnly(ctx);
+        }
+
         const targetTelegramId = String(data.slice(CALLBACK_PREFIX.SA_ADMIN_ACTIVATE.length) || "").trim();
 
         const res = await activateAdminByTelegramId(env, targetTelegramId);
