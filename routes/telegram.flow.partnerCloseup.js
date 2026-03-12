@@ -3,7 +3,7 @@
 import { clearSession } from "../utils/session.js";
 import { sendMessage } from "../services/telegramApi.js";
 import { getProfileFullByTelegramId, updateCloseupPhoto } from "../repositories/profilesRepo.js";
-import { buildBackToPartnerDatabaseViewKeyboard, buildPartnerDetailActionsKeyboard } from "./callbacks/keyboards.js";
+import { buildBackToPartnerDatabaseViewKeyboard, buildPartnerDetailActionsKeyboard } from "./callbacks/keyboards.partner.js";
 import { sendPartnerDetailOutput } from "./callbacks/partnerClass.js";
 
 export async function handlePartnerCloseupInput({ env, chatId, text, session, STATE_KEY, role, update }) {
