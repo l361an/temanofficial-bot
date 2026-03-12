@@ -9,6 +9,10 @@ import {
   deactivateAdminByTelegramId,
   activateAdminByTelegramId,
 } from "../../repositories/adminsRepo.js";
+import {
+  createAdminInviteToken,
+  buildAdminInviteStartParam,
+} from "../../repositories/adminInviteTokensRepo.js";
 import { saveSession, clearSession } from "../../utils/session.js";
 
 import {
@@ -25,6 +29,25 @@ import { escapeHtml } from "./shared.js";
 function fmtValue(value) {
   const v = value === null || value === undefined || value === "" ? "-" : String(value);
   return escapeHtml(v);
+}
+
+function getBotUsername(env) {
+  return String(
+    env.TELEGRAM_BOT_USERNAME ||
+      env.BOT_USERNAME ||
+      env.PUBLIC_BOT_USERNAME ||
+      ""
+  )
+    .trim()
+    .replace(/^@/, "");
+}
+
+function buildInviteUrl(env, token) {
+  const username = getBotUsername(env);
+  const startParam = buildAdminInviteStartParam(token);
+
+  if (!username || !startParam) return null;
+  return `https://t.me/${username}?start=${startParam}`;
 }
 
 function buildAdminManagerText() {
@@ -76,25 +99,38 @@ function buildAdminDetailText(row) {
   ].join("\n");
 }
 
-function buildInviteAdminText() {
-  return [
+function buildInviteAdminText({ inviteUrl, token, role = "admin", expiresAt }) {
+  const lines = [
     "🔗 <b>Invite Admin</b>",
     "",
-    "Onboarding admin memakai <b>generated invite link</b>.",
-    "Flow final:",
-    "1. Owner generate invite link",
-    "2. Candidate klik link bot",
-    "3. Bot validasi token",
-    "4. User menjadi admin",
+    "Invite link berhasil dibuat.",
+    `Role: <b>${escapeHtml(role)}</b>`,
+    `Expired At: <code>${escapeHtml(expiresAt || "-")}</code>`,
     "",
-    "Flow manual <b>telegram_id</b> tidak dipakai lagi sebagai flow utama.",
-    "",
-    "Next implementation batch:",
-    "• generate token invite",
-    "• simpan token + expiry",
-    "• validasi token saat /start",
-    "• aktivasi role admin setelah token valid",
-  ].join("\n");
+  ];
+
+  if (inviteUrl) {
+    lines.push("Link invite:");
+    lines.push(`<code>${escapeHtml(inviteUrl)}</code>`);
+  } else {
+    lines.push("Bot username env belum ditemukan, jadi deep link belum bisa dibentuk otomatis.");
+    lines.push("Token invite:");
+    lines.push(`<code>${escapeHtml(token || "-")}</code>`);
+    lines.push("");
+    lines.push("Set salah satu env berikut dulu:");
+    lines.push("• TELEGRAM_BOT_USERNAME");
+    lines.push("• BOT_USERNAME");
+    lines.push("• PUBLIC_BOT_USERNAME");
+  }
+
+  lines.push("");
+  lines.push("Flow:");
+  lines.push("1. Owner kirim link ke candidate admin");
+  lines.push("2. Candidate klik link bot");
+  lines.push("3. Bot validasi token");
+  lines.push("4. User menjadi admin");
+
+  return lines.join("\n");
 }
 
 async function renderMenuMessage(ctx, text, extra) {
@@ -163,11 +199,28 @@ export function buildSuperadminAdminManagerHandlers() {
 
     await clearSession(env, `state:${adminId}`).catch(() => {});
 
-    return renderMenuMessage(ctx, buildInviteAdminText(), {
-      parse_mode: "HTML",
-      reply_markup: buildAdminManagerKeyboard(),
-      disable_web_page_preview: true,
+    const created = await createAdminInviteToken(env, {
+      createdBy: adminId,
+      role: "admin",
+      expiryHours: 24,
     });
+
+    const inviteUrl = buildInviteUrl(env, created?.token);
+
+    return renderMenuMessage(
+      ctx,
+      buildInviteAdminText({
+        inviteUrl,
+        token: created?.token,
+        role: created?.role || "admin",
+        expiresAt: created?.expires_at,
+      }),
+      {
+        parse_mode: "HTML",
+        reply_markup: buildAdminManagerKeyboard(),
+        disable_web_page_preview: true,
+      }
+    );
   };
 
   EXACT[CALLBACKS.SUPERADMIN_ADMIN_BACK] = async (ctx) => {
