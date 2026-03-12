@@ -29,7 +29,7 @@ function fmtValue(value) {
 
 function buildAdminManagerText() {
   return [
-    "👮 <b>Admin Manager</b>",
+    "👮 <b>Admin Management</b>",
     "",
     "Pilih aksi di bawah.",
   ].join("\n");
@@ -53,6 +53,7 @@ function buildAdminListText(rows) {
       `   ID: <code>${fmtValue(row.telegram_id)}</code>`,
       `   Username: ${escapeHtml(uname)}`,
       `   Nama: ${fmtValue(row.nama)}`,
+      `   Kota: ${fmtValue(row.kota)}`,
       `   Role: <b>${fmtValue(row.normRole)}</b>`,
       `   Status: <b>${fmtValue(row.normStatus)}</b>`,
       ""
@@ -69,6 +70,7 @@ function buildAdminDetailText(row) {
     `Telegram ID : <code>${fmtValue(row?.telegram_id)}</code>`,
     `Username    : ${escapeHtml(row?.username ? `@${String(row.username).replace(/^@/, "")}` : "-")}`,
     `Nama        : ${fmtValue(row?.nama)}`,
+    `Kota        : ${fmtValue(row?.kota)}`,
     `Role        : <b>${fmtValue(row?.normRole)}</b>`,
     `Status      : <b>${fmtValue(row?.normStatus)}</b>`,
   ].join("\n");
@@ -132,7 +134,6 @@ export function buildSuperadminAdminManagerHandlers() {
     const { env, adminId } = ctx;
 
     await clearSession(env, `state:${adminId}`).catch(() => {});
-
     return renderAdminList(ctx);
   };
 
@@ -178,6 +179,7 @@ export function buildSuperadminAdminManagerHandlers() {
       d.startsWith(CALLBACK_PREFIX.SA_ADMIN_OPEN) ||
       d.startsWith(CALLBACK_PREFIX.SA_ADMIN_EDIT_USERNAME) ||
       d.startsWith(CALLBACK_PREFIX.SA_ADMIN_EDIT_NAMA) ||
+      d.startsWith(CALLBACK_PREFIX.SA_ADMIN_EDIT_KOTA) ||
       d.startsWith(CALLBACK_PREFIX.SA_ADMIN_EDIT_ROLE) ||
       d.startsWith(CALLBACK_PREFIX.SA_ADMIN_EDIT_STATUS) ||
       d.startsWith(CALLBACK_PREFIX.SA_ADMIN_ROLE_SET) ||
@@ -262,6 +264,47 @@ export function buildSuperadminAdminManagerHandlers() {
             `Saat ini: <b>${fmtValue(row.nama)}</b>`,
             "",
             "Kirim nama baru.",
+            "",
+            "Ketik <b>batal</b> untuk keluar.",
+          ].join("\n"),
+          {
+            parse_mode: "HTML",
+            reply_markup: buildAdminControlPanelKeyboard(row.telegram_id, row),
+          }
+        );
+
+        return true;
+      }
+
+      if (data.startsWith(CALLBACK_PREFIX.SA_ADMIN_EDIT_KOTA)) {
+        const targetTelegramId = String(data.slice(CALLBACK_PREFIX.SA_ADMIN_EDIT_KOTA.length) || "").trim();
+        const row = await getAdminByTelegramId(env, targetTelegramId);
+
+        if (!row) {
+          await sendMessage(env, adminId, "⚠️ Data admin tidak ditemukan.", {
+            reply_markup: buildAdminManagerKeyboard(),
+          });
+          return true;
+        }
+
+        await saveSession(env, `state:${adminId}`, {
+          mode: SESSION_MODES.SA_ADMIN_MANAGER,
+          action: "edit_kota",
+          target_telegram_id: row.telegram_id,
+          step: "await_text",
+        });
+
+        await sendMessage(
+          env,
+          adminId,
+          [
+            "✏️ <b>Edit Kota Admin</b>",
+            "",
+            `Target: <b>${escapeHtml(row.label || "-")}</b>`,
+            `Saat ini: <b>${fmtValue(row.kota)}</b>`,
+            "",
+            "Kirim kota baru.",
+            "Ketik <b>-</b> untuk kosongkan kota.",
             "",
             "Ketik <b>batal</b> untuk keluar.",
           ].join("\n"),
