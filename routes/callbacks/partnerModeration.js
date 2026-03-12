@@ -5,7 +5,7 @@ import { isSuperadminRole } from "../../utils/roles.js";
 import {
   buildPartnerModerationKeyboard,
   buildBackToPartnerModerationKeyboard,
-} from "./keyboards.js";
+} from "./keyboards.partner.js";
 import { CALLBACKS, SESSION_MODES } from "../telegram.constants.js";
 
 function buildModerationPrompt(action) {
