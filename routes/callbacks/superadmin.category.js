@@ -22,6 +22,35 @@ async function renderMenuMessage(ctx, text, extra) {
   return true;
 }
 
+function buildCategoryMenuText() {
+  return [
+    "🗂️ <b>Category</b>",
+    "",
+    "Kelola daftar kategori partner di sini.",
+  ].join("\n");
+}
+
+function buildCategoryListText(rows) {
+  if (!rows.length) {
+    return [
+      "📚 <b>Category List</b>",
+      "",
+      "Belum ada kategori.",
+    ].join("\n");
+  }
+
+  const lines = [
+    "📚 <b>Category List</b>",
+    "",
+  ];
+
+  rows.forEach((r, i) => {
+    lines.push(`${i + 1}. ${escapeHtml(r.kode)}`);
+  });
+
+  return lines.join("\n");
+}
+
 export function buildSuperadminCategoryHandlers() {
   const EXACT = {};
 
@@ -30,31 +59,20 @@ export function buildSuperadminCategoryHandlers() {
 
     await clearSession(env, `state:${adminId}`).catch(() => {});
 
-    return renderMenuMessage(ctx, "🗂️ <b>Category</b>\nPilih aksi:", {
+    return renderMenuMessage(ctx, buildCategoryMenuText(), {
       parse_mode: "HTML",
       reply_markup: buildCategoryKeyboard(),
     });
   };
 
   EXACT[CALLBACKS.SUPERADMIN_CATEGORY_LIST] = async (ctx) => {
-    const { env } = ctx;
+    const { env, adminId } = ctx;
+
+    await clearSession(env, `state:${adminId}`).catch(() => {});
 
     const rows = await listCategories(env);
 
-    if (!rows.length) {
-      return renderMenuMessage(ctx, "📚 <b>Category List</b>\n\nBelum ada kategori.", {
-        parse_mode: "HTML",
-        reply_markup: buildCategoryKeyboard(),
-      });
-    }
-
-    const lines = ["📚 <b>Category List</b>", ""];
-
-    rows.forEach((r, i) => {
-      lines.push(`${i + 1}. ${escapeHtml(r.kode)}`);
-    });
-
-    return renderMenuMessage(ctx, lines.join("\n"), {
+    return renderMenuMessage(ctx, buildCategoryListText(rows), {
       parse_mode: "HTML",
       reply_markup: buildCategoryKeyboard(),
     });
@@ -72,8 +90,17 @@ export function buildSuperadminCategoryHandlers() {
     await sendMessage(
       env,
       adminId,
-      "➕ <b>Add Category</b>\n\nKetik Kategori Baru.",
-      { parse_mode: "HTML" }
+      [
+        "➕ <b>Add Category</b>",
+        "",
+        "Kirim nama / kode kategori baru.",
+        "",
+        "Ketik <b>batal</b> untuk keluar.",
+      ].join("\n"),
+      {
+        parse_mode: "HTML",
+        reply_markup: buildCategoryKeyboard(),
+      }
     );
 
     return true;
@@ -91,8 +118,17 @@ export function buildSuperadminCategoryHandlers() {
     await sendMessage(
       env,
       adminId,
-      "➖ <b>Delete Category</b>\n\nKetik Kategori Yang Ingin Dihapus.",
-      { parse_mode: "HTML" }
+      [
+        "➖ <b>Delete Category</b>",
+        "",
+        "Kirim nama / kode kategori yang ingin dihapus.",
+        "",
+        "Ketik <b>batal</b> untuk keluar.",
+      ].join("\n"),
+      {
+        parse_mode: "HTML",
+        reply_markup: buildCategoryKeyboard(),
+      }
     );
 
     return true;
