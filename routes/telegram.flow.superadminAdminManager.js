@@ -5,6 +5,7 @@ import {
   createAdmin,
   updateAdminUsername,
   updateAdminNama,
+  updateAdminKota,
   getAdminByTelegramId,
 } from "../repositories/adminsRepo.js";
 import { clearSession } from "../utils/session.js";
@@ -23,13 +24,19 @@ function cleanUsernameInput(text) {
   return raw.replace(/^@/, "");
 }
 
+function cleanKotaInput(text) {
+  const raw = normalizeInputText(text);
+  if (raw === "-") return "";
+  return raw;
+}
+
 function buildPanel(row) {
   return buildAdminControlPanelKeyboard(row.telegram_id, row);
 }
 
 async function cancelFlow(env, chatId, stateKey) {
   await clearSession(env, stateKey).catch(() => {});
-  await sendMessage(env, chatId, "✅ Oke, input Admin Manager dibatalkan.", {
+  await sendMessage(env, chatId, "✅ Oke, input Admin Management dibatalkan.", {
     reply_markup: buildAdminManagerKeyboard(),
   });
   return true;
@@ -125,7 +132,7 @@ export async function handleSuperadminAdminManagerInput({
     }
 
     session.nama = nama;
-    session.step = "await_role";
+    session.step = "await_kota";
 
     await env.BOT_STATE.put(STATE_KEY, JSON.stringify(session), { expirationTtl: 3600 });
 
@@ -138,6 +145,33 @@ export async function handleSuperadminAdminManagerInput({
         `Telegram ID: <code>${String(session.target_telegram_id || "")}</code>`,
         `Username: <b>${session.username ? `@${session.username}` : "-"}</b>`,
         `Nama: <b>${nama}</b>`,
+        "",
+        "Kirim kota admin.",
+        "Ketik <b>-</b> jika kosong.",
+        "",
+        "Ketik <b>batal</b> untuk keluar.",
+      ].join("\n"),
+      { parse_mode: "HTML" }
+    );
+    return true;
+  }
+
+  if (session?.action === "add" && session?.step === "await_kota") {
+    session.kota = cleanKotaInput(rawText);
+    session.step = "await_role";
+
+    await env.BOT_STATE.put(STATE_KEY, JSON.stringify(session), { expirationTtl: 3600 });
+
+    await sendMessage(
+      env,
+      chatId,
+      [
+        "➕ <b>Add Admin</b>",
+        "",
+        `Telegram ID: <code>${String(session.target_telegram_id || "")}</code>`,
+        `Username: <b>${session.username ? `@${session.username}` : "-"}</b>`,
+        `Nama: <b>${session.nama}</b>`,
+        `Kota: <b>${session.kota || "-"}</b>`,
         "",
         "Kirim role:",
         "<code>admin</code> atau <code>superadmin</code>",
@@ -165,6 +199,7 @@ export async function handleSuperadminAdminManagerInput({
       telegram_id: session.target_telegram_id,
       username: session.username || null,
       nama: session.nama,
+      kota: session.kota || null,
       role,
       status: "active",
     });
@@ -255,8 +290,30 @@ export async function handleSuperadminAdminManagerInput({
     return true;
   }
 
+  if (session?.action === "edit_kota" && session?.step === "await_text") {
+    const targetTelegramId = String(session?.target_telegram_id || "").trim();
+    const kota = cleanKotaInput(rawText);
+
+    const res = await updateAdminKota(env, targetTelegramId, kota);
+    if (!res?.ok) {
+      await clearSession(env, STATE_KEY).catch(() => {});
+      await sendMessage(env, chatId, "⚠️ Gagal update kota admin.", {
+        reply_markup: buildAdminManagerKeyboard(),
+      });
+      return true;
+    }
+
+    await clearSession(env, STATE_KEY).catch(() => {});
+    const row = await getAdminByTelegramId(env, targetTelegramId);
+
+    await sendMessage(env, chatId, "✅ Kota admin berhasil diupdate.", {
+      reply_markup: buildPanel(row),
+    });
+    return true;
+  }
+
   await clearSession(env, STATE_KEY).catch(() => {});
-  await sendMessage(env, chatId, "⚠️ Session Admin Manager tidak valid. Balik ke menu ya.", {
+  await sendMessage(env, chatId, "⚠️ Session Admin Management tidak valid. Balik ke menu ya.", {
     reply_markup: buildAdminManagerKeyboard(),
   });
   return true;
