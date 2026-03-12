@@ -22,7 +22,7 @@ import {
   buildAdminControlPanelKeyboard,
   buildAdminRolePickerKeyboard,
   buildAdminStatusPickerKeyboard,
-} from "./keyboards.js";
+} from "./keyboards.superadmin.js";
 
 import { CALLBACKS, CALLBACK_PREFIX, SESSION_MODES } from "../telegram.constants.js";
 import { escapeHtml } from "./shared.js";
