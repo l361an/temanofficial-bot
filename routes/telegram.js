@@ -25,6 +25,7 @@ import { handleSuperadminFinanceInput } from "./telegram.flow.superadminFinance.
 import { handleSuperadminAdminManagerInput } from "./telegram.flow.superadminAdminManager.js";
 import { handlePaymentProofUpload } from "./telegram.flow.paymentProof.js";
 import { handlePartnerModerationInput } from "./telegram.flow.partnerModeration.js";
+import { handlePartnerTextEditInput } from "./telegram.flow.partnerTextEdit.js";
 import { handlePartnerViewSearchInput } from "./callbacks/partnerDatabase.js";
 import { buildOfficerHomeKeyboard } from "./callbacks/keyboards.officer.js";
 import { buildOfficerHomeText } from "./telegram.messages.js";
@@ -72,24 +73,12 @@ function buildHelp(role) {
 }
 
 function buildInviteErrorText(reason) {
-  if (reason === "not_found") {
-    return "⚠️ Invite admin tidak ditemukan.";
-  }
-  if (reason === "expired") {
-    return "⚠️ Invite admin sudah expired.";
-  }
-  if (reason === "used") {
-    return "⚠️ Invite admin ini sudah digunakan.";
-  }
-  if (reason === "revoked") {
-    return "⚠️ Invite admin ini sudah dicabut.";
-  }
-  if (reason === "not_active") {
-    return "⚠️ Invite admin tidak aktif.";
-  }
-  if (reason === "owner_conflict") {
-    return "⛔ Akun owner tidak boleh dioverride lewat invite admin.";
-  }
+  if (reason === "not_found") return "⚠️ Invite admin tidak ditemukan.";
+  if (reason === "expired") return "⚠️ Invite admin sudah expired.";
+  if (reason === "used") return "⚠️ Invite admin ini sudah digunakan.";
+  if (reason === "revoked") return "⚠️ Invite admin ini sudah dicabut.";
+  if (reason === "not_active") return "⚠️ Invite admin tidak aktif.";
+  if (reason === "owner_conflict") return "⛔ Akun owner tidak boleh dioverride lewat invite admin.";
   return "⚠️ Invite admin tidak valid.";
 }
 
@@ -306,6 +295,19 @@ export async function handleTelegramWebhook(request, env) {
       });
 
       if (handledModeration) return json({ ok: true });
+    }
+
+    if (session?.mode === "partner_edit_text" && isAdminRole(role)) {
+      const handledPartnerEditText = await handlePartnerTextEditInput({
+        env,
+        chatId,
+        text,
+        session,
+        STATE_KEY,
+        role,
+      });
+
+      if (handledPartnerEditText) return json({ ok: true });
     }
 
     if (!isAdminRole(role)) {
