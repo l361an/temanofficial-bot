@@ -10,7 +10,7 @@ import {
   buildPartnerDatabaseKeyboard,
   buildBackToPartnerDatabaseKeyboard,
   buildBackToPartnerDatabaseViewKeyboard,
-} from "./keyboards.js";
+} from "./keyboards.partner.js";
 
 import {
   buildListMessageHtml,
@@ -90,7 +90,7 @@ export async function handlePartnerViewSearchInput({
       env,
       adminId,
       "✅ Oke, sesi View Partner dibatalkan.",
-      buildPartnerDatabaseKeyboard(role),
+      buildPartnerDatabaseKeyboard(),
       {
         session,
         fallbackMessage: msg,
@@ -125,7 +125,7 @@ export async function handlePartnerViewSearchInput({
       env,
       adminId,
       "⚠️ Target tidak valid / tidak ditemukan.\nKirim <b>@username</b> atau <b>telegram_id</b> ya.\n\nKetik <b>batal</b> untuk keluar.",
-      buildBackToPartnerDatabaseViewKeyboard(role),
+      buildBackToPartnerDatabaseViewKeyboard(),
       {
         session,
         fallbackMessage: msg,
@@ -167,14 +167,14 @@ export function buildPartnerDatabaseHandlers() {
   const PREFIX = [];
 
   EXACT[CALLBACKS.PARTNER_DATABASE_MENU] = async (ctx) => {
-    const { env, adminId, msg, role } = ctx;
+    const { env, adminId, msg } = ctx;
 
     await clearSession(env, `state:${adminId}`).catch(() => {});
 
     const text = "🗃️ <b>Partner Database</b>\nPilih menu di bawah:";
     const extra = {
       parse_mode: "HTML",
-      reply_markup: buildPartnerDatabaseKeyboard(role),
+      reply_markup: buildPartnerDatabaseKeyboard(),
     };
 
     if (msg) {
@@ -189,7 +189,7 @@ export function buildPartnerDatabaseHandlers() {
   };
 
   EXACT[CALLBACKS.PARTNER_DATABASE_VIEW] = async (ctx) => {
-    const { env, adminId, msg, role } = ctx;
+    const { env, adminId, msg } = ctx;
 
     await persistPartnerViewSession(
       env,
@@ -202,7 +202,7 @@ export function buildPartnerDatabaseHandlers() {
     const text = buildPartnerViewPromptText();
     const extra = {
       parse_mode: "HTML",
-      reply_markup: buildBackToPartnerDatabaseViewKeyboard(role),
+      reply_markup: buildBackToPartnerDatabaseViewKeyboard(),
     };
 
     if (msg) {
@@ -219,13 +219,13 @@ export function buildPartnerDatabaseHandlers() {
   PREFIX.push({
     match: (d) => d.startsWith(CALLBACK_PREFIX.PM_LIST),
     run: async (ctx) => {
-      const { env, data, adminId, msg, role } = ctx;
+      const { env, data, adminId, msg } = ctx;
       const rawKey = String(data.slice(CALLBACK_PREFIX.PM_LIST.length) || "").trim();
       const config = normalizePartnerListKey(rawKey);
 
       if (!config) {
         const text = "Menu tidak dikenal. Balik ke Partner Database.";
-        const extra = { reply_markup: buildPartnerDatabaseKeyboard(role) };
+        const extra = { reply_markup: buildPartnerDatabaseKeyboard() };
 
         if (msg) {
           await upsertCallbackMessage(env, msg, text, extra).catch(async () => {
@@ -245,7 +245,7 @@ export function buildPartnerDatabaseHandlers() {
 
       if (!rows.length) {
         const text = `Tidak ada data untuk: ${config.title}`;
-        const extra = { reply_markup: buildBackToPartnerDatabaseKeyboard(role) };
+        const extra = { reply_markup: buildBackToPartnerDatabaseKeyboard() };
 
         if (msg) {
           await upsertCallbackMessage(env, msg, text, extra).catch(async () => {
@@ -267,7 +267,7 @@ export function buildPartnerDatabaseHandlers() {
       const extra = {
         parse_mode: "HTML",
         disable_web_page_preview: true,
-        reply_markup: buildBackToPartnerDatabaseKeyboard(role),
+        reply_markup: buildBackToPartnerDatabaseKeyboard(),
       };
 
       if (msg) {
@@ -297,7 +297,7 @@ export function buildPartnerDatabaseHandlers() {
           env,
           adminId,
           "⚠️ Data partner tidak ditemukan.",
-          buildPartnerDatabaseKeyboard(role),
+          buildPartnerDatabaseKeyboard(),
           { session, fallbackMessage: msg }
         );
         return true;
@@ -327,7 +327,7 @@ export function buildPartnerDatabaseHandlers() {
           env,
           adminId,
           "⚠️ Target partner tidak valid.",
-          buildPartnerDatabaseKeyboard(role),
+          buildPartnerDatabaseKeyboard(),
           { session, fallbackMessage: msg }
         );
         return true;
@@ -357,7 +357,7 @@ export function buildPartnerDatabaseHandlers() {
           env,
           adminId,
           "⚠️ Target partner tidak valid.",
-          buildPartnerDatabaseKeyboard(role),
+          buildPartnerDatabaseKeyboard(),
           { session, fallbackMessage: msg }
         );
         return true;
@@ -387,7 +387,7 @@ export function buildPartnerDatabaseHandlers() {
           env,
           adminId,
           "⚠️ Target partner tidak valid.",
-          buildPartnerDatabaseKeyboard(role),
+          buildPartnerDatabaseKeyboard(),
           { session, fallbackMessage: msg }
         );
         return true;
