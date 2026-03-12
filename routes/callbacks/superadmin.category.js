@@ -4,7 +4,7 @@ import { sendMessage, upsertCallbackMessage } from "../../services/telegramApi.j
 import { listCategories } from "../../repositories/categoriesRepo.js";
 import { saveSession, clearSession } from "../../utils/session.js";
 
-import { buildCategoryKeyboard } from "./keyboards.js";
+import { buildCategoryKeyboard } from "./keyboards.superadmin.js";
 import { CALLBACKS, SESSION_MODES } from "../telegram.constants.js";
 import { escapeHtml } from "./shared.js";
 
