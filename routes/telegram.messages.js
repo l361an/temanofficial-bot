@@ -3,11 +3,15 @@
 import { isAdminRole, isSuperadminRole } from "../utils/roles.js";
 
 export function buildOfficerHomeText() {
-  return "Hallo Officer TeMan...\nSilahkan tekan tombol dibawah atau ketik /help untuk bantuan.";
+  return (
+    "👮 <b>Officer Home</b>\n\n" +
+    "Pilih menu di bawah untuk kelola admin, partner, dan pengaturan sistem TeMan.\n" +
+    "Ketik <code>/help</code> untuk bantuan."
+  );
 }
 
 export function buildOfficerIdleText() {
-  return "Halo Officer TeMan. Ketik /start untuk buka menu.";
+  return "Halo Officer TeMan. Ketik /start untuk buka Officer Home.";
 }
 
 export function buildHelpText(role) {
@@ -15,11 +19,13 @@ export function buildHelpText(role) {
     return (
       "📌 <b>Officer Panel</b>\n\n" +
       "Perintah utama:\n" +
-      "• <code>/start</code> — buka menu officer\n" +
+      "• <code>/start</code> — buka Officer Home\n" +
+      "• <code>/help</code> / <code>/cmd</code> — lihat bantuan\n" +
       "• <code>/ceksub @username|telegram_id</code> — cek subscription partner\n\n" +
-      "Akses lain:\n" +
-      "• <b>Partner Tools</b> — Partner Database & Partner Moderation\n" +
-      "• <b>Superadmin Tools</b> — Config, Settings, Finance"
+      "Menu utama:\n" +
+      "• <b>Admin Management</b> — list admin, add admin, update role/status admin\n" +
+      "• <b>Partner Management</b> — Partner Database & Partner Moderation\n" +
+      "• <b>System Settings</b> — Welcome Message, Link Aturan, Category, Finance"
     );
   }
 
@@ -27,10 +33,11 @@ export function buildHelpText(role) {
     return (
       "📌 <b>Officer Panel</b>\n\n" +
       "Perintah utama:\n" +
-      "• <code>/start</code> — buka menu officer\n" +
+      "• <code>/start</code> — buka Officer Home\n" +
+      "• <code>/help</code> / <code>/cmd</code> — lihat bantuan\n" +
       "• <code>/ceksub @username|telegram_id</code> — cek subscription partner\n\n" +
-      "Akses lain:\n" +
-      "• <b>Partner Tools</b> — Partner Database & Partner Moderation"
+      "Menu utama:\n" +
+      "• <b>Partner Management</b> — Partner Database & Partner Moderation"
     );
   }
 
