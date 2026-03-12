@@ -12,13 +12,24 @@ function normalizeText(text) {
   return String(text || "").trim();
 }
 
+function normalizeWhatsapp(value) {
+  return String(value || "").replace(/\D/g, "");
+}
+
 function getFieldMeta(field) {
   const key = String(field || "").trim();
+
+  if (key === "nama_lengkap") {
+    return { key, label: "Nama Lengkap", max: 150 };
+  }
   if (key === "nickname") {
     return { key, label: "Nickname", max: 100 };
   }
   if (key === "no_whatsapp") {
     return { key, label: "No. Whatsapp", max: 40 };
+  }
+  if (key === "nik") {
+    return { key, label: "NIK", max: 32 };
   }
   if (key === "kecamatan") {
     return { key, label: "Kecamatan", max: 120 };
@@ -26,6 +37,10 @@ function getFieldMeta(field) {
   if (key === "kota") {
     return { key, label: "Kota", max: 120 };
   }
+  if (key === "channel_url") {
+    return { key, label: "Channel Partner", max: 255 };
+  }
+
   return null;
 }
 
@@ -60,6 +75,19 @@ export async function handlePartnerTextEditInput({
 
   let nextValue = rawText;
   if (rawText === "-") nextValue = "";
+
+  if (meta.key === "no_whatsapp") {
+    nextValue = nextValue ? normalizeWhatsapp(nextValue) : "";
+  }
+
+  if (meta.key === "nik" && nextValue && !/^\d+$/.test(nextValue)) {
+    await sendMessage(
+      env,
+      chatId,
+      "⚠️ NIK harus berupa angka saja.\n\nKirim ulang atau ketik batal."
+    );
+    return true;
+  }
 
   if (nextValue.length > meta.max) {
     await sendMessage(
