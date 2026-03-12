@@ -12,7 +12,7 @@ export function buildPartnerToolsExact() {
 
     await clearSession(env, `state:${adminId}`).catch(() => {});
 
-    const text = "🧰 <b>Partner Tools</b>\nPilih menu:";
+    const text = "👥 <b>Partner Management</b>\nPilih menu:";
     const extra = {
       parse_mode: "HTML",
       reply_markup: buildPartnerToolsKeyboard(),
