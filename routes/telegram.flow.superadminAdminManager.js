@@ -29,8 +29,8 @@ function cleanKotaInput(text) {
   return raw;
 }
 
-function buildPanel(row) {
-  return buildAdminControlPanelKeyboard(row.telegram_id, row);
+function buildPanel(row, actorRole = "owner") {
+  return buildAdminControlPanelKeyboard(row.telegram_id, row, actorRole);
 }
 
 async function cancelFlow(env, chatId, stateKey) {
@@ -75,7 +75,7 @@ export async function handleSuperadminAdminManagerInput({
     const row = await getAdminByTelegramId(env, targetTelegramId);
 
     await sendMessage(env, chatId, "✅ Username admin berhasil diupdate.", {
-      reply_markup: buildPanel(row),
+      reply_markup: buildPanel(row, "owner"),
     });
     return true;
   }
@@ -107,7 +107,7 @@ export async function handleSuperadminAdminManagerInput({
     const row = await getAdminByTelegramId(env, targetTelegramId);
 
     await sendMessage(env, chatId, "✅ Nama admin berhasil diupdate.", {
-      reply_markup: buildPanel(row),
+      reply_markup: buildPanel(row, "owner"),
     });
     return true;
   }
@@ -129,7 +129,7 @@ export async function handleSuperadminAdminManagerInput({
     const row = await getAdminByTelegramId(env, targetTelegramId);
 
     await sendMessage(env, chatId, "✅ Kota admin berhasil diupdate.", {
-      reply_markup: buildPanel(row),
+      reply_markup: buildPanel(row, "owner"),
     });
     return true;
   }
