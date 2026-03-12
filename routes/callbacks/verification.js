@@ -11,7 +11,11 @@ import {
 } from "../../repositories/profilesRepo.js";
 import { listActiveVerificators, getAdminByTelegramId } from "../../repositories/adminsRepo.js";
 
-import { buildMainKeyboard, buildVerificatorKeyboard, buildApproveRejectKeyboard } from "./keyboards.js";
+import {
+  buildMainKeyboard,
+  buildVerificatorKeyboard,
+  buildApproveRejectKeyboard,
+} from "./keyboards.verification.js";
 import { buildTeManMenuKeyboard } from "../telegram.commands.user.js";
 import { CALLBACK_PREFIX, CALLBACKS } from "../telegram.constants.js";
 import { markRegistrationApproved } from "../../services/partnerStatusService.js";
