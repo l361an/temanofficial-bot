@@ -235,6 +235,7 @@ export function buildAdminListKeyboard(admins = []) {
 
 export function buildAdminControlPanelKeyboard(telegramId, row, actorRole = "admin") {
   const isOwnerActor = String(actorRole || "").trim().toLowerCase() === "owner";
+  const targetRole = String(row?.normRole || "").trim().toLowerCase();
 
   const rows = [];
 
@@ -255,6 +256,10 @@ export function buildAdminControlPanelKeyboard(telegramId, row, actorRole = "adm
       rows.push([{ text: "⛔ Nonaktifkan", callback_data: cb.saAdminDeactivate(telegramId) }]);
     } else {
       rows.push([{ text: "✅ Aktifkan", callback_data: cb.saAdminActivate(telegramId) }]);
+    }
+
+    if (targetRole === "admin" || targetRole === "superadmin") {
+      rows.push([{ text: "🗑️ Delete Admin", callback_data: cb.saAdminDelete(telegramId) }]);
     }
   }
 
