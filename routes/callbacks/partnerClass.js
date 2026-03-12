@@ -1,3 +1,5 @@
+// routes/callbacks/partnerClass.js
+
 import { sendMessage, sendPhoto, sendLongMessage, editMessageReplyMarkup } from "../../services/telegramApi.js";
 import { saveSession } from "../../utils/session.js";
 import { getAdminByTelegramId, listActiveVerificators } from "../../repositories/adminsRepo.js";
@@ -22,10 +24,29 @@ const fmtKV = (label, value) => {
 
 function getPartnerEditFieldMeta(field) {
   const key = String(field || "").trim();
-  if (key === "nickname") return { key, label: "Nickname", currentKey: "nickname" };
-  if (key === "no_whatsapp") return { key, label: "No. Whatsapp", currentKey: "no_whatsapp" };
-  if (key === "kecamatan") return { key, label: "Kecamatan", currentKey: "kecamatan" };
-  if (key === "kota") return { key, label: "Kota", currentKey: "kota" };
+
+  if (key === "nama_lengkap") {
+    return { key, label: "Nama Lengkap", currentKey: "nama_lengkap" };
+  }
+  if (key === "nickname") {
+    return { key, label: "Nickname", currentKey: "nickname" };
+  }
+  if (key === "no_whatsapp") {
+    return { key, label: "No. Whatsapp", currentKey: "no_whatsapp" };
+  }
+  if (key === "nik") {
+    return { key, label: "NIK", currentKey: "nik" };
+  }
+  if (key === "kecamatan") {
+    return { key, label: "Kecamatan", currentKey: "kecamatan" };
+  }
+  if (key === "kota") {
+    return { key, label: "Kota", currentKey: "kota" };
+  }
+  if (key === "channel_url") {
+    return { key, label: "Channel Partner", currentKey: "channel_url" };
+  }
+
   return null;
 }
 
@@ -62,6 +83,8 @@ export async function buildPartnerDetailText(env, profile) {
     fmtKV("Kecamatan", profile?.kecamatan) +
     "\n" +
     fmtKV("Kota", profile?.kota) +
+    "\n" +
+    fmtKV("Channel Partner", profile?.channel_url) +
     "\n" +
     fmtKV("Verificator", verificatorDisplay)
   );
