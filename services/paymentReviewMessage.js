@@ -1,6 +1,6 @@
 // services/paymentReviewMessage.js
 
-import { buildPaymentReviewKeyboard } from "../routes/callbacks/keyboards.js";
+import { buildPaymentReviewKeyboard } from "../routes/callbacks/keyboards.finance.js";
 import { getPaymentTicketById } from "../repositories/paymentTicketsRepo.js";
 import { getProfileFullByTelegramId } from "../repositories/profilesRepo.js";
 import { getFirstActiveSuperadminId } from "../repositories/adminsRepo.js";
