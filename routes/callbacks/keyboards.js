@@ -202,6 +202,7 @@ export function buildBackToPartnerModerationKeyboard(role) {
 export function buildSuperadminToolsKeyboard() {
   return {
     inline_keyboard: [
+      [{ text: "👮 Admin Management", callback_data: CALLBACKS.SUPERADMIN_ADMIN_MENU }],
       [{ text: "👋 Welcome Message", callback_data: CALLBACKS.SUPERADMIN_CONFIG_WELCOME }],
       [{ text: "🔗 Link Aturan", callback_data: CALLBACKS.SUPERADMIN_CONFIG_ATURAN }],
       [
@@ -218,7 +219,7 @@ export function buildAdminManagerKeyboard() {
     inline_keyboard: [
       [{ text: "📋 List Admin", callback_data: CALLBACKS.SUPERADMIN_ADMIN_LIST }],
       [{ text: "➕ Add Admin", callback_data: CALLBACKS.SUPERADMIN_ADMIN_ADD }],
-      backAndHomeRow(CALLBACKS.OFFICER_HOME),
+      backAndHomeRow(CALLBACKS.SUPERADMIN_TOOLS_MENU),
     ],
   };
 }
@@ -298,7 +299,7 @@ export function buildAdminStatusPickerKeyboard(telegramId) {
   };
 }
 
-// Backward-compatible Config / Settings menus
+// Backward-compatible menus
 export function buildConfigKeyboard() {
   return {
     inline_keyboard: [
