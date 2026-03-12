@@ -2,14 +2,25 @@
 import { CALLBACKS, cb } from "../telegram.constants.js";
 import { officerHomeButton, backAndHomeRow } from "./keyboards.shared.js";
 
+function buildSystemToolsRows(withBack = false) {
+  const rows = [
+    [{ text: "🧩 Config", callback_data: CALLBACKS.SUPERADMIN_CONFIG_MENU }],
+    [{ text: "🗂️ Category", callback_data: CALLBACKS.SUPERADMIN_CATEGORY_MENU }],
+    [{ text: "💰 Finance", callback_data: CALLBACKS.SUPERADMIN_FINANCE_MENU }],
+  ];
+
+  if (withBack) {
+    rows.push(backAndHomeRow(CALLBACKS.SUPERADMIN_TOOLS_MENU));
+  } else {
+    rows.push([officerHomeButton()]);
+  }
+
+  return rows;
+}
+
 export function buildSuperadminToolsKeyboard() {
   return {
-    inline_keyboard: [
-      [{ text: "🧩 Config", callback_data: CALLBACKS.SUPERADMIN_CONFIG_MENU }],
-      [{ text: "🗂️ Category", callback_data: CALLBACKS.SUPERADMIN_CATEGORY_MENU }],
-      [{ text: "💰 Finance", callback_data: CALLBACKS.SUPERADMIN_FINANCE_MENU }],
-      [officerHomeButton()],
-    ],
+    inline_keyboard: buildSystemToolsRows(false),
   };
 }
 
@@ -32,7 +43,9 @@ export function buildAdminListKeyboard(admins = []) {
     const b = admins[i + 1];
 
     const row = [{ text: a.label, callback_data: cb.saAdminOpen(a.telegram_id) }];
-    if (b) row.push({ text: b.label, callback_data: cb.saAdminOpen(b.telegram_id) });
+    if (b) {
+      row.push({ text: b.label, callback_data: cb.saAdminOpen(b.telegram_id) });
+    }
     rows.push(row);
   }
 
@@ -55,9 +68,7 @@ export function buildAdminControlPanelKeyboard(telegramId, row, actorRole = "adm
       { text: "✏️ Kota", callback_data: cb.saAdminEditKota(telegramId) },
       { text: "✏️ Role", callback_data: cb.saAdminEditRole(telegramId) },
     ]);
-    rows.push([
-      { text: "✏️ Status", callback_data: cb.saAdminEditStatus(telegramId) },
-    ]);
+    rows.push([{ text: "✏️ Status", callback_data: cb.saAdminEditStatus(telegramId) }]);
 
     if (row?.normStatus === "active") {
       rows.push([{ text: "⛔ Nonaktifkan", callback_data: cb.saAdminDeactivate(telegramId) }]);
@@ -126,14 +137,10 @@ export function buildConfigAturanKeyboard() {
   };
 }
 
+// Dipertahankan untuk compatibility dengan consumer lama
 export function buildSettingsKeyboard() {
   return {
-    inline_keyboard: [
-      [{ text: "🧩 Config", callback_data: CALLBACKS.SUPERADMIN_CONFIG_MENU }],
-      [{ text: "🗂️ Category", callback_data: CALLBACKS.SUPERADMIN_CATEGORY_MENU }],
-      [{ text: "💰 Finance", callback_data: CALLBACKS.SUPERADMIN_FINANCE_MENU }],
-      backAndHomeRow(CALLBACKS.SUPERADMIN_TOOLS_MENU),
-    ],
+    inline_keyboard: buildSystemToolsRows(true),
   };
 }
 
