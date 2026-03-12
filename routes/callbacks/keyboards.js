@@ -229,25 +229,29 @@ export function buildAdminListKeyboard(admins = []) {
   return { inline_keyboard: rows };
 }
 
-export function buildAdminControlPanelKeyboard(telegramId, row) {
-  const rows = [
-    [
+export function buildAdminControlPanelKeyboard(telegramId, row, actorRole = "admin") {
+  const isOwnerActor = String(actorRole || "").trim().toLowerCase() === "owner";
+
+  const rows = [];
+
+  if (isOwnerActor) {
+    rows.push([
       { text: "✏️ Username", callback_data: cb.saAdminEditUsername(telegramId) },
       { text: "✏️ Nama", callback_data: cb.saAdminEditNama(telegramId) },
-    ],
-    [
+    ]);
+    rows.push([
       { text: "✏️ Kota", callback_data: cb.saAdminEditKota(telegramId) },
       { text: "✏️ Role", callback_data: cb.saAdminEditRole(telegramId) },
-    ],
-    [
+    ]);
+    rows.push([
       { text: "✏️ Status", callback_data: cb.saAdminEditStatus(telegramId) },
-    ],
-  ];
+    ]);
 
-  if (row?.normStatus === "active") {
-    rows.push([{ text: "⛔ Nonaktifkan", callback_data: cb.saAdminDeactivate(telegramId) }]);
-  } else {
-    rows.push([{ text: "✅ Aktifkan", callback_data: cb.saAdminActivate(telegramId) }]);
+    if (row?.normStatus === "active") {
+      rows.push([{ text: "⛔ Nonaktifkan", callback_data: cb.saAdminDeactivate(telegramId) }]);
+    } else {
+      rows.push([{ text: "✅ Aktifkan", callback_data: cb.saAdminActivate(telegramId) }]);
+    }
   }
 
   rows.push(backAndHomeRow(CALLBACKS.SUPERADMIN_ADMIN_LIST));
