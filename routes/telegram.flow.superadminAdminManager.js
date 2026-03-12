@@ -11,7 +11,7 @@ import { clearSession } from "../utils/session.js";
 import {
   buildAdminManagerKeyboard,
   buildAdminControlPanelKeyboard,
-} from "./callbacks/keyboards.js";
+} from "./callbacks/keyboards.superadmin.js";
 
 function normalizeInputText(text) {
   return String(text || "").trim();
