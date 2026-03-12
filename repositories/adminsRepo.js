@@ -1,7 +1,8 @@
 // repositories/adminsRepo.js
 function normalizeRole(role) {
   const r = String(role ?? "").trim().toLowerCase();
-  if (r === "superadmin" || r === "super_admin" || r === "owner" || r === "root") return "superadmin";
+  if (r === "owner") return "owner";
+  if (r === "superadmin" || r === "super_admin" || r === "root") return "superadmin";
   if (r === "admin" || r === "officer" || r === "staff") return "admin";
   return "user";
 }
@@ -24,6 +25,10 @@ function cleanUsername(username) {
 
 function cleanName(nama) {
   return String(nama ?? "").trim();
+}
+
+function cleanKota(kota) {
+  return String(kota ?? "").trim();
 }
 
 function cleanTelegramId(telegramId) {
@@ -49,6 +54,7 @@ function mapAdminRow(row) {
     telegram_id: cleanTelegramId(row.telegram_id),
     username: row.username ?? null,
     nama: row.nama ?? null,
+    kota: row.kota ?? null,
     role: row.role ?? null,
     normRole,
     status: row.status ?? null,
@@ -66,7 +72,7 @@ function validateWritableRole(role) {
 async function getRawAdminByTelegramId(env, telegramId) {
   return await env.DB.prepare(
     `
-    SELECT telegram_id, username, nama, role, status, dibuat_pada
+    SELECT telegram_id, username, nama, kota, role, status, dibuat_pada
     FROM admins
     WHERE telegram_id = ?
     LIMIT 1
@@ -164,7 +170,7 @@ export async function listActiveVerificators(env) {
 export async function listAdmins(env, { activeOnly = false } = {}) {
   const { results } = await env.DB.prepare(
     `
-    SELECT telegram_id, username, nama, role, status, dibuat_pada
+    SELECT telegram_id, username, nama, kota, role, status, dibuat_pada
     FROM admins
     ORDER BY dibuat_pada ASC
     LIMIT 500
@@ -172,15 +178,21 @@ export async function listAdmins(env, { activeOnly = false } = {}) {
   ).all();
 
   let rows = (results ?? []).map(mapAdminRow).filter(Boolean);
-  rows = rows.filter((r) => r.normRole === "admin" || r.normRole === "superadmin");
+  rows = rows.filter((r) => r.normRole === "admin" || r.normRole === "superadmin" || r.normRole === "owner");
 
   if (activeOnly) {
     rows = rows.filter((r) => r.is_active);
   }
 
   rows.sort((a, b) => {
-    const ra = a.normRole === "superadmin" ? 0 : 1;
-    const rb = b.normRole === "superadmin" ? 0 : 1;
+    const orderRole = (r) => {
+      if (r.normRole === "owner") return 0;
+      if (r.normRole === "superadmin") return 1;
+      return 2;
+    };
+
+    const ra = orderRole(a);
+    const rb = orderRole(b);
     if (ra !== rb) return ra - rb;
 
     const sa = a.is_active ? 0 : 1;
@@ -202,6 +214,7 @@ export async function createAdmin(env, payload = {}) {
   const telegramId = cleanTelegramId(payload.telegram_id);
   const username = cleanUsername(payload.username);
   const nama = cleanName(payload.nama);
+  const kota = cleanKota(payload.kota);
   const normRole = validateWritableRole(payload.role);
   const normStatus = normalizeStatus(payload.status ?? "active");
 
@@ -212,23 +225,17 @@ export async function createAdmin(env, payload = {}) {
   const existing = await getRawAdminByTelegramId(env, telegramId);
 
   if (existing) {
-    const guard = await ensureNotRemovingLastActiveSuperadmin(
-      env,
-      telegramId,
-      normRole,
-      normStatus
-    );
-
+    const guard = await ensureNotRemovingLastActiveSuperadmin(env, telegramId, normRole, normStatus);
     if (!guard.ok) return guard;
 
     await env.DB.prepare(
       `
       UPDATE admins
-      SET username = ?, nama = ?, role = ?, status = ?
+      SET username = ?, nama = ?, kota = ?, role = ?, status = ?
       WHERE telegram_id = ?
     `
     )
-      .bind(username || null, nama, normRole, normStatus, telegramId)
+      .bind(username || null, nama, kota || null, normRole, normStatus, telegramId)
       .run();
 
     return {
@@ -244,14 +251,15 @@ export async function createAdmin(env, payload = {}) {
       telegram_id,
       username,
       nama,
+      kota,
       role,
       status,
       dibuat_pada
     )
-    VALUES (?, ?, ?, ?, ?, datetime('now'))
+    VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
   `
   )
-    .bind(telegramId, username || null, nama, normRole, normStatus)
+    .bind(telegramId, username || null, nama, kota || null, normRole, normStatus)
     .run();
 
   return {
@@ -278,6 +286,11 @@ export async function updateAdminProfile(env, telegramId, patch = {}) {
       ? cleanName(patch.nama)
       : cleanName(current.nama);
 
+  const nextKota =
+    Object.prototype.hasOwnProperty.call(patch, "kota")
+      ? cleanKota(patch.kota)
+      : cleanKota(current.kota);
+
   const nextRole =
     Object.prototype.hasOwnProperty.call(patch, "role")
       ? validateWritableRole(patch.role)
@@ -291,23 +304,17 @@ export async function updateAdminProfile(env, telegramId, patch = {}) {
   if (!nextNama) return { ok: false, reason: "empty_nama" };
   if (!nextRole) return { ok: false, reason: "invalid_role" };
 
-  const guard = await ensureNotRemovingLastActiveSuperadmin(
-    env,
-    targetId,
-    nextRole,
-    nextStatus
-  );
-
+  const guard = await ensureNotRemovingLastActiveSuperadmin(env, targetId, nextRole, nextStatus);
   if (!guard.ok) return guard;
 
   await env.DB.prepare(
     `
     UPDATE admins
-    SET username = ?, nama = ?, role = ?, status = ?
+    SET username = ?, nama = ?, kota = ?, role = ?, status = ?
     WHERE telegram_id = ?
   `
   )
-    .bind(nextUsername || null, nextNama, nextRole, nextStatus, targetId)
+    .bind(nextUsername || null, nextNama, nextKota || null, nextRole, nextStatus, targetId)
     .run();
 
   return {
@@ -322,6 +329,10 @@ export async function updateAdminUsername(env, telegramId, username) {
 
 export async function updateAdminNama(env, telegramId, nama) {
   return await updateAdminProfile(env, telegramId, { nama });
+}
+
+export async function updateAdminKota(env, telegramId, kota) {
+  return await updateAdminProfile(env, telegramId, { kota });
 }
 
 export async function updateAdminRole(env, telegramId, role) {
@@ -347,13 +358,7 @@ export async function deleteAdminByTelegramId(env, telegramId) {
   const current = await getRawAdminByTelegramId(env, targetId);
   if (!current) return { ok: false, reason: "not_found" };
 
-  const guard = await ensureNotRemovingLastActiveSuperadmin(
-    env,
-    targetId,
-    "admin",
-    "inactive"
-  );
-
+  const guard = await ensureNotRemovingLastActiveSuperadmin(env, targetId, "admin", "inactive");
   if (!guard.ok) return guard;
 
   await env.DB.prepare(
