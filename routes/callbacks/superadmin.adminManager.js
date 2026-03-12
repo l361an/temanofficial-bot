@@ -38,13 +38,13 @@ function buildAdminManagerText() {
 function buildAdminListText(rows) {
   if (!rows.length) {
     return [
-      "📋 <b>List Admin</b>",
+      "👤 <b>Admin List</b>",
       "",
-      "Belum ada admin aktif/nonaktif yang terdaftar.",
+      "Belum ada admin yang terdaftar.",
     ].join("\n");
   }
 
-  const lines = ["📋 <b>List Admin</b>", ""];
+  const lines = ["👤 <b>Admin List</b>", ""];
 
   rows.forEach((row, i) => {
     const uname = row?.username ? `@${String(row.username).replace(/^@/, "")}` : "-";
@@ -73,6 +73,27 @@ function buildAdminDetailText(row) {
     `Kota        : ${fmtValue(row?.kota)}`,
     `Role        : <b>${fmtValue(row?.normRole)}</b>`,
     `Status      : <b>${fmtValue(row?.normStatus)}</b>`,
+  ].join("\n");
+}
+
+function buildInviteAdminText() {
+  return [
+    "🔗 <b>Invite Admin</b>",
+    "",
+    "Onboarding admin memakai <b>generated invite link</b>.",
+    "Flow final:",
+    "1. Owner generate invite link",
+    "2. Candidate klik link bot",
+    "3. Bot validasi token",
+    "4. User menjadi admin",
+    "",
+    "Flow manual <b>telegram_id</b> tidak dipakai lagi sebagai flow utama.",
+    "",
+    "Next implementation batch:",
+    "• generate token invite",
+    "• simpan token + expiry",
+    "• validasi token saat /start",
+    "• aktivasi role admin setelah token valid",
   ].join("\n");
 }
 
@@ -140,29 +161,13 @@ export function buildSuperadminAdminManagerHandlers() {
   EXACT[CALLBACKS.SUPERADMIN_ADMIN_ADD] = async (ctx) => {
     const { env, adminId } = ctx;
 
-    await saveSession(env, `state:${adminId}`, {
-      mode: SESSION_MODES.SA_ADMIN_MANAGER,
-      action: "add",
-      step: "await_telegram_id",
+    await clearSession(env, `state:${adminId}`).catch(() => {});
+
+    return renderMenuMessage(ctx, buildInviteAdminText(), {
+      parse_mode: "HTML",
+      reply_markup: buildAdminManagerKeyboard(),
+      disable_web_page_preview: true,
     });
-
-    await sendMessage(
-      env,
-      adminId,
-      [
-        "➕ <b>Add Admin</b>",
-        "",
-        "Kirim <b>telegram_id</b> admin baru.",
-        "",
-        "Ketik <b>batal</b> untuk keluar.",
-      ].join("\n"),
-      {
-        parse_mode: "HTML",
-        reply_markup: buildAdminManagerKeyboard(),
-      }
-    );
-
-    return true;
   };
 
   EXACT[CALLBACKS.SUPERADMIN_ADMIN_BACK] = async (ctx) => {
