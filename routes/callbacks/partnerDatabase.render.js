@@ -13,7 +13,6 @@ import { getSubscriptionInfoByTelegramId } from "../../repositories/partnerSubsc
 
 import {
   buildBackToPartnerDatabaseKeyboard,
-  buildBackToPartnerDatabaseViewKeyboard,
   buildPartnerControlPanelKeyboard,
   buildPartnerDetailsKeyboard,
   buildPartnerSubscriptionKeyboard,
@@ -187,7 +186,7 @@ export async function renderPartnerControlPanel(
       env,
       adminId,
       "⚠️ Data partner tidak ditemukan.",
-      buildBackToPartnerDatabaseViewKeyboard(),
+      buildBackToPartnerDatabaseKeyboard(),
       { session, fallbackMessage, forceNewMessage }
     );
 
