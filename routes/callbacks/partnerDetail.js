@@ -7,7 +7,7 @@ import { getSubscriptionInfoByTelegramId } from "../../repositories/partnerSubsc
 import {
   buildPartnerDetailActionsKeyboard,
   buildBackToPartnerDatabaseKeyboard,
-} from "./keyboards.js";
+} from "./keyboards.partner.js";
 
 function partnerStatusLabel(status) {
   const raw = String(status || "").trim().toLowerCase();
