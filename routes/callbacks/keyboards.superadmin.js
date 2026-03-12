@@ -137,13 +137,6 @@ export function buildConfigAturanKeyboard() {
   };
 }
 
-// Dipertahankan untuk compatibility dengan consumer lama
-export function buildSettingsKeyboard() {
-  return {
-    inline_keyboard: buildSystemToolsRows(true),
-  };
-}
-
 export function buildCategoryKeyboard() {
   return {
     inline_keyboard: [
