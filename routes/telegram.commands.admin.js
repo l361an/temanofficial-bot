@@ -1,17 +1,12 @@
 // routes/telegram.commands.admin.js
 import { sendMessage } from "../services/telegramApi.js";
-import {
-  getProfileFullByTelegramId,
-} from "../repositories/profilesRepo.js";
+import { getProfileFullByTelegramId } from "../repositories/profilesRepo.js";
 import { getSubscriptionInfoByTelegramId } from "../repositories/partnerSubscriptionsRepo.js";
 import { listCategories, addCategory, delCategoryByKode } from "../repositories/categoriesRepo.js";
 import { isAdminRole, isSuperadminRole } from "../utils/roles.js";
 import { buildOfficerHomeKeyboard } from "./callbacks/keyboards.js";
 import { resolveTelegramId, fmtClassId } from "../utils/partnerHelpers.js";
-import {
-  buildHelpText,
-  buildOfficerHomeText,
-} from "./telegram.messages.js";
+import { buildHelpText, buildOfficerHomeText } from "./telegram.messages.js";
 import { OBSOLETE_ADMIN_COMMANDS } from "./telegram.constants.js";
 
 // =============================
@@ -80,7 +75,7 @@ export async function handleAdminCommand({ env, chatId, text, role }) {
     await sendMessage(
       env,
       chatId,
-      "⚠️ Command ini sudah tidak dipakai.\nGunakan /start untuk buka menu officer.",
+      "⚠️ Command ini sudah tidak dipakai.\nGunakan /start untuk buka Officer Home.",
       { reply_markup: buildOfficerHomeKeyboard(role) }
     );
     return true;
@@ -88,6 +83,7 @@ export async function handleAdminCommand({ env, chatId, text, role }) {
 
   if (command === "/start") {
     await sendMessage(env, chatId, buildOfficerHomeText(), {
+      parse_mode: "HTML",
       reply_markup: buildOfficerHomeKeyboard(role),
     });
     return true;
@@ -154,7 +150,7 @@ export async function handleAdminCommand({ env, chatId, text, role }) {
       await sendMessage(
         env,
         chatId,
-        "Belum ada kategori. Gunakan menu:\n/start → Superadmin Tools → Settings → Category"
+        "Belum ada kategori. Gunakan menu:\n/start → Officer Home → System Settings → Category"
       );
       return true;
     }
