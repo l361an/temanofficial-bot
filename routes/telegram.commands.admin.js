@@ -4,7 +4,7 @@ import { getProfileFullByTelegramId } from "../repositories/profilesRepo.js";
 import { getSubscriptionInfoByTelegramId } from "../repositories/partnerSubscriptionsRepo.js";
 import { listCategories, addCategory, delCategoryByKode } from "../repositories/categoriesRepo.js";
 import { isAdminRole, isSuperadminRole } from "../utils/roles.js";
-import { buildOfficerHomeKeyboard } from "./callbacks/keyboards.js";
+import { buildOfficerHomeKeyboard } from "./callbacks/keyboards.officer.js";
 import { resolveTelegramId, fmtClassId } from "../utils/partnerHelpers.js";
 import { buildHelpText, buildOfficerHomeText } from "./telegram.messages.js";
 import { OBSOLETE_ADMIN_COMMANDS } from "./telegram.constants.js";
