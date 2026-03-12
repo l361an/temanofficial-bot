@@ -11,7 +11,7 @@ import { buildTeManMenuKeyboard } from "./telegram.commands.user.js";
 import {
   buildBackToPartnerModerationKeyboard,
   buildPartnerModerationKeyboard,
-} from "./callbacks/keyboards.js";
+} from "./callbacks/keyboards.partner.js";
 import { fmtClassId, resolveTelegramId } from "../utils/partnerHelpers.js";
 import { manualSuspendPartner, manualRestorePartner } from "../services/partnerStatusService.js";
 import { syncPartnerGroupRole } from "../services/partnerGroupRoleService.js";
