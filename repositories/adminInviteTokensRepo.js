@@ -115,7 +115,7 @@ export async function listActiveAdminInviteTokens(env) {
 
 export async function createAdminInviteToken(
   env,
-  { createdBy, role = "admin", expiryHours = 24 } = {}
+  { createdBy = "", role = "admin", expiryHours = 24 } = {}
 ) {
   const token = randomToken(18);
   const normalizedRole = normalizeRole(role);
