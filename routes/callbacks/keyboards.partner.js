@@ -52,11 +52,6 @@ export function buildBackToPartnerDatabaseKeyboard() {
   };
 }
 
-// Dipertahankan untuk compatibility dengan consumer lama
-export function buildBackToPartnerDatabaseViewKeyboard() {
-  return buildBackToPartnerDatabaseKeyboard();
-}
-
 export function buildPartnerControlPanelKeyboard(telegramId) {
   return {
     inline_keyboard: [
@@ -113,11 +108,6 @@ export function buildPartnerSubscriptionKeyboard(telegramId) {
       [officerHomeButton()],
     ],
   };
-}
-
-// Dipertahankan untuk compatibility dengan consumer lama
-export function buildPartnerDetailActionsKeyboard(telegramId, role) {
-  return buildPartnerDetailsKeyboard(telegramId, role);
 }
 
 export function buildPartnerClassPickerKeyboard(telegramId) {
