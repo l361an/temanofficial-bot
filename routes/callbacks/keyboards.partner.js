@@ -7,16 +7,6 @@ function buildPartnerDatabaseBackRow() {
   return backAndHomeRow(CALLBACKS.PARTNER_DATABASE_MENU);
 }
 
-function buildPartnerToolsNavRows() {
-  return [
-    buildPartnerDatabaseBackRow(),
-    [
-      { text: "🗃️ Partner Database", callback_data: CALLBACKS.PARTNER_DATABASE_MENU },
-      { text: "👥 Partner Management", callback_data: CALLBACKS.PARTNER_TOOLS_MENU },
-    ],
-  ];
-}
-
 export function buildPartnerToolsKeyboard() {
   return {
     inline_keyboard: [
@@ -118,8 +108,10 @@ export function buildPartnerClassPickerKeyboard(telegramId) {
         { text: "Gold", callback_data: cb.pmClassSet(telegramId, "gold") },
       ],
       [{ text: "Platinum", callback_data: cb.pmClassSet(telegramId, "platinum") }],
-      backAndHomeRow(cb.pmClassBack(telegramId)),
-      ...buildPartnerToolsNavRows(),
+      [
+        { text: "⬅️ Back to Panel", callback_data: cb.pmClassBack(telegramId) },
+        officerHomeButton(),
+      ],
     ],
   };
 }
@@ -138,10 +130,9 @@ export function buildPartnerVerificatorPickerKeyboard(telegramId, verificators =
     rows.push(row);
   }
 
-  rows.push(backAndHomeRow(cb.pmVerBack(telegramId)));
   rows.push([
-    { text: "🗃️ Partner Database", callback_data: CALLBACKS.PARTNER_DATABASE_MENU },
-    { text: "👥 Partner Management", callback_data: CALLBACKS.PARTNER_TOOLS_MENU },
+    { text: "⬅️ Back to Panel", callback_data: cb.pmVerBack(telegramId) },
+    officerHomeButton(),
   ]);
 
   return { inline_keyboard: rows };
