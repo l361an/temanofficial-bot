@@ -137,8 +137,12 @@ function buildOwnerOnlyText() {
   return "⛔ Hanya owner yang boleh mengelola data admin.";
 }
 
+async function getActor(env, adminId) {
+  return await getAdminByTelegramId(env, adminId);
+}
+
 async function isOwnerActor(env, adminId) {
-  const actor = await getAdminByTelegramId(env, adminId);
+  const actor = await getActor(env, adminId);
   return actor?.normRole === "owner";
 }
 
@@ -178,6 +182,8 @@ async function renderAdminList(ctx) {
 
 async function renderAdminDetail(ctx, targetTelegramId) {
   const row = await getAdminByTelegramId(ctx.env, targetTelegramId);
+  const actor = await getActor(ctx.env, ctx.adminId);
+  const actorRole = actor?.normRole || "admin";
 
   if (!row) {
     return renderMenuMessage(ctx, "⚠️ Data admin tidak ditemukan.", {
@@ -187,7 +193,7 @@ async function renderAdminDetail(ctx, targetTelegramId) {
 
   return renderMenuMessage(ctx, buildAdminDetailText(row), {
     parse_mode: "HTML",
-    reply_markup: buildAdminControlPanelKeyboard(row.telegram_id, row),
+    reply_markup: buildAdminControlPanelKeyboard(row.telegram_id, row, actorRole),
   });
 }
 
@@ -270,6 +276,8 @@ export function buildSuperadminAdminManagerHandlers() {
 
     run: async (ctx) => {
       const { env, adminId, data } = ctx;
+      const actor = await getActor(env, adminId);
+      const actorRole = actor?.normRole || "admin";
 
       if (data.startsWith(CALLBACK_PREFIX.SA_ADMIN_OPEN)) {
         const targetTelegramId = String(data.slice(CALLBACK_PREFIX.SA_ADMIN_OPEN.length) || "").trim();
@@ -277,7 +285,7 @@ export function buildSuperadminAdminManagerHandlers() {
       }
 
       if (data.startsWith(CALLBACK_PREFIX.SA_ADMIN_EDIT_USERNAME)) {
-        if (!(await isOwnerActor(env, adminId))) {
+        if (actorRole !== "owner") {
           return denyOwnerOnly(ctx);
         }
 
@@ -314,7 +322,7 @@ export function buildSuperadminAdminManagerHandlers() {
           ].join("\n"),
           {
             parse_mode: "HTML",
-            reply_markup: buildAdminControlPanelKeyboard(row.telegram_id, row),
+            reply_markup: buildAdminControlPanelKeyboard(row.telegram_id, row, actorRole),
           }
         );
 
@@ -322,7 +330,7 @@ export function buildSuperadminAdminManagerHandlers() {
       }
 
       if (data.startsWith(CALLBACK_PREFIX.SA_ADMIN_EDIT_NAMA)) {
-        if (!(await isOwnerActor(env, adminId))) {
+        if (actorRole !== "owner") {
           return denyOwnerOnly(ctx);
         }
 
@@ -358,7 +366,7 @@ export function buildSuperadminAdminManagerHandlers() {
           ].join("\n"),
           {
             parse_mode: "HTML",
-            reply_markup: buildAdminControlPanelKeyboard(row.telegram_id, row),
+            reply_markup: buildAdminControlPanelKeyboard(row.telegram_id, row, actorRole),
           }
         );
 
@@ -366,7 +374,7 @@ export function buildSuperadminAdminManagerHandlers() {
       }
 
       if (data.startsWith(CALLBACK_PREFIX.SA_ADMIN_EDIT_KOTA)) {
-        if (!(await isOwnerActor(env, adminId))) {
+        if (actorRole !== "owner") {
           return denyOwnerOnly(ctx);
         }
 
@@ -403,7 +411,7 @@ export function buildSuperadminAdminManagerHandlers() {
           ].join("\n"),
           {
             parse_mode: "HTML",
-            reply_markup: buildAdminControlPanelKeyboard(row.telegram_id, row),
+            reply_markup: buildAdminControlPanelKeyboard(row.telegram_id, row, actorRole),
           }
         );
 
@@ -411,7 +419,7 @@ export function buildSuperadminAdminManagerHandlers() {
       }
 
       if (data.startsWith(CALLBACK_PREFIX.SA_ADMIN_EDIT_ROLE)) {
-        if (!(await isOwnerActor(env, adminId))) {
+        if (actorRole !== "owner") {
           return denyOwnerOnly(ctx);
         }
 
@@ -432,7 +440,7 @@ export function buildSuperadminAdminManagerHandlers() {
       }
 
       if (data.startsWith(CALLBACK_PREFIX.SA_ADMIN_EDIT_STATUS)) {
-        if (!(await isOwnerActor(env, adminId))) {
+        if (actorRole !== "owner") {
           return denyOwnerOnly(ctx);
         }
 
@@ -453,7 +461,7 @@ export function buildSuperadminAdminManagerHandlers() {
       }
 
       if (data.startsWith(CALLBACK_PREFIX.SA_ADMIN_ROLE_SET)) {
-        if (!(await isOwnerActor(env, adminId))) {
+        if (actorRole !== "owner") {
           return denyOwnerOnly(ctx);
         }
 
@@ -479,7 +487,7 @@ export function buildSuperadminAdminManagerHandlers() {
       }
 
       if (data.startsWith(CALLBACK_PREFIX.SA_ADMIN_STATUS_SET)) {
-        if (!(await isOwnerActor(env, adminId))) {
+        if (actorRole !== "owner") {
           return denyOwnerOnly(ctx);
         }
 
@@ -505,7 +513,7 @@ export function buildSuperadminAdminManagerHandlers() {
       }
 
       if (data.startsWith(CALLBACK_PREFIX.SA_ADMIN_DEACTIVATE)) {
-        if (!(await isOwnerActor(env, adminId))) {
+        if (actorRole !== "owner") {
           return denyOwnerOnly(ctx);
         }
 
@@ -530,7 +538,7 @@ export function buildSuperadminAdminManagerHandlers() {
       }
 
       if (data.startsWith(CALLBACK_PREFIX.SA_ADMIN_ACTIVATE)) {
-        if (!(await isOwnerActor(env, adminId))) {
+        if (actorRole !== "owner") {
           return denyOwnerOnly(ctx);
         }
 
