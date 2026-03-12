@@ -7,9 +7,9 @@ import {
   updateProfileClassByTelegramId,
 } from "../../repositories/profilesRepo.js";
 import {
-  buildBackToPartnerDatabaseViewKeyboard,
+  buildBackToPartnerDatabaseKeyboard,
   buildPartnerClassPickerKeyboard,
-  buildPartnerDetailActionsKeyboard,
+  buildPartnerDetailsKeyboard,
   buildPartnerVerificatorPickerKeyboard,
 } from "./keyboards.partner.js";
 import { escapeHtml, fmtClassId, fmtHandle } from "./shared.js";
@@ -69,19 +69,24 @@ export async function buildPartnerDetailText(env, profile) {
 
 export async function sendPartnerDetailOutput(env, chatId, role, profile) {
   const textSummary = await buildPartnerDetailText(env, profile);
-  await sendLongMessage(env, chatId, textSummary, { parse_mode: "HTML", disable_web_page_preview: true });
+  await sendLongMessage(env, chatId, textSummary, {
+    parse_mode: "HTML",
+    disable_web_page_preview: true,
+  });
 
   for (const [fileId, cap] of [
     [profile?.foto_closeup_file_id, "📸 <b>Foto Closeup</b>"],
     [profile?.foto_fullbody_file_id, "📸 <b>Foto Fullbody</b>"],
     [profile?.foto_ktp_file_id, "🪪 <b>Foto KTP</b>"],
   ]) {
-    if (fileId) await sendPhoto(env, chatId, fileId, cap, { parse_mode: "HTML" });
+    if (fileId) {
+      await sendPhoto(env, chatId, fileId, cap, { parse_mode: "HTML" });
+    }
   }
 
   await sendMessage(env, chatId, "⚙️ <b>Aksi Partner</b>", {
     parse_mode: "HTML",
-    reply_markup: buildPartnerDetailActionsKeyboard(profile.telegram_id, role),
+    reply_markup: buildPartnerDetailsKeyboard(profile.telegram_id, role),
   });
 }
 
@@ -120,7 +125,7 @@ export function buildPartnerClassHandlers() {
 
       if (!telegramId) {
         await sendMessage(env, adminId, "⚠️ Target partner tidak valid.", {
-          reply_markup: buildBackToPartnerDatabaseViewKeyboard(),
+          reply_markup: buildBackToPartnerDatabaseKeyboard(),
         });
         return true;
       }
@@ -128,7 +133,7 @@ export function buildPartnerClassHandlers() {
       const profile = await getProfileFullByTelegramId(env, telegramId);
       if (!profile) {
         await sendMessage(env, adminId, "⚠️ Data partner tidak ditemukan.", {
-          reply_markup: buildBackToPartnerDatabaseViewKeyboard(),
+          reply_markup: buildBackToPartnerDatabaseKeyboard(),
         });
         return true;
       }
@@ -163,7 +168,7 @@ export function buildPartnerClassHandlers() {
 
       if (!telegramId) {
         await sendMessage(env, adminId, "⚠️ Target partner tidak valid.", {
-          reply_markup: buildBackToPartnerDatabaseViewKeyboard(),
+          reply_markup: buildBackToPartnerDatabaseKeyboard(),
         });
         return true;
       }
@@ -181,7 +186,7 @@ export function buildPartnerClassHandlers() {
           reply_markup:
             res.reason === "invalid_class_id"
               ? buildPartnerClassPickerKeyboard(telegramId)
-              : buildBackToPartnerDatabaseViewKeyboard(),
+              : buildBackToPartnerDatabaseKeyboard(),
         });
         return true;
       }
@@ -194,7 +199,7 @@ export function buildPartnerClassHandlers() {
           `✅ Class partner berhasil diubah menjadi <b>${escapeHtml(fmtClassId(classId))}</b>.`,
           {
             parse_mode: "HTML",
-            reply_markup: buildBackToPartnerDatabaseViewKeyboard(),
+            reply_markup: buildBackToPartnerDatabaseKeyboard(),
           }
         );
         return true;
@@ -227,7 +232,7 @@ export function buildPartnerClassHandlers() {
 
       if (!telegramId) {
         await sendMessage(env, adminId, "⚠️ Target partner tidak valid.", {
-          reply_markup: buildBackToPartnerDatabaseViewKeyboard(),
+          reply_markup: buildBackToPartnerDatabaseKeyboard(),
         });
         return true;
       }
@@ -235,7 +240,7 @@ export function buildPartnerClassHandlers() {
       const profile = await getProfileFullByTelegramId(env, telegramId);
       if (!profile) {
         await sendMessage(env, adminId, "⚠️ Data partner tidak ditemukan.", {
-          reply_markup: buildBackToPartnerDatabaseViewKeyboard(),
+          reply_markup: buildBackToPartnerDatabaseKeyboard(),
         });
         return true;
       }
@@ -257,7 +262,7 @@ export function buildPartnerClassHandlers() {
 
       if (!telegramId) {
         await sendMessage(env, adminId, "⚠️ Target partner tidak valid.", {
-          reply_markup: buildBackToPartnerDatabaseViewKeyboard(),
+          reply_markup: buildBackToPartnerDatabaseKeyboard(),
         });
         return true;
       }
@@ -265,7 +270,7 @@ export function buildPartnerClassHandlers() {
       const profile = await getProfileFullByTelegramId(env, telegramId);
       if (!profile) {
         await sendMessage(env, adminId, "⚠️ Data partner tidak ditemukan.", {
-          reply_markup: buildBackToPartnerDatabaseViewKeyboard(),
+          reply_markup: buildBackToPartnerDatabaseKeyboard(),
         });
         return true;
       }
@@ -273,7 +278,7 @@ export function buildPartnerClassHandlers() {
       const verificators = await listActiveVerificators(env);
       if (!verificators.length) {
         await sendMessage(env, adminId, "⚠️ Tidak ada verificator aktif di tabel admins.", {
-          reply_markup: buildPartnerDetailActionsKeyboard(profile.telegram_id, ctx.role),
+          reply_markup: buildPartnerDetailsKeyboard(profile.telegram_id, ctx.role),
         });
         return true;
       }
@@ -307,7 +312,7 @@ export function buildPartnerClassHandlers() {
 
       if (!telegramId || !verificatorId) {
         await sendMessage(env, adminId, "⚠️ Target partner / verificator tidak valid.", {
-          reply_markup: buildBackToPartnerDatabaseViewKeyboard(),
+          reply_markup: buildBackToPartnerDatabaseKeyboard(),
         });
         return true;
       }
@@ -330,7 +335,7 @@ export function buildPartnerClassHandlers() {
             ? "⚠️ Data partner tidak ditemukan."
             : "⚠️ Gagal mengubah verificator partner.";
         await sendMessage(env, adminId, msg, {
-          reply_markup: buildBackToPartnerDatabaseViewKeyboard(),
+          reply_markup: buildBackToPartnerDatabaseKeyboard(),
         });
         return true;
       }
@@ -338,7 +343,7 @@ export function buildPartnerClassHandlers() {
       const profile = await getProfileFullByTelegramId(env, telegramId);
       if (!profile) {
         await sendMessage(env, adminId, `✅ Verificator partner berhasil diubah ke ${adminRow.label}.`, {
-          reply_markup: buildBackToPartnerDatabaseViewKeyboard(),
+          reply_markup: buildBackToPartnerDatabaseKeyboard(),
         });
         return true;
       }
@@ -370,7 +375,7 @@ export function buildPartnerClassHandlers() {
 
       if (!telegramId) {
         await sendMessage(env, adminId, "⚠️ Target partner tidak valid.", {
-          reply_markup: buildBackToPartnerDatabaseViewKeyboard(),
+          reply_markup: buildBackToPartnerDatabaseKeyboard(),
         });
         return true;
       }
@@ -378,7 +383,7 @@ export function buildPartnerClassHandlers() {
       const profile = await getProfileFullByTelegramId(env, telegramId);
       if (!profile) {
         await sendMessage(env, adminId, "⚠️ Data partner tidak ditemukan.", {
-          reply_markup: buildBackToPartnerDatabaseViewKeyboard(),
+          reply_markup: buildBackToPartnerDatabaseKeyboard(),
         });
         return true;
       }
@@ -400,7 +405,7 @@ export function buildPartnerClassHandlers() {
 
       if (!telegramId) {
         await sendMessage(env, adminId, "⚠️ Target partner tidak valid.", {
-          reply_markup: buildBackToPartnerDatabaseViewKeyboard(),
+          reply_markup: buildBackToPartnerDatabaseKeyboard(),
         });
         return true;
       }
@@ -408,7 +413,7 @@ export function buildPartnerClassHandlers() {
       const profile = await getProfileFullByTelegramId(env, telegramId);
       if (!profile) {
         await sendMessage(env, adminId, "⚠️ Data partner tidak ditemukan.", {
-          reply_markup: buildBackToPartnerDatabaseViewKeyboard(),
+          reply_markup: buildBackToPartnerDatabaseKeyboard(),
         });
         return true;
       }
@@ -432,7 +437,7 @@ export function buildPartnerClassHandlers() {
           `Ketik <b>batal</b> untuk keluar.`,
         {
           parse_mode: "HTML",
-          reply_markup: buildPartnerDetailActionsKeyboard(profile.telegram_id, role),
+          reply_markup: buildPartnerDetailsKeyboard(profile.telegram_id, role),
         }
       );
       return true;
@@ -448,7 +453,7 @@ export function buildPartnerClassHandlers() {
 
       if (!telegramId || !field) {
         await sendMessage(env, adminId, "⚠️ Target partner / field tidak valid.", {
-          reply_markup: buildBackToPartnerDatabaseViewKeyboard(),
+          reply_markup: buildBackToPartnerDatabaseKeyboard(),
         });
         return true;
       }
@@ -456,7 +461,7 @@ export function buildPartnerClassHandlers() {
       const meta = getPartnerEditFieldMeta(field);
       if (!meta) {
         await sendMessage(env, adminId, "⚠️ Field partner tidak didukung.", {
-          reply_markup: buildBackToPartnerDatabaseViewKeyboard(),
+          reply_markup: buildBackToPartnerDatabaseKeyboard(),
         });
         return true;
       }
@@ -464,7 +469,7 @@ export function buildPartnerClassHandlers() {
       const profile = await getProfileFullByTelegramId(env, telegramId);
       if (!profile) {
         await sendMessage(env, adminId, "⚠️ Data partner tidak ditemukan.", {
-          reply_markup: buildBackToPartnerDatabaseViewKeyboard(),
+          reply_markup: buildBackToPartnerDatabaseKeyboard(),
         });
         return true;
       }
@@ -493,7 +498,7 @@ export function buildPartnerClassHandlers() {
           `Ketik <b>batal</b> untuk keluar.`,
         {
           parse_mode: "HTML",
-          reply_markup: buildPartnerDetailActionsKeyboard(profile.telegram_id, role),
+          reply_markup: buildPartnerDetailsKeyboard(profile.telegram_id, role),
         }
       );
       return true;
@@ -508,7 +513,7 @@ export function buildPartnerClassHandlers() {
 
       if (!telegramId) {
         await sendMessage(env, adminId, "⚠️ Target partner tidak valid.", {
-          reply_markup: buildBackToPartnerDatabaseViewKeyboard(),
+          reply_markup: buildBackToPartnerDatabaseKeyboard(),
         });
         return true;
       }
@@ -516,7 +521,7 @@ export function buildPartnerClassHandlers() {
       const profile = await getProfileFullByTelegramId(env, telegramId);
       if (!profile) {
         await sendMessage(env, adminId, "⚠️ Data partner tidak ditemukan.", {
-          reply_markup: buildBackToPartnerDatabaseViewKeyboard(),
+          reply_markup: buildBackToPartnerDatabaseKeyboard(),
         });
         return true;
       }
