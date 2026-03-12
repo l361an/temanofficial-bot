@@ -3,6 +3,20 @@ import { isSuperadminRole } from "../../utils/roles.js";
 import { CALLBACKS, cb } from "../telegram.constants.js";
 import { officerHomeButton, backAndHomeRow } from "./keyboards.shared.js";
 
+function buildPartnerDatabaseBackRow() {
+  return backAndHomeRow(CALLBACKS.PARTNER_DATABASE_MENU);
+}
+
+function buildPartnerToolsNavRows() {
+  return [
+    buildPartnerDatabaseBackRow(),
+    [
+      { text: "🗃️ Partner Database", callback_data: CALLBACKS.PARTNER_DATABASE_MENU },
+      { text: "👥 Partner Management", callback_data: CALLBACKS.PARTNER_TOOLS_MENU },
+    ],
+  ];
+}
+
 export function buildPartnerToolsKeyboard() {
   return {
     inline_keyboard: [
@@ -34,14 +48,13 @@ export function buildPartnerDatabaseKeyboard() {
 
 export function buildBackToPartnerDatabaseKeyboard() {
   return {
-    inline_keyboard: [backAndHomeRow(CALLBACKS.PARTNER_DATABASE_MENU)],
+    inline_keyboard: [buildPartnerDatabaseBackRow()],
   };
 }
 
+// Dipertahankan untuk compatibility dengan consumer lama
 export function buildBackToPartnerDatabaseViewKeyboard() {
-  return {
-    inline_keyboard: [backAndHomeRow(CALLBACKS.PARTNER_DATABASE_MENU)],
-  };
+  return buildBackToPartnerDatabaseKeyboard();
 }
 
 export function buildPartnerControlPanelKeyboard(telegramId) {
@@ -102,6 +115,7 @@ export function buildPartnerSubscriptionKeyboard(telegramId) {
   };
 }
 
+// Dipertahankan untuk compatibility dengan consumer lama
 export function buildPartnerDetailActionsKeyboard(telegramId, role) {
   return buildPartnerDetailsKeyboard(telegramId, role);
 }
@@ -115,15 +129,12 @@ export function buildPartnerClassPickerKeyboard(telegramId) {
       ],
       [{ text: "Platinum", callback_data: cb.pmClassSet(telegramId, "platinum") }],
       backAndHomeRow(cb.pmClassBack(telegramId)),
-      [
-        { text: "🗃️ Partner Database", callback_data: CALLBACKS.PARTNER_DATABASE_MENU },
-        { text: "👥 Partner Management", callback_data: CALLBACKS.PARTNER_TOOLS_MENU },
-      ],
+      ...buildPartnerToolsNavRows(),
     ],
   };
 }
 
-export function buildPartnerVerificatorPickerKeyboard(telegramId, verificators) {
+export function buildPartnerVerificatorPickerKeyboard(telegramId, verificators = []) {
   const rows = [];
   const max = Math.min(verificators.length, 20);
 
@@ -131,7 +142,9 @@ export function buildPartnerVerificatorPickerKeyboard(telegramId, verificators) 
     const a = verificators[i];
     const b = verificators[i + 1];
     const row = [{ text: a.label, callback_data: cb.pmVerSet(telegramId, a.telegram_id) }];
-    if (b) row.push({ text: b.label, callback_data: cb.pmVerSet(telegramId, b.telegram_id) });
+    if (b) {
+      row.push({ text: b.label, callback_data: cb.pmVerSet(telegramId, b.telegram_id) });
+    }
     rows.push(row);
   }
 
@@ -145,10 +158,12 @@ export function buildPartnerVerificatorPickerKeyboard(telegramId, verificators) 
 }
 
 export function buildPartnerModerationKeyboard(role) {
-  const rows = [[
-    { text: "✅ Restore", callback_data: CALLBACKS.PARTNER_MOD_RESTORE },
-    { text: "⛔ Suspend", callback_data: CALLBACKS.PARTNER_MOD_SUSPEND },
-  ]];
+  const rows = [
+    [
+      { text: "✅ Restore", callback_data: CALLBACKS.PARTNER_MOD_RESTORE },
+      { text: "⛔ Suspend", callback_data: CALLBACKS.PARTNER_MOD_SUSPEND },
+    ],
+  ];
 
   if (isSuperadminRole(role)) {
     rows.push([{ text: "❌ Delete", callback_data: CALLBACKS.PARTNER_MOD_DELETE }]);
