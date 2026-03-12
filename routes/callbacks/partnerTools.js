@@ -1,7 +1,7 @@
 // routes/callbacks/partnerTools.js
 import { sendMessage, upsertCallbackMessage } from "../../services/telegramApi.js";
 import { clearSession } from "../../utils/session.js";
-import { buildPartnerToolsKeyboard } from "./keyboards.js";
+import { buildPartnerToolsKeyboard } from "./keyboards.partner.js";
 import { CALLBACKS } from "../telegram.constants.js";
 
 export function buildPartnerToolsExact() {
