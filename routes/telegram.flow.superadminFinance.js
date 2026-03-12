@@ -3,7 +3,7 @@
 import { sendMessage, sendPhoto } from "../services/telegramApi.js";
 import { getSetting, upsertSetting } from "../repositories/settingsRepo.js";
 import { clearSession } from "../utils/session.js";
-import { buildFinanceKeyboard, buildFinanceQrisKeyboard } from "./callbacks/keyboards.js";
+import { buildFinanceKeyboard, buildFinanceQrisKeyboard } from "./callbacks/keyboards.finance.js";
 
 function formatClassLabel(value) {
   const raw = String(value || "").trim().toLowerCase();
