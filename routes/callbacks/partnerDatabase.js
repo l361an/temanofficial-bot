@@ -9,7 +9,6 @@ import {
 import {
   buildPartnerDatabaseKeyboard,
   buildBackToPartnerDatabaseKeyboard,
-  buildBackToPartnerDatabaseViewKeyboard,
 } from "./keyboards.partner.js";
 
 import {
@@ -125,7 +124,7 @@ export async function handlePartnerViewSearchInput({
       env,
       adminId,
       "⚠️ Target tidak valid / tidak ditemukan.\nKirim <b>@username</b> atau <b>telegram_id</b> ya.\n\nKetik <b>batal</b> untuk keluar.",
-      buildBackToPartnerDatabaseViewKeyboard(),
+      buildBackToPartnerDatabaseKeyboard(),
       {
         session,
         fallbackMessage: msg,
@@ -202,7 +201,7 @@ export function buildPartnerDatabaseHandlers() {
     const text = buildPartnerViewPromptText();
     const extra = {
       parse_mode: "HTML",
-      reply_markup: buildBackToPartnerDatabaseViewKeyboard(),
+      reply_markup: buildBackToPartnerDatabaseKeyboard(),
     };
 
     if (msg) {
