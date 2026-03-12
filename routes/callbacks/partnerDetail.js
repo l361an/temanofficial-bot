@@ -5,7 +5,7 @@ import { getProfileFullByTelegramId } from "../../repositories/profilesRepo.js";
 import { getSubscriptionInfoByTelegramId } from "../../repositories/partnerSubscriptionsRepo.js";
 
 import {
-  buildPartnerDetailActionsKeyboard,
+  buildPartnerDetailsKeyboard,
   buildBackToPartnerDatabaseKeyboard,
 } from "./keyboards.partner.js";
 
@@ -49,15 +49,11 @@ export async function sendPartnerDetail(env, adminId, telegramId, role) {
   }
 
   const subInfo = await getSubscriptionInfoByTelegramId(env, telegramId);
-
   const premiumAccess = premiumAccessLabel(profile, subInfo);
 
   let masaAktif = "-";
-
   if (subInfo?.row) {
-    masaAktif = `${formatDate(subInfo.row.start_at)} s.d ${formatDate(
-      subInfo.row.end_at
-    )}`;
+    masaAktif = `${formatDate(subInfo.row.start_at)} s.d ${formatDate(subInfo.row.end_at)}`;
   }
 
   const lines = [
@@ -77,6 +73,6 @@ export async function sendPartnerDetail(env, adminId, telegramId, role) {
 
   await sendMessage(env, adminId, lines.join("\n"), {
     parse_mode: "HTML",
-    reply_markup: buildPartnerDetailActionsKeyboard(profile.telegram_id, role),
+    reply_markup: buildPartnerDetailsKeyboard(profile.telegram_id, role),
   });
 }
