@@ -10,7 +10,7 @@ import {
   buildConfigKeyboard,
   buildConfigWelcomeKeyboard,
   buildConfigAturanKeyboard,
-} from "./keyboards.js";
+} from "./keyboards.superadmin.js";
 
 import { deleteSetting, escapeHtml } from "./shared.js";
 import { CALLBACKS, CALLBACK_PREFIX, SESSION_MODES } from "../telegram.constants.js";
