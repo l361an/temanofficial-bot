@@ -1,7 +1,7 @@
 // routes/callbacks/officer.js
 import { sendMessage, upsertCallbackMessage } from "../../services/telegramApi.js";
 import { isAdminRole } from "../../utils/roles.js";
-import { buildOfficerHomeKeyboard } from "./keyboards.js";
+import { buildOfficerHomeKeyboard } from "./keyboards.officer.js";
 import { CALLBACKS } from "../telegram.constants.js";
 import { buildOfficerHomeText } from "../telegram.messages.js";
 
