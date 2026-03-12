@@ -8,7 +8,7 @@ import {
 import { getSetting } from "../../repositories/settingsRepo.js";
 import { getAdminByTelegramId, getFirstActiveSuperadminId } from "../../repositories/adminsRepo.js";
 import { confirmPaymentAndActivateSubscription } from "../../services/paymentActivationService.js";
-import { buildFinanceKeyboard } from "./keyboards.js";
+import { buildFinanceKeyboard } from "./keyboards.finance.js";
 import { escapeHtml } from "./shared.js";
 import { CALLBACK_PREFIX } from "../telegram.constants.js";
 
