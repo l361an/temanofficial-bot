@@ -9,9 +9,6 @@ import { resolveTelegramId, fmtClassId } from "../utils/partnerHelpers.js";
 import { buildHelpText, buildOfficerHomeText } from "./telegram.messages.js";
 import { OBSOLETE_ADMIN_COMMANDS } from "./telegram.constants.js";
 
-// =============================
-// Helpers
-// =============================
 async function getPartnerLabelByTelegramId(env, telegramId) {
   const tid = String(telegramId || "").trim();
   if (!tid) return "-";
@@ -26,9 +23,6 @@ function formatDateTime(v) {
   return String(v);
 }
 
-// =============================
-// Category command configs
-// =============================
 const CATEGORY_CMDS = {
   "/addcategory": {
     fmt: "Format:\n/addcategory <kode>\nContoh:\n/addcategory TeManMakan",
@@ -54,9 +48,6 @@ const CATEGORY_CMDS = {
   },
 };
 
-// =============================
-// Main
-// =============================
 export async function handleAdminCommand({ env, chatId, text, role }) {
   if (!isAdminRole(role)) return false;
 
