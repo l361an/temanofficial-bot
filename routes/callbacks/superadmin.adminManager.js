@@ -8,6 +8,7 @@ import {
   updateAdminStatus,
   deactivateAdminByTelegramId,
   activateAdminByTelegramId,
+  deleteAdminByTelegramId,
 } from "../../repositories/adminsRepo.js";
 import {
   createAdminInviteToken,
@@ -295,7 +296,8 @@ export function buildSuperadminAdminManagerHandlers() {
       d.startsWith(CALLBACK_PREFIX.SA_ADMIN_ROLE_SET) ||
       d.startsWith(CALLBACK_PREFIX.SA_ADMIN_STATUS_SET) ||
       d.startsWith(CALLBACK_PREFIX.SA_ADMIN_DEACTIVATE) ||
-      d.startsWith(CALLBACK_PREFIX.SA_ADMIN_ACTIVATE),
+      d.startsWith(CALLBACK_PREFIX.SA_ADMIN_ACTIVATE) ||
+      d.startsWith(CALLBACK_PREFIX.SA_ADMIN_DELETE),
 
     run: async (ctx) => {
       const { env, adminId, data } = ctx;
@@ -581,6 +583,57 @@ export function buildSuperadminAdminManagerHandlers() {
         }
 
         return renderAdminDetail(ctx, targetTelegramId);
+      }
+
+      if (data.startsWith(CALLBACK_PREFIX.SA_ADMIN_DELETE)) {
+        if (actorRole !== "owner") {
+          return denyOwnerOnly(ctx);
+        }
+
+        const targetTelegramId = String(data.slice(CALLBACK_PREFIX.SA_ADMIN_DELETE.length) || "").trim();
+        const row = await getAdminByTelegramId(env, targetTelegramId);
+
+        if (!row) {
+          await sendMessage(env, adminId, "⚠️ Data admin tidak ditemukan.", {
+            reply_markup: buildAdminManagerKeyboard(),
+          });
+          return true;
+        }
+
+        if (row.normRole === "owner") {
+          await sendMessage(env, adminId, "⛔ Owner tidak bisa dihapus.", {
+            reply_markup: buildAdminControlPanelKeyboard(row.telegram_id, row, actorRole),
+          });
+          return true;
+        }
+
+        const res = await deleteAdminByTelegramId(env, targetTelegramId);
+        if (!res?.ok) {
+          const reason = String(res?.reason || "");
+          const msg =
+            reason === "last_superadmin"
+              ? "⛔ Superadmin aktif terakhir tidak boleh dihapus."
+              : reason === "not_found"
+                ? "⚠️ Data admin tidak ditemukan."
+                : "⚠️ Gagal menghapus admin.";
+          await sendMessage(env, adminId, msg, {
+            reply_markup: buildAdminManagerKeyboard(),
+          });
+          return true;
+        }
+
+        return renderMenuMessage(
+          ctx,
+          [
+            "✅ <b>Admin berhasil dihapus</b>",
+            "",
+            `Target: <code>${escapeHtml(targetTelegramId)}</code>`,
+          ].join("\n"),
+          {
+            parse_mode: "HTML",
+            reply_markup: buildAdminManagerKeyboard(),
+          }
+        );
       }
 
       return true;
