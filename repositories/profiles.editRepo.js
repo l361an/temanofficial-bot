@@ -125,7 +125,16 @@ export async function updateEditableProfileFields(env, telegramId, patch) {
   const tid = String(telegramId || "").trim();
   if (!tid) return { ok: false, reason: "empty_tid" };
 
-  const allowed = ["nickname", "no_whatsapp", "kecamatan", "kota"];
+  const allowed = [
+    "nama_lengkap",
+    "nickname",
+    "no_whatsapp",
+    "nik",
+    "kecamatan",
+    "kota",
+    "channel_url",
+  ];
+
   const keys = Object.keys(patch || {}).filter((k) => allowed.includes(k));
   if (!keys.length) return { ok: false, reason: "no_allowed_fields" };
 
