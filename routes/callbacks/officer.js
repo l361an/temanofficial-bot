@@ -14,6 +14,7 @@ export function buildOfficerExact() {
 
     const text = buildOfficerHomeText();
     const extra = {
+      parse_mode: "HTML",
       reply_markup: buildOfficerHomeKeyboard(role),
     };
 
