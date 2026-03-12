@@ -6,7 +6,6 @@ import { saveSession, clearSession } from "../../utils/session.js";
 
 import {
   buildSuperadminToolsKeyboard,
-  buildSettingsKeyboard,
   buildConfigKeyboard,
   buildConfigWelcomeKeyboard,
   buildConfigAturanKeyboard,
@@ -34,14 +33,6 @@ function buildSystemSettingsText() {
     "⚙️ <b>System Settings</b>",
     "",
     "Pilih menu pengaturan sistem di bawah.",
-  ].join("\n");
-}
-
-function buildSettingsText() {
-  return [
-    "⚙️ <b>System Settings</b>",
-    "",
-    "Pilih area pengaturan yang ingin dikelola.",
   ].join("\n");
 }
 
@@ -73,9 +64,9 @@ export function buildSuperadminConfigHandlers() {
 
     await clearSession(env, `state:${adminId}`).catch(() => {});
 
-    return renderMenuMessage(ctx, buildSettingsText(), {
+    return renderMenuMessage(ctx, buildSystemSettingsText(), {
       parse_mode: "HTML",
-      reply_markup: buildSettingsKeyboard(),
+      reply_markup: buildSuperadminToolsKeyboard(),
     });
   };
 
