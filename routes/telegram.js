@@ -22,6 +22,7 @@ import { buildSelfMenuMessage, buildSelfMenuKeyboard } from "./telegram.flow.sel
 import { buildTeManMenuKeyboard } from "./telegram.user.shared.js";
 import { handleRegistrationFlow } from "./telegram.flow.js";
 import { handleSuperadminFinanceInput } from "./telegram.flow.superadminFinance.js";
+import { handleSuperadminAdminManagerInput } from "./telegram.flow.superadminAdminManager.js";
 import { handlePaymentProofUpload } from "./telegram.flow.paymentProof.js";
 import { handlePartnerModerationInput } from "./telegram.flow.partnerModeration.js";
 import { handlePartnerViewSearchInput } from "./callbacks/partnerDatabase.js";
@@ -265,6 +266,18 @@ export async function handleTelegramWebhook(request, env) {
       });
 
       if (handledFinance) return json({ ok: true });
+    }
+
+    if (session?.mode === "sa_admin_manager" && isAdminRole(role)) {
+      const handledAdminManager = await handleSuperadminAdminManagerInput({
+        env,
+        chatId,
+        text,
+        session,
+        STATE_KEY,
+      });
+
+      if (handledAdminManager) return json({ ok: true });
     }
 
     if (session?.mode === "partner_view" && isAdminRole(role)) {
