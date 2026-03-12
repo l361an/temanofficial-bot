@@ -9,7 +9,7 @@ import {
   buildFinancePricingKeyboard,
   buildFinanceClassPricingKeyboard,
   buildFinanceQrisKeyboard,
-} from "./keyboards.js";
+} from "./keyboards.finance.js";
 
 import { CALLBACKS, SESSION_MODES } from "../telegram.constants.js";
 import { escapeHtml } from "./shared.js";
