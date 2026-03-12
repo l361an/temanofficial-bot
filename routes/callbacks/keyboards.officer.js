@@ -8,13 +8,17 @@ export function buildOfficerHomeKeyboard(role) {
   if (isSuperadminRole(role)) {
     rows.push([
       { text: "👮 Admin Management", callback_data: CALLBACKS.SUPERADMIN_ADMIN_MENU },
+    ]);
+    rows.push([
       { text: "👥 Partner Management", callback_data: CALLBACKS.PARTNER_TOOLS_MENU },
     ]);
     rows.push([
       { text: "⚙️ System Settings", callback_data: CALLBACKS.SUPERADMIN_TOOLS_MENU },
     ]);
   } else {
-    rows.push([{ text: "👥 Partner Management", callback_data: CALLBACKS.PARTNER_TOOLS_MENU }]);
+    rows.push([
+      { text: "👥 Partner Management", callback_data: CALLBACKS.PARTNER_TOOLS_MENU },
+    ]);
   }
 
   return { inline_keyboard: rows };
