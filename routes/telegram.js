@@ -26,7 +26,7 @@ import { handleSuperadminAdminManagerInput } from "./telegram.flow.superadminAdm
 import { handlePaymentProofUpload } from "./telegram.flow.paymentProof.js";
 import { handlePartnerModerationInput } from "./telegram.flow.partnerModeration.js";
 import { handlePartnerViewSearchInput } from "./callbacks/partnerDatabase.js";
-import { buildOfficerHomeKeyboard } from "./callbacks/keyboards.js";
+import { buildOfficerHomeKeyboard } from "./callbacks/keyboards.officer.js";
 import { buildOfficerHomeText } from "./telegram.messages.js";
 
 import {
