@@ -42,12 +42,21 @@ function getBotUsername(env) {
     .replace(/^@/, "");
 }
 
-function buildInviteUrl(env, token) {
+function buildInviteArtifacts(env, token) {
+  const cleanToken = String(token || "").trim();
   const username = getBotUsername(env);
-  const startParam = buildAdminInviteStartParam(token);
+  const startParam = buildAdminInviteStartParam(cleanToken);
+  const startCommand = startParam ? `/start ${startParam}` : "";
+  const inviteUrl =
+    username && startParam ? `https://t.me/${username}?start=${startParam}` : null;
 
-  if (!username || !startParam) return null;
-  return `https://t.me/${username}?start=${startParam}`;
+  return {
+    username,
+    token: cleanToken,
+    startParam,
+    startCommand,
+    inviteUrl,
+  };
 }
 
 function buildAdminManagerText() {
@@ -99,7 +108,7 @@ function buildAdminDetailText(row) {
   ].join("\n");
 }
 
-function buildInviteAdminText({ inviteUrl, token, role = "admin", expiresAt }) {
+function buildInviteAdminText({ inviteUrl, startCommand, token, role = "admin", expiresAt }) {
   const lines = [
     "🔗 <b>Invite Admin</b>",
     "",
@@ -112,23 +121,36 @@ function buildInviteAdminText({ inviteUrl, token, role = "admin", expiresAt }) {
   if (inviteUrl) {
     lines.push("Link invite:");
     lines.push(`<code>${escapeHtml(inviteUrl)}</code>`);
-  } else {
-    lines.push("Bot username env belum ditemukan, jadi deep link belum bisa dibentuk otomatis.");
-    lines.push("Token invite:");
-    lines.push(`<code>${escapeHtml(token || "-")}</code>`);
     lines.push("");
-    lines.push("Set salah satu env berikut dulu:");
+  } else {
+    lines.push("Bot username env belum ditemukan, jadi deep link otomatis belum bisa dibentuk.");
+    lines.push("");
+  }
+
+  if (startCommand) {
+    lines.push("Fallback command:");
+    lines.push(`<code>${escapeHtml(startCommand)}</code>`);
+    lines.push("");
+  }
+
+  lines.push("Token invite:");
+  lines.push(`<code>${escapeHtml(token || "-")}</code>`);
+  lines.push("");
+
+  if (!inviteUrl) {
+    lines.push("Set salah satu env berikut kalau ingin link t.me terbentuk otomatis:");
     lines.push("• TELEGRAM_BOT_USERNAME");
     lines.push("• BOT_USERNAME");
     lines.push("• PUBLIC_BOT_USERNAME");
+    lines.push("");
   }
 
-  lines.push("");
   lines.push("Flow:");
-  lines.push("1. Owner kirim link ke candidate admin");
-  lines.push("2. Candidate klik link bot");
-  lines.push("3. Bot validasi token");
-  lines.push("4. User menjadi admin");
+  lines.push("1. Owner kirim link invite jika tersedia, atau kirim fallback command ke candidate admin");
+  lines.push("2. Candidate buka bot TeMan");
+  lines.push("3. Candidate kirim fallback command ke bot jika tidak memakai deep link");
+  lines.push("4. Bot validasi token");
+  lines.push("5. User menjadi admin");
 
   return lines.join("\n");
 }
@@ -234,12 +256,13 @@ export function buildSuperadminAdminManagerHandlers() {
       expiryHours: 24,
     });
 
-    const inviteUrl = buildInviteUrl(env, created?.token);
+    const artifacts = buildInviteArtifacts(env, created?.token);
 
     return renderMenuMessage(
       ctx,
       buildInviteAdminText({
-        inviteUrl,
+        inviteUrl: artifacts.inviteUrl,
+        startCommand: artifacts.startCommand,
         token: created?.token,
         role: created?.role || "admin",
         expiresAt: created?.expires_at,
