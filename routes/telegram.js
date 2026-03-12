@@ -4,7 +4,16 @@ import { json } from "../utils/response.js";
 import { parseMessage } from "../utils/parseTelegram.js";
 import { loadSession } from "../utils/session.js";
 import { sendMessage } from "../services/telegramApi.js";
-import { getAdminRole } from "../repositories/adminsRepo.js";
+import {
+  getAdminRole,
+  getAdminByTelegramId,
+  createAdmin,
+} from "../repositories/adminsRepo.js";
+import {
+  parseAdminInviteStartParam,
+  validateAdminInviteToken,
+  markAdminInviteTokenUsed,
+} from "../repositories/adminInviteTokensRepo.js";
 import { isAdminRole, isSuperadminRole } from "../utils/roles.js";
 import { handleCallback } from "./telegram.callback.js";
 import { handleAdminCommand } from "./telegram.commands.admin.js";
@@ -16,6 +25,8 @@ import { handleSuperadminFinanceInput } from "./telegram.flow.superadminFinance.
 import { handlePaymentProofUpload } from "./telegram.flow.paymentProof.js";
 import { handlePartnerModerationInput } from "./telegram.flow.partnerModeration.js";
 import { handlePartnerViewSearchInput } from "./callbacks/partnerDatabase.js";
+import { buildOfficerHomeKeyboard } from "./callbacks/keyboards.js";
+import { buildOfficerHomeText } from "./telegram.messages.js";
 
 import {
   getProfileFullByTelegramId,
@@ -59,6 +70,112 @@ function buildHelp(role) {
   );
 }
 
+function buildInviteErrorText(reason) {
+  if (reason === "not_found") {
+    return "⚠️ Invite admin tidak ditemukan.";
+  }
+  if (reason === "expired") {
+    return "⚠️ Invite admin sudah expired.";
+  }
+  if (reason === "used") {
+    return "⚠️ Invite admin ini sudah digunakan.";
+  }
+  if (reason === "revoked") {
+    return "⚠️ Invite admin ini sudah dicabut.";
+  }
+  if (reason === "not_active") {
+    return "⚠️ Invite admin tidak aktif.";
+  }
+  if (reason === "owner_conflict") {
+    return "⛔ Akun owner tidak boleh dioverride lewat invite admin.";
+  }
+  return "⚠️ Invite admin tidak valid.";
+}
+
+function buildAdminNamaFromMessage(msg, telegramId, username) {
+  const firstName = String(msg?.from?.first_name || "").trim();
+  const lastName = String(msg?.from?.last_name || "").trim();
+  const fullName = [firstName, lastName].filter(Boolean).join(" ").trim();
+  if (fullName) return fullName;
+
+  const uname = String(username || "").trim().replace(/^@/, "");
+  if (uname) return uname;
+
+  return String(telegramId || "").trim();
+}
+
+async function handleAdminInviteStart({
+  env,
+  msg,
+  chatId,
+  telegramId,
+  username,
+  rawText,
+}) {
+  const parts = String(rawText || "").trim().split(/\s+/);
+  const startParam = String(parts[1] || "").trim();
+  const token = parseAdminInviteStartParam(startParam);
+
+  if (!token) return false;
+
+  const validation = await validateAdminInviteToken(env, token);
+  if (!validation?.ok || !validation?.row) {
+    await sendMessage(env, chatId, buildInviteErrorText(validation?.reason || "invalid"));
+    return true;
+  }
+
+  const existingAdmin = await getAdminByTelegramId(env, telegramId);
+  if (existingAdmin?.normRole === "owner") {
+    await sendMessage(env, chatId, buildInviteErrorText("owner_conflict"));
+    return true;
+  }
+
+  const nama = buildAdminNamaFromMessage(msg, telegramId, username);
+
+  const created = await createAdmin(env, {
+    telegram_id: telegramId,
+    username: username || null,
+    nama,
+    kota: null,
+    role: validation.row.role || "admin",
+    status: "active",
+  });
+
+  if (!created?.ok) {
+    await sendMessage(env, chatId, "⚠️ Gagal aktivasi admin dari invite.");
+    return true;
+  }
+
+  const used = await markAdminInviteTokenUsed(env, token, telegramId);
+  if (!used?.ok) {
+    await sendMessage(env, chatId, "⚠️ Admin tersimpan, tapi status token invite gagal diupdate.");
+    return true;
+  }
+
+  const nextRole = await getAdminRole(env, telegramId);
+
+  await sendMessage(
+    env,
+    chatId,
+    [
+      "✅ Aktivasi admin berhasil.",
+      "",
+      `Role: ${validation.row.role || "admin"}`,
+      "Selamat datang di Officer Home.",
+    ].join("\n"),
+    {
+      reply_markup: buildOfficerHomeKeyboard(nextRole),
+    }
+  );
+
+  await sendMessage(env, chatId, buildOfficerHomeText(), {
+    parse_mode: "HTML",
+    reply_markup: buildOfficerHomeKeyboard(nextRole),
+  });
+
+  return true;
+}
+
 export async function handleTelegramWebhook(request, env) {
   try {
     const update = await request.json();
@@ -90,6 +207,19 @@ export async function handleTelegramWebhook(request, env) {
       if (baseCmd === "/help") {
         await sendMessage(env, chatId, buildHelp(role), { parse_mode: "HTML" });
         return json({ ok: true });
+      }
+
+      if (baseCmd === "/start") {
+        const handledInviteStart = await handleAdminInviteStart({
+          env,
+          msg,
+          chatId,
+          telegramId,
+          username,
+          rawText: raw,
+        });
+
+        if (handledInviteStart) return json({ ok: true });
       }
 
       if (isAdminRole(role)) {
@@ -221,17 +351,17 @@ export async function handleTelegramWebhook(request, env) {
       return json({ ok: true });
     }
 
-      await handleRegistrationFlow({
-        update,
-        env,
-        chat,
-        chatId,
-        telegramId,
-        username,
-        text,
-        session,
-        STATE_KEY,
-      });
+    await handleRegistrationFlow({
+      update,
+      env,
+      chat,
+      chatId,
+      telegramId,
+      username,
+      text,
+      session,
+      STATE_KEY,
+    });
 
     return json({ ok: true });
   } catch (err) {
