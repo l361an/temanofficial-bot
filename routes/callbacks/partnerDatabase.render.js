@@ -17,7 +17,7 @@ import {
   buildPartnerControlPanelKeyboard,
   buildPartnerDetailsKeyboard,
   buildPartnerSubscriptionKeyboard,
-} from "./keyboards.js";
+} from "./keyboards.partner.js";
 
 import { cleanHandle } from "../../utils/partnerHelpers.js";
 
@@ -187,7 +187,7 @@ export async function renderPartnerControlPanel(
       env,
       adminId,
       "⚠️ Data partner tidak ditemukan.",
-      buildBackToPartnerDatabaseViewKeyboard(role),
+      buildBackToPartnerDatabaseViewKeyboard(),
       { session, fallbackMessage, forceNewMessage }
     );
 
@@ -216,7 +216,7 @@ export async function renderPartnerControlPanel(
     env,
     adminId,
     buildPartnerControlPanelText(context),
-    buildPartnerControlPanelKeyboard(context.profile.telegram_id, role),
+    buildPartnerControlPanelKeyboard(context.profile.telegram_id),
     { session, fallbackMessage, forceNewMessage }
   );
 
@@ -255,7 +255,7 @@ export async function renderPartnerDetailsPage(
       env,
       adminId,
       "⚠️ Data partner tidak ditemukan.",
-      buildBackToPartnerDatabaseKeyboard(role),
+      buildBackToPartnerDatabaseKeyboard(),
       { session, fallbackMessage }
     );
     return false;
@@ -306,7 +306,7 @@ export async function renderPartnerSubscriptionPage(
       env,
       adminId,
       "⚠️ Data partner tidak ditemukan.",
-      buildBackToPartnerDatabaseKeyboard(role),
+      buildBackToPartnerDatabaseKeyboard(),
       { session, fallbackMessage }
     );
     return false;
@@ -316,7 +316,7 @@ export async function renderPartnerSubscriptionPage(
     env,
     adminId,
     buildPartnerSubscriptionText(context),
-    buildPartnerSubscriptionKeyboard(context.profile.telegram_id, role),
+    buildPartnerSubscriptionKeyboard(context.profile.telegram_id),
     { session, fallbackMessage }
   );
 
