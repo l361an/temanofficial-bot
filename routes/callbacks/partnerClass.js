@@ -11,7 +11,7 @@ import {
   buildPartnerClassPickerKeyboard,
   buildPartnerDetailActionsKeyboard,
   buildPartnerVerificatorPickerKeyboard,
-} from "./keyboards.js";
+} from "./keyboards.partner.js";
 import { escapeHtml, fmtClassId, fmtHandle } from "./shared.js";
 import { CALLBACK_PREFIX, SESSION_MODES } from "../telegram.constants.js";
 
