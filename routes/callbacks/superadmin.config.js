@@ -29,6 +29,30 @@ async function renderMenuMessage(ctx, text, extra) {
   return true;
 }
 
+function buildSystemSettingsText() {
+  return [
+    "⚙️ <b>System Settings</b>",
+    "",
+    "Pilih menu pengaturan sistem di bawah.",
+  ].join("\n");
+}
+
+function buildSettingsText() {
+  return [
+    "⚙️ <b>System Settings</b>",
+    "",
+    "Pilih area pengaturan yang ingin dikelola.",
+  ].join("\n");
+}
+
+function buildConfigText() {
+  return [
+    "⚙️ <b>System Settings</b>",
+    "",
+    "Pilih data konfigurasi yang ingin diupdate.",
+  ].join("\n");
+}
+
 export function buildSuperadminConfigHandlers() {
   const EXACT = {};
   const PREFIX = [];
@@ -38,7 +62,7 @@ export function buildSuperadminConfigHandlers() {
 
     await clearSession(env, `state:${adminId}`).catch(() => {});
 
-    return renderMenuMessage(ctx, "⚙️ <b>Superadmin Tools</b>\nPilih menu:", {
+    return renderMenuMessage(ctx, buildSystemSettingsText(), {
       parse_mode: "HTML",
       reply_markup: buildSuperadminToolsKeyboard(),
     });
@@ -49,7 +73,7 @@ export function buildSuperadminConfigHandlers() {
 
     await clearSession(env, `state:${adminId}`).catch(() => {});
 
-    return renderMenuMessage(ctx, "⚙️ <b>Settings</b>\nPilih menu:", {
+    return renderMenuMessage(ctx, buildSettingsText(), {
       parse_mode: "HTML",
       reply_markup: buildSettingsKeyboard(),
     });
@@ -60,7 +84,7 @@ export function buildSuperadminConfigHandlers() {
 
     await clearSession(env, `state:${adminId}`).catch(() => {});
 
-    return renderMenuMessage(ctx, "🧩 <b>Config</b>\nPilih yang mau diupdate:", {
+    return renderMenuMessage(ctx, buildConfigText(), {
       parse_mode: "HTML",
       reply_markup: buildConfigKeyboard(),
     });
@@ -95,7 +119,7 @@ export function buildSuperadminConfigHandlers() {
     await sendMessage(
       env,
       adminId,
-      "✏️ <b>Edit Welcome Message</b>\n\nKetik Welcome Message Baru.\n\nKetik <b>batal</b> untuk keluar.",
+      "✏️ <b>Edit Welcome Message</b>\n\nKetik Welcome Message baru.\n\nKetik <b>batal</b> untuk keluar.",
       {
         parse_mode: "HTML",
         reply_markup: {
@@ -137,7 +161,7 @@ export function buildSuperadminConfigHandlers() {
     await sendMessage(
       env,
       adminId,
-      "✏️ <b>Edit Link Aturan</b>\n\nKetik Link Aturan Baru.\n\nKetik <b>batal</b> untuk keluar.",
+      "✏️ <b>Edit Link Aturan</b>\n\nKetik Link Aturan baru.\n\nKetik <b>batal</b> untuk keluar.",
       {
         parse_mode: "HTML",
         reply_markup: {
