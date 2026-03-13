@@ -79,7 +79,7 @@ export function buildPartnerDetailsKeyboard(telegramId, role) {
     ]);
     rows.push([
       { text: "🗂️ Category", callback_data: cb.pmEditStart(telegramId, "category") },
-      { text: "🔗 Channel Partner", callback_data: cb.pmEditStart(telegramId, "channel_url") },
+      { text: "🔗 Channel", callback_data: cb.pmEditStart(telegramId, "channel_url") },
     ]);
   }
 
@@ -109,7 +109,7 @@ export function buildPartnerClassPickerKeyboard(telegramId) {
       ],
       [{ text: "Platinum", callback_data: cb.pmClassSet(telegramId, "platinum") }],
       [
-        { text: "⬅️ Back to Panel", callback_data: cb.pmClassBack(telegramId) },
+        { text: "⬅️ Back", callback_data: cb.pmClassBack(telegramId) },
         officerHomeButton(),
       ],
     ],
@@ -131,7 +131,7 @@ export function buildPartnerVerificatorPickerKeyboard(telegramId, verificators =
   }
 
   rows.push([
-    { text: "⬅️ Back to Panel", callback_data: cb.pmVerBack(telegramId) },
+    { text: "⬅️ Back", callback_data: cb.pmVerBack(telegramId) },
     officerHomeButton(),
   ]);
 
