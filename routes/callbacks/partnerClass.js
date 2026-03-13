@@ -1,6 +1,12 @@
 // routes/callbacks/partnerClass.js
 
-import { sendMessage, sendPhoto, sendLongMessage, editMessageReplyMarkup } from "../../services/telegramApi.js";
+import {
+  sendMessage,
+  sendPhoto,
+  sendLongMessage,
+  editMessageReplyMarkup,
+  upsertCallbackMessage,
+} from "../../services/telegramApi.js";
 import { saveSession, loadSession, clearSession } from "../../utils/session.js";
 import { getAdminByTelegramId } from "../../repositories/adminsRepo.js";
 import {
@@ -21,6 +27,7 @@ import { CALLBACKS, CALLBACK_PREFIX, SESSION_MODES, cb } from "../telegram.const
 const PM_CATEGORY_TOGGLE_PREFIX = "pm_cat_toggle:";
 const PM_CATEGORY_SAVE_PREFIX = "pm_cat_save:";
 const PM_CATEGORY_BACK_PREFIX = "pm_cat_back:";
+const PM_PREVIEW_PREFIX = "pm_preview:";
 
 const fmtKV = (label, value) => {
   const v = value === null || value === undefined || value === "" ? "-" : String(value);
@@ -30,9 +37,21 @@ const fmtKV = (label, value) => {
 function buildBackAndHomeKeyboard(telegramId, backCallbackData = null) {
   return {
     inline_keyboard: [[
-      { text: "⬅️ Back", callback_data: backCallbackData || cb.pmPanelBack(telegramId) },
+      { text: "⬅️ Back", callback_data: backCallbackData || cb.pmEditBack(telegramId) },
       { text: "🏠 Officer Home", callback_data: CALLBACKS.OFFICER_HOME },
     ]],
+  };
+}
+
+function buildSuccessKeyboard(telegramId) {
+  return {
+    inline_keyboard: [
+      [
+        { text: "⬅️ Back", callback_data: cb.pmEditBack(telegramId) },
+        { text: "👁️ Preview", callback_data: `${PM_PREVIEW_PREFIX}${telegramId}` },
+      ],
+      [{ text: "🏠 Officer Home", callback_data: CALLBACKS.OFFICER_HOME }],
+    ],
   };
 }
 
@@ -187,6 +206,68 @@ function buildCategoryPickerKeyboard(telegramId, categories = [], selectedIds = 
   return { inline_keyboard: rows };
 }
 
+async function renderActionMenu(env, adminId, telegramId, role, msg = null) {
+  const profile = await getProfileFullByTelegramId(env, telegramId);
+  if (!profile) {
+    if (msg) {
+      await upsertCallbackMessage(env, msg, "⚠️ Data partner tidak ditemukan.", {
+        reply_markup: buildBackToPartnerDatabaseKeyboard(),
+      }).catch(async () => {
+        await sendMessage(env, adminId, "⚠️ Data partner tidak ditemukan.", {
+          reply_markup: buildBackToPartnerDatabaseKeyboard(),
+        });
+      });
+      return true;
+    }
+
+    await sendMessage(env, adminId, "⚠️ Data partner tidak ditemukan.", {
+      reply_markup: buildBackToPartnerDatabaseKeyboard(),
+    });
+    return true;
+  }
+
+  const text = [
+    "⚙️ <b>Aksi Partner</b>",
+    "",
+    `Partner: <b>${escapeHtml(profile.nama_lengkap || "-")}</b>`,
+    `Telegram ID: <code>${escapeHtml(profile.telegram_id || "-")}</code>`,
+    "",
+    "Pilih aksi dibawah :",
+  ].join("\n");
+
+  const extra = {
+    parse_mode: "HTML",
+    reply_markup: buildPartnerDetailsKeyboard(profile.telegram_id, role),
+  };
+
+  if (msg) {
+    await upsertCallbackMessage(env, msg, text, extra).catch(async () => {
+      await sendMessage(env, adminId, text, extra);
+    });
+    return true;
+  }
+
+  await sendMessage(env, adminId, text, extra);
+  return true;
+}
+
+async function renderSuccessState(env, adminId, telegramId, label, msg = null) {
+  const text = `✅ Data ${label} berhasil diupdate !!!`;
+  const extra = {
+    reply_markup: buildSuccessKeyboard(telegramId),
+  };
+
+  if (msg) {
+    await upsertCallbackMessage(env, msg, text, extra).catch(async () => {
+      await sendMessage(env, adminId, text, extra);
+    });
+    return true;
+  }
+
+  await sendMessage(env, adminId, text, extra);
+  return true;
+}
+
 export async function buildPartnerDetailText(env, profile) {
   const categories = profile?.id ? await listCategoryKodesByProfileId(env, profile.id) : [];
   const kategoriText = categories.length ? categories.join(", ") : "-";
@@ -322,7 +403,7 @@ export function buildPartnerClassHandlers() {
   PREFIX.push({
     match: (d) => d.startsWith(CALLBACK_PREFIX.PM_CLASS_SET),
     run: async (ctx) => {
-      const { env, data, adminId, msgChatId, msgId, role } = ctx;
+      const { env, data, adminId, msg, msgChatId, msgId } = ctx;
       const payload = String(data.slice(CALLBACK_PREFIX.PM_CLASS_SET.length));
       const [telegramId, classId] = payload.split(":");
 
@@ -335,14 +416,14 @@ export function buildPartnerClassHandlers() {
 
       const res = await updateProfileClassByTelegramId(env, telegramId, classId);
       if (!res.ok) {
-        const msg =
+        const msgText =
           res.reason === "invalid_class_id"
             ? "⚠️ Class ID tidak valid. Pilih Bronze, Gold, atau Platinum."
             : res.reason === "not_found"
               ? "⚠️ Data partner tidak ditemukan."
               : "⚠️ Gagal mengubah class partner.";
 
-        await sendMessage(env, adminId, msg, {
+        await sendMessage(env, adminId, msgText, {
           reply_markup:
             res.reason === "invalid_class_id"
               ? buildPartnerClassPickerKeyboard(telegramId)
@@ -351,35 +432,11 @@ export function buildPartnerClassHandlers() {
         return true;
       }
 
-      const profile = await getProfileFullByTelegramId(env, telegramId);
-      if (!profile) {
-        await sendMessage(
-          env,
-          adminId,
-          `✅ Class partner berhasil diubah menjadi <b>${escapeHtml(fmtClassId(classId))}</b>.`,
-          {
-            parse_mode: "HTML",
-            reply_markup: buildBackToPartnerDatabaseKeyboard(),
-          }
-        );
-        return true;
-      }
-
       if (msgChatId && msgId) {
         await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
       }
 
-      await sendMessage(
-        env,
-        adminId,
-        `✅ Class partner berhasil diubah.\n\n` +
-          `Partner: <b>${escapeHtml(profile.nama_lengkap || "-")}</b>\n` +
-          `Telegram ID: <code>${escapeHtml(profile.telegram_id || "-")}</code>\n` +
-          `Class baru: <b>${escapeHtml(fmtClassId(profile.class_id))}</b>`,
-        { parse_mode: "HTML" }
-      );
-
-      await sendPartnerDetailOutput(env, adminId, role, profile);
+      await renderSuccessState(env, adminId, telegramId, "Class", msg);
       return true;
     },
   });
@@ -387,7 +444,7 @@ export function buildPartnerClassHandlers() {
   PREFIX.push({
     match: (d) => d.startsWith(CALLBACK_PREFIX.PM_CLASS_BACK),
     run: async (ctx) => {
-      const { env, data, adminId, msgChatId, msgId, role } = ctx;
+      const { env, data, adminId, msg, role } = ctx;
       const telegramId = String(data.slice(CALLBACK_PREFIX.PM_CLASS_BACK.length) || "").trim();
 
       if (!telegramId) {
@@ -397,19 +454,7 @@ export function buildPartnerClassHandlers() {
         return true;
       }
 
-      const profile = await getProfileFullByTelegramId(env, telegramId);
-      if (!profile) {
-        await sendMessage(env, adminId, "⚠️ Data partner tidak ditemukan.", {
-          reply_markup: buildBackToPartnerDatabaseKeyboard(),
-        });
-        return true;
-      }
-
-      if (msgChatId && msgId) {
-        await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
-      }
-
-      await sendPartnerDetailOutput(env, adminId, role, profile);
+      await renderActionMenu(env, adminId, telegramId, role, msg);
       return true;
     },
   });
@@ -466,7 +511,7 @@ export function buildPartnerClassHandlers() {
   PREFIX.push({
     match: (d) => d.startsWith(CALLBACK_PREFIX.PM_VER_SET),
     run: async (ctx) => {
-      const { env, data, adminId, msgChatId, msgId, role } = ctx;
+      const { env, data, adminId, msg, msgChatId, msgId } = ctx;
       const payload = String(data.slice(CALLBACK_PREFIX.PM_VER_SET.length));
       const [telegramId, verificatorId] = payload.split(":");
 
@@ -490,23 +535,11 @@ export function buildPartnerClassHandlers() {
 
       const res = await updatePartnerVerificator(env, telegramId, verificatorId);
       if (!res.ok) {
-        const msg =
+        const msgText =
           res.reason === "not_found"
             ? "⚠️ Data partner tidak ditemukan."
             : "⚠️ Gagal mengubah verificator partner.";
-        await sendMessage(env, adminId, msg, {
-          reply_markup: buildBackToPartnerDatabaseKeyboard(),
-        });
-        return true;
-      }
-
-      const profile = await getProfileFullByTelegramId(env, telegramId);
-      const usernameOnly = adminRow?.username
-        ? `@${String(adminRow.username).replace(/^@/, "")}`
-        : verificatorId;
-
-      if (!profile) {
-        await sendMessage(env, adminId, `✅ Verificator partner berhasil diubah ke ${usernameOnly}.`, {
+        await sendMessage(env, adminId, msgText, {
           reply_markup: buildBackToPartnerDatabaseKeyboard(),
         });
         return true;
@@ -516,17 +549,7 @@ export function buildPartnerClassHandlers() {
         await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
       }
 
-      await sendMessage(
-        env,
-        adminId,
-        `✅ Verificator partner berhasil diubah.\n\n` +
-          `Partner: <b>${escapeHtml(profile.nama_lengkap || "-")}</b>\n` +
-          `Telegram ID: <code>${escapeHtml(profile.telegram_id || "-")}</code>\n` +
-          `Verificator baru: <b>${escapeHtml(usernameOnly)}</b>`,
-        { parse_mode: "HTML" }
-      );
-
-      await sendPartnerDetailOutput(env, adminId, role, profile);
+      await renderSuccessState(env, adminId, telegramId, "Verificator", msg);
       return true;
     },
   });
@@ -534,7 +557,7 @@ export function buildPartnerClassHandlers() {
   PREFIX.push({
     match: (d) => d.startsWith(CALLBACK_PREFIX.PM_VER_BACK),
     run: async (ctx) => {
-      const { env, data, adminId, msgChatId, msgId, role } = ctx;
+      const { env, data, adminId, msg, role } = ctx;
       const telegramId = String(data.slice(CALLBACK_PREFIX.PM_VER_BACK.length) || "").trim();
 
       if (!telegramId) {
@@ -544,19 +567,7 @@ export function buildPartnerClassHandlers() {
         return true;
       }
 
-      const profile = await getProfileFullByTelegramId(env, telegramId);
-      if (!profile) {
-        await sendMessage(env, adminId, "⚠️ Data partner tidak ditemukan.", {
-          reply_markup: buildBackToPartnerDatabaseKeyboard(),
-        });
-        return true;
-      }
-
-      if (msgChatId && msgId) {
-        await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
-      }
-
-      await sendPartnerDetailOutput(env, adminId, role, profile);
+      await renderActionMenu(env, adminId, telegramId, role, msg);
       return true;
     },
   });
@@ -721,7 +732,7 @@ export function buildPartnerClassHandlers() {
   PREFIX.push({
     match: (d) => d.startsWith(PM_CATEGORY_TOGGLE_PREFIX),
     run: async (ctx) => {
-      const { env, data, adminId, msgChatId, msgId } = ctx;
+      const { env, data, adminId, msg } = ctx;
       const payload = String(data.slice(PM_CATEGORY_TOGGLE_PREFIX.length) || "");
       const [telegramId, categoryId] = payload.split(":");
 
@@ -756,23 +767,21 @@ export function buildPartnerClassHandlers() {
       });
 
       const categories = await loadCategoryOptions(env);
-
-      if (msgChatId && msgId) {
-        await editMessageReplyMarkup(env, msgChatId, msgId, buildCategoryPickerKeyboard(profile.telegram_id, categories, nextIds).reply_markup).catch(() => {});
-      }
-
-      await sendMessage(
-        env,
-        adminId,
+      const text =
         `🗂️ <b>Edit Category</b>\n\n` +
-          `Partner: <b>${escapeHtml(profile.nama_lengkap || "-")}</b>\n` +
-          `Telegram ID: <code>${escapeHtml(profile.telegram_id || "-")}</code>\n\n` +
-          `Pilih Category dibawah :`,
-        {
+        `Partner: <b>${escapeHtml(profile.nama_lengkap || "-")}</b>\n` +
+        `Telegram ID: <code>${escapeHtml(profile.telegram_id || "-")}</code>\n\n` +
+        `Pilih Category dibawah :`;
+
+      await upsertCallbackMessage(env, msg, text, {
+        parse_mode: "HTML",
+        reply_markup: buildCategoryPickerKeyboard(profile.telegram_id, categories, nextIds),
+      }).catch(async () => {
+        await sendMessage(env, adminId, text, {
           parse_mode: "HTML",
           reply_markup: buildCategoryPickerKeyboard(profile.telegram_id, categories, nextIds),
-        }
-      );
+        });
+      });
 
       return true;
     },
@@ -781,7 +790,7 @@ export function buildPartnerClassHandlers() {
   PREFIX.push({
     match: (d) => d.startsWith(PM_CATEGORY_SAVE_PREFIX),
     run: async (ctx) => {
-      const { env, data, adminId, role } = ctx;
+      const { env, data, adminId, msg } = ctx;
       const telegramId = String(data.slice(PM_CATEGORY_SAVE_PREFIX.length) || "").trim();
 
       if (!telegramId) {
@@ -805,9 +814,7 @@ export function buildPartnerClassHandlers() {
       await setProfileCategoriesByProfileId(env, profile.id, selectedIds);
       await clearSession(env, `state:${adminId}`).catch(() => {});
 
-      const refreshed = await getProfileFullByTelegramId(env, telegramId);
-      await sendMessage(env, adminId, "✅ Category partner berhasil diupdate.");
-      await sendPartnerDetailOutput(env, adminId, role, refreshed || profile);
+      await renderSuccessState(env, adminId, telegramId, "Category", msg);
       return true;
     },
   });
@@ -815,8 +822,26 @@ export function buildPartnerClassHandlers() {
   PREFIX.push({
     match: (d) => d.startsWith(PM_CATEGORY_BACK_PREFIX),
     run: async (ctx) => {
-      const { env, data, adminId, role } = ctx;
+      const { env, data, adminId, msg, role } = ctx;
       const telegramId = String(data.slice(PM_CATEGORY_BACK_PREFIX.length) || "").trim();
+
+      if (!telegramId) {
+        await sendMessage(env, adminId, "⚠️ Target partner tidak valid.", {
+          reply_markup: buildBackToPartnerDatabaseKeyboard(),
+        });
+        return true;
+      }
+
+      await renderActionMenu(env, adminId, telegramId, role, msg);
+      return true;
+    },
+  });
+
+  PREFIX.push({
+    match: (d) => d.startsWith(PM_PREVIEW_PREFIX),
+    run: async (ctx) => {
+      const { env, data, adminId, role, msgChatId, msgId } = ctx;
+      const telegramId = String(data.slice(PM_PREVIEW_PREFIX.length) || "").trim();
 
       if (!telegramId) {
         await sendMessage(env, adminId, "⚠️ Target partner tidak valid.", {
@@ -831,6 +856,10 @@ export function buildPartnerClassHandlers() {
           reply_markup: buildBackToPartnerDatabaseKeyboard(),
         });
         return true;
+      }
+
+      if (msgChatId && msgId) {
+        await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
       }
 
       await sendPartnerDetailOutput(env, adminId, role, profile);
@@ -841,7 +870,7 @@ export function buildPartnerClassHandlers() {
   PREFIX.push({
     match: (d) => d.startsWith(CALLBACK_PREFIX.PM_EDIT_BACK),
     run: async (ctx) => {
-      const { env, data, adminId, role } = ctx;
+      const { env, data, adminId, msg, role } = ctx;
       const telegramId = String(data.slice(CALLBACK_PREFIX.PM_EDIT_BACK.length) || "").trim();
 
       if (!telegramId) {
@@ -851,15 +880,7 @@ export function buildPartnerClassHandlers() {
         return true;
       }
 
-      const profile = await getProfileFullByTelegramId(env, telegramId);
-      if (!profile) {
-        await sendMessage(env, adminId, "⚠️ Data partner tidak ditemukan.", {
-          reply_markup: buildBackToPartnerDatabaseKeyboard(),
-        });
-        return true;
-      }
-
-      await sendPartnerDetailOutput(env, adminId, role, profile);
+      await renderActionMenu(env, adminId, telegramId, role, msg);
       return true;
     },
   });
