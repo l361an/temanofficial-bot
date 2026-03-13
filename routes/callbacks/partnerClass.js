@@ -1,7 +1,7 @@
 // routes/callbacks/partnerClass.js
 
 import { sendMessage, sendPhoto, sendLongMessage, editMessageReplyMarkup } from "../../services/telegramApi.js";
-import { saveSession, loadSession } from "../../utils/session.js";
+import { saveSession, loadSession, clearSession } from "../../utils/session.js";
 import { getAdminByTelegramId } from "../../repositories/adminsRepo.js";
 import {
   getProfileFullByTelegramId,
@@ -27,10 +27,10 @@ const fmtKV = (label, value) => {
   return `• <b>${escapeHtml(label)}:</b> ${escapeHtml(v)}`;
 };
 
-function buildBackToPanelAndHomeKeyboard(telegramId) {
+function buildBackAndHomeKeyboard(telegramId, backCallbackData = null) {
   return {
     inline_keyboard: [[
-      { text: "⬅️ Back to Panel", callback_data: cb.pmPanelBack(telegramId) },
+      { text: "⬅️ Back", callback_data: backCallbackData || cb.pmPanelBack(telegramId) },
       { text: "🏠 Officer Home", callback_data: CALLBACKS.OFFICER_HOME },
     ]],
   };
@@ -90,26 +90,19 @@ function getPartnerEditFieldMeta(field) {
   if (key === "channel_url") {
     return {
       key,
-      label: "Channel Partner",
+      label: "Channel",
       currentKey: "channel_url",
-      prompt: "Ketik Link Channel Partner Baru",
+      prompt: "Ketik Link Channel Baru",
     };
   }
 
   return null;
 }
 
-function buildRoleBadge(role) {
-  const r = String(role || "").trim().toLowerCase();
-  if (r === "owner") return "👑";
-  if (r === "superadmin") return "🛡️";
-  return "👤";
-}
-
 async function loadEligibleVerificators(env) {
   const rows = await env.DB.prepare(
     `
-    SELECT telegram_id, username, nama, role, status
+    SELECT telegram_id, username, role, status
     FROM admins
     WHERE lower(status) = 'active'
       AND lower(role) IN ('owner', 'superadmin', 'admin')
@@ -119,25 +112,20 @@ async function loadEligibleVerificators(env) {
         WHEN 'superadmin' THEN 1
         ELSE 2
       END,
-      COALESCE(NULLIF(trim(nama), ''), NULLIF(trim(username), ''), telegram_id) ASC
+      COALESCE(NULLIF(trim(username), ''), telegram_id) ASC
   `
   ).all();
 
-  return (rows?.results || []).map((row) => {
-    const tid = String(row.telegram_id || "").trim();
-    const uname = row.username ? `@${String(row.username).replace(/^@/, "")}` : "-";
-    const nama = String(row.nama || "").trim();
-    const role = String(row.role || "").trim().toLowerCase();
-
-    const baseLabel = nama || uname || tid;
-    return {
-      telegram_id: tid,
-      label: `${buildRoleBadge(role)} ${baseLabel} (${role || "admin"})`,
-      role,
-      username: uname,
-      nama,
-    };
-  });
+  return (rows?.results || [])
+    .map((row) => {
+      const tid = String(row.telegram_id || "").trim();
+      const uname = String(row.username || "").trim().replace(/^@/, "");
+      return {
+        telegram_id: tid,
+        label: uname ? `@${uname}` : tid,
+      };
+    })
+    .filter((row) => row.telegram_id);
 }
 
 async function loadCategoryOptions(env) {
@@ -192,7 +180,7 @@ function buildCategoryPickerKeyboard(telegramId, categories = [], selectedIds = 
   ]);
 
   rows.push([
-    { text: "⬅️ Back to Panel", callback_data: `${PM_CATEGORY_BACK_PREFIX}${telegramId}` },
+    { text: "⬅️ Back", callback_data: `${PM_CATEGORY_BACK_PREFIX}${telegramId}` },
     { text: "🏠 Officer Home", callback_data: CALLBACKS.OFFICER_HOME },
   ]);
 
@@ -207,8 +195,8 @@ export async function buildPartnerDetailText(env, profile) {
   if (profile?.verificator_admin_id) {
     const vid = String(profile.verificator_admin_id);
     const vRow = await getAdminByTelegramId(env, vid).catch(() => null);
-    const vUser = vRow?.username ? fmtHandle(vRow.username) : vRow?.label ? String(vRow.label) : "-";
-    verificatorDisplay = `${vid} - ${vUser || "-"}`;
+    const vUser = vRow?.username ? fmtHandle(vRow.username) : "-";
+    verificatorDisplay = vUser || "-";
   }
 
   return (
@@ -233,7 +221,7 @@ export async function buildPartnerDetailText(env, profile) {
     "\n" +
     fmtKV("Kota", profile?.kota) +
     "\n" +
-    fmtKV("Channel Partner", profile?.channel_url) +
+    fmtKV("Channel", profile?.channel_url) +
     "\n" +
     fmtKV("Verificator", verificatorDisplay)
   );
@@ -321,7 +309,7 @@ export function buildPartnerClassHandlers() {
           `Partner: <b>${escapeHtml(profile.nama_lengkap || "-")}</b>\n` +
           `Telegram ID: <code>${escapeHtml(profile.telegram_id || "-")}</code>\n` +
           `Class saat ini: <b>${escapeHtml(fmtClassId(profile.class_id))}</b>\n\n` +
-          `Pilih class baru di bawah:`,
+          `Pilih class baru dibawah :`,
         {
           parse_mode: "HTML",
           reply_markup: buildPartnerClassPickerKeyboard(profile.telegram_id),
@@ -449,8 +437,8 @@ export function buildPartnerClassHandlers() {
 
       const verificators = await loadEligibleVerificators(env);
       if (!verificators.length) {
-        await sendMessage(env, adminId, "⚠️ Tidak ada owner / admin / superadmin aktif di tabel admins.", {
-          reply_markup: buildPartnerDetailsKeyboard(profile.telegram_id, ctx.role),
+        await sendMessage(env, adminId, "⚠️ Tidak ada verificator aktif di tabel admins.", {
+          reply_markup: buildBackAndHomeKeyboard(profile.telegram_id),
         });
         return true;
       }
@@ -465,7 +453,7 @@ export function buildPartnerClassHandlers() {
         `👤 <b>Ubah Verificator Partner</b>\n\n` +
           `Partner: <b>${escapeHtml(profile.nama_lengkap || "-")}</b>\n` +
           `Telegram ID: <code>${escapeHtml(profile.telegram_id || "-")}</code>\n\n` +
-          `Pilih owner / admin / superadmin di bawah:`,
+          `Pilih Verificator dibawah :`,
         {
           parse_mode: "HTML",
           reply_markup: buildPartnerVerificatorPickerKeyboard(profile.telegram_id, verificators),
@@ -513,8 +501,12 @@ export function buildPartnerClassHandlers() {
       }
 
       const profile = await getProfileFullByTelegramId(env, telegramId);
+      const usernameOnly = adminRow?.username
+        ? `@${String(adminRow.username).replace(/^@/, "")}`
+        : verificatorId;
+
       if (!profile) {
-        await sendMessage(env, adminId, `✅ Verificator partner berhasil diubah ke ${adminRow.label}.`, {
+        await sendMessage(env, adminId, `✅ Verificator partner berhasil diubah ke ${usernameOnly}.`, {
           reply_markup: buildBackToPartnerDatabaseKeyboard(),
         });
         return true;
@@ -530,7 +522,7 @@ export function buildPartnerClassHandlers() {
         `✅ Verificator partner berhasil diubah.\n\n` +
           `Partner: <b>${escapeHtml(profile.nama_lengkap || "-")}</b>\n` +
           `Telegram ID: <code>${escapeHtml(profile.telegram_id || "-")}</code>\n` +
-          `Verificator baru: <b>${escapeHtml(adminRow.label || "-")}</b>`,
+          `Verificator baru: <b>${escapeHtml(usernameOnly)}</b>`,
         { parse_mode: "HTML" }
       );
 
@@ -572,7 +564,7 @@ export function buildPartnerClassHandlers() {
   PREFIX.push({
     match: (d) => d.startsWith(CALLBACK_PREFIX.PM_PHOTO_START),
     run: async (ctx) => {
-      const { env, data, adminId, msgChatId, msgId, role } = ctx;
+      const { env, data, adminId, msgChatId, msgId } = ctx;
       const telegramId = String(data.slice(CALLBACK_PREFIX.PM_PHOTO_START.length) || "").trim();
 
       if (!telegramId) {
@@ -609,7 +601,7 @@ export function buildPartnerClassHandlers() {
           `Ketik <b>batal</b> untuk keluar.`,
         {
           parse_mode: "HTML",
-          reply_markup: buildBackToPanelAndHomeKeyboard(profile.telegram_id),
+          reply_markup: buildBackAndHomeKeyboard(profile.telegram_id),
         }
       );
       return true;
@@ -642,7 +634,7 @@ export function buildPartnerClassHandlers() {
         const categories = await loadCategoryOptions(env);
         if (!categories.length) {
           await sendMessage(env, adminId, "⚠️ Belum ada category yang tersedia.", {
-            reply_markup: buildBackToPanelAndHomeKeyboard(profile.telegram_id),
+            reply_markup: buildBackAndHomeKeyboard(profile.telegram_id),
           });
           return true;
         }
@@ -678,7 +670,7 @@ export function buildPartnerClassHandlers() {
           `🗂️ <b>Edit Category</b>\n\n` +
             `Partner: <b>${escapeHtml(profile.nama_lengkap || "-")}</b>\n` +
             `Telegram ID: <code>${escapeHtml(profile.telegram_id || "-")}</code>\n\n` +
-            `Pilih category yang ingin aktif, lalu klik <b>Simpan Category</b>.`,
+            `Pilih Category dibawah :`,
           {
             parse_mode: "HTML",
             reply_markup: buildCategoryPickerKeyboard(profile.telegram_id, categories, selectedIds),
@@ -719,7 +711,7 @@ export function buildPartnerClassHandlers() {
           `Ketik <b>batal</b> untuk keluar.`,
         {
           parse_mode: "HTML",
-          reply_markup: buildBackToPanelAndHomeKeyboard(profile.telegram_id),
+          reply_markup: buildBackAndHomeKeyboard(profile.telegram_id),
         }
       );
       return true;
@@ -729,7 +721,7 @@ export function buildPartnerClassHandlers() {
   PREFIX.push({
     match: (d) => d.startsWith(PM_CATEGORY_TOGGLE_PREFIX),
     run: async (ctx) => {
-      const { env, data, adminId } = ctx;
+      const { env, data, adminId, msgChatId, msgId } = ctx;
       const payload = String(data.slice(PM_CATEGORY_TOGGLE_PREFIX.length) || "");
       const [telegramId, categoryId] = payload.split(":");
 
@@ -765,13 +757,17 @@ export function buildPartnerClassHandlers() {
 
       const categories = await loadCategoryOptions(env);
 
+      if (msgChatId && msgId) {
+        await editMessageReplyMarkup(env, msgChatId, msgId, buildCategoryPickerKeyboard(profile.telegram_id, categories, nextIds).reply_markup).catch(() => {});
+      }
+
       await sendMessage(
         env,
         adminId,
         `🗂️ <b>Edit Category</b>\n\n` +
           `Partner: <b>${escapeHtml(profile.nama_lengkap || "-")}</b>\n` +
           `Telegram ID: <code>${escapeHtml(profile.telegram_id || "-")}</code>\n\n` +
-          `Pilih category yang ingin aktif, lalu klik <b>Simpan Category</b>.`,
+          `Pilih Category dibawah :`,
         {
           parse_mode: "HTML",
           reply_markup: buildCategoryPickerKeyboard(profile.telegram_id, categories, nextIds),
@@ -807,9 +803,7 @@ export function buildPartnerClassHandlers() {
       const selectedIds = encodeSelectedCategoryIds(session?.categoryIds || []);
 
       await setProfileCategoriesByProfileId(env, profile.id, selectedIds);
-      await saveSession(env, `state:${adminId}`, {
-        mode: null,
-      }).catch(() => {});
+      await clearSession(env, `state:${adminId}`).catch(() => {});
 
       const refreshed = await getProfileFullByTelegramId(env, telegramId);
       await sendMessage(env, adminId, "✅ Category partner berhasil diupdate.");
