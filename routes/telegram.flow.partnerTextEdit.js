@@ -3,10 +3,11 @@
 import { sendMessage } from "../services/telegramApi.js";
 import { clearSession } from "../utils/session.js";
 import {
-  getProfileFullByTelegramId,
   updateEditableProfileFields,
 } from "../repositories/profilesRepo.js";
-import { sendPartnerDetailOutput } from "./callbacks/partnerClass.js";
+import { CALLBACKS, cb } from "./telegram.constants.js";
+
+const PM_PREVIEW_PREFIX = "pm_preview:";
 
 function normalizeText(text) {
   return String(text || "").trim();
@@ -14,6 +15,18 @@ function normalizeText(text) {
 
 function normalizeWhatsapp(value) {
   return String(value || "").replace(/\D/g, "");
+}
+
+function buildSuccessKeyboard(telegramId) {
+  return {
+    inline_keyboard: [
+      [
+        { text: "⬅️ Back", callback_data: cb.pmEditBack(telegramId) },
+        { text: "👁️ Preview", callback_data: `${PM_PREVIEW_PREFIX}${telegramId}` },
+      ],
+      [{ text: "🏠 Officer Home", callback_data: CALLBACKS.OFFICER_HOME }],
+    ],
+  };
 }
 
 function getFieldMeta(field) {
@@ -38,7 +51,7 @@ function getFieldMeta(field) {
     return { key, label: "Kota", max: 120 };
   }
   if (key === "channel_url") {
-    return { key, label: "Channel Partner", max: 255 };
+    return { key, label: "Channel", max: 255 };
   }
 
   return null;
@@ -50,7 +63,6 @@ export async function handlePartnerTextEditInput({
   text,
   session,
   STATE_KEY,
-  role,
 }) {
   if (String(session?.mode || "").trim().toLowerCase() !== "partner_edit_text") {
     return false;
@@ -109,13 +121,14 @@ export async function handlePartnerTextEditInput({
 
   await clearSession(env, STATE_KEY).catch(() => {});
 
-  const profile = await getProfileFullByTelegramId(env, targetTelegramId);
-  if (!profile) {
-    await sendMessage(env, chatId, `✅ ${meta.label} berhasil diupdate.`);
-    return true;
-  }
+  await sendMessage(
+    env,
+    chatId,
+    `✅ Data ${meta.label} berhasil diupdate !!!`,
+    {
+      reply_markup: buildSuccessKeyboard(targetTelegramId),
+    }
+  );
 
-  await sendMessage(env, chatId, `✅ ${meta.label} berhasil diupdate.`);
-  await sendPartnerDetailOutput(env, chatId, role, profile);
   return true;
 }
