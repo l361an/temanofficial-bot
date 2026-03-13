@@ -23,6 +23,7 @@ import { buildTeManMenuKeyboard } from "./telegram.user.shared.js";
 import { handleRegistrationFlow } from "./telegram.flow.js";
 import { handleSuperadminFinanceInput } from "./telegram.flow.superadminFinance.js";
 import { handleSuperadminAdminManagerInput } from "./telegram.flow.superadminAdminManager.js";
+import { handleSuperadminCategoryInput } from "./telegram.flow.superadminCategory.js";
 import { handlePaymentProofUpload } from "./telegram.flow.paymentProof.js";
 import { handlePartnerModerationInput } from "./telegram.flow.partnerModeration.js";
 import { handlePartnerTextEditInput } from "./telegram.flow.partnerTextEdit.js";
@@ -303,7 +304,7 @@ export async function handleTelegramWebhook(request, env) {
 
     const session = await loadSession(env, STATE_KEY);
 
-    if (session?.mode === "sa_finance" && isAdminRole(role)) {
+    if (session?.mode === SESSION_MODES.SA_FINANCE && isAdminRole(role)) {
       const handledFinance = await handleSuperadminFinanceInput({
         env,
         chatId,
@@ -317,7 +318,19 @@ export async function handleTelegramWebhook(request, env) {
       if (handledFinance) return json({ ok: true });
     }
 
-    if (session?.mode === "sa_admin_manager" && isAdminRole(role)) {
+    if (session?.mode === SESSION_MODES.SA_CATEGORY && isAdminRole(role)) {
+      const handledCategory = await handleSuperadminCategoryInput({
+        env,
+        chatId,
+        text,
+        session,
+        STATE_KEY,
+      });
+
+      if (handledCategory) return json({ ok: true });
+    }
+
+    if (session?.mode === SESSION_MODES.SA_ADMIN_MANAGER && isAdminRole(role)) {
       const handledAdminManager = await handleSuperadminAdminManagerInput({
         env,
         chatId,
@@ -329,7 +342,7 @@ export async function handleTelegramWebhook(request, env) {
       if (handledAdminManager) return json({ ok: true });
     }
 
-    if (session?.mode === "partner_view" && isAdminRole(role)) {
+    if (session?.mode === SESSION_MODES.PARTNER_VIEW && isAdminRole(role)) {
       const handledPartnerView = await handlePartnerViewSearchInput({
         env,
         chatId,
@@ -344,7 +357,7 @@ export async function handleTelegramWebhook(request, env) {
       if (handledPartnerView) return json({ ok: true });
     }
 
-    if (session?.mode === "partner_moderation" && isAdminRole(role)) {
+    if (session?.mode === SESSION_MODES.PARTNER_MODERATION && isAdminRole(role)) {
       const handledModeration = await handlePartnerModerationInput({
         env,
         chatId,
@@ -370,7 +383,7 @@ export async function handleTelegramWebhook(request, env) {
       if (handledPartnerEditCloseup) return json({ ok: true });
     }
 
-    if (session?.mode === "partner_edit_text" && isAdminRole(role)) {
+    if (session?.mode === SESSION_MODES.PARTNER_EDIT_TEXT && isAdminRole(role)) {
       const handledPartnerEditText = await handlePartnerTextEditInput({
         env,
         chatId,
@@ -422,7 +435,7 @@ export async function handleTelegramWebhook(request, env) {
       return json({ ok: true });
     }
 
-    if (session?.mode === "edit_profile") {
+    if (session?.mode === SESSION_MODES.EDIT_PROFILE) {
       await handleUserEditFlow({
         env,
         chat,
