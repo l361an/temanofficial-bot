@@ -178,14 +178,14 @@ function buildCategoryPickerKeyboard(telegramId, categories = [], selectedIds = 
 
     const aSelected = selectedSet.has(a.id);
     row.push({
-      text: `${aSelected ? "✅" : "☑️"} ${a.kode || a.id}`,
+      text: `${aSelected ? "✅ TERPILIH" : "⬜ PILIH"} • ${a.kode || a.id}`,
       callback_data: `${PM_CATEGORY_TOGGLE_PREFIX}${telegramId}:${a.id}`,
     });
 
     if (b) {
       const bSelected = selectedSet.has(b.id);
       row.push({
-        text: `${bSelected ? "✅" : "☑️"} ${b.kode || b.id}`,
+        text: `${bSelected ? "✅ TERPILIH" : "⬜ PILIH"} • ${b.kode || b.id}`,
         callback_data: `${PM_CATEGORY_TOGGLE_PREFIX}${telegramId}:${b.id}`,
       });
     }
