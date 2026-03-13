@@ -65,21 +65,29 @@ export function buildPartnerDetailsKeyboard(telegramId, role) {
       { text: "👤 Nama Lengkap", callback_data: cb.pmEditStart(telegramId, "nama_lengkap") },
       { text: "📝 Nickname", callback_data: cb.pmEditStart(telegramId, "nickname") },
     ]);
+
     rows.push([
       { text: "📱 Whatsapp", callback_data: cb.pmEditStart(telegramId, "no_whatsapp") },
       { text: "🆔 NIK", callback_data: cb.pmEditStart(telegramId, "nik") },
     ]);
+
     rows.push([
       { text: "🏙️ Kota", callback_data: cb.pmEditStart(telegramId, "kota") },
       { text: "📍 Kecamatan", callback_data: cb.pmEditStart(telegramId, "kecamatan") },
     ]);
+
     rows.push([
       { text: "🏷️ Class", callback_data: cb.pmClassStart(telegramId) },
       { text: "👤 Verificator", callback_data: cb.pmVerStart(telegramId) },
     ]);
+
     rows.push([
       { text: "🗂️ Category", callback_data: cb.pmEditStart(telegramId, "category") },
       { text: "🔗 Channel", callback_data: cb.pmEditStart(telegramId, "channel_url") },
+    ]);
+
+    rows.push([
+      { text: "📸 Edit Foto Closeup", callback_data: cb.pmPhotoStart(telegramId) },
     ]);
   }
 
@@ -124,9 +132,11 @@ export function buildPartnerVerificatorPickerKeyboard(telegramId, verificators =
     const a = verificators[i];
     const b = verificators[i + 1];
     const row = [{ text: a.label, callback_data: cb.pmVerSet(telegramId, a.telegram_id) }];
+
     if (b) {
       row.push({ text: b.label, callback_data: cb.pmVerSet(telegramId, b.telegram_id) });
     }
+
     rows.push(row);
   }
 
