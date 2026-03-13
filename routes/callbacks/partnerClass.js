@@ -150,16 +150,15 @@ async function loadEligibleVerificators(env) {
 async function loadCategoryOptions(env) {
   const rows = await env.DB.prepare(
     `
-    SELECT id, kode, nama
+    SELECT id, kode
     FROM categories
-    ORDER BY kode ASC, nama ASC
+    ORDER BY kode ASC
   `
   ).all();
 
   return (rows?.results || []).map((row) => ({
     id: String(row.id),
     kode: String(row.kode || "").trim(),
-    nama: String(row.nama || "").trim(),
   }));
 }
 
@@ -179,14 +178,14 @@ function buildCategoryPickerKeyboard(telegramId, categories = [], selectedIds = 
 
     const aSelected = selectedSet.has(a.id);
     row.push({
-      text: `${aSelected ? "✅" : "☑️"} ${a.kode || a.nama || a.id}`,
+      text: `${aSelected ? "✅" : "☑️"} ${a.kode || a.id}`,
       callback_data: `${PM_CATEGORY_TOGGLE_PREFIX}${telegramId}:${a.id}`,
     });
 
     if (b) {
       const bSelected = selectedSet.has(b.id);
       row.push({
-        text: `${bSelected ? "✅" : "☑️"} ${b.kode || b.nama || b.id}`,
+        text: `${bSelected ? "✅" : "☑️"} ${b.kode || b.id}`,
         callback_data: `${PM_CATEGORY_TOGGLE_PREFIX}${telegramId}:${b.id}`,
       });
     }
