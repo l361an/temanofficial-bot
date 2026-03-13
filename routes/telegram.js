@@ -304,7 +304,6 @@ export async function handleTelegramWebhook(request, env) {
         text,
         session,
         STATE_KEY,
-        role,
       });
 
       if (handledPartnerEditText) return json({ ok: true });
