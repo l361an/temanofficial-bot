@@ -2,7 +2,7 @@
 
 import { json } from "../utils/response.js";
 import { parseMessage } from "../utils/parseTelegram.js";
-import { loadSession } from "../utils/session.js";
+import { loadSession, clearSession } from "../utils/session.js";
 import { sendMessage } from "../services/telegramApi.js";
 import {
   getAdminRole,
@@ -29,14 +29,22 @@ import { handlePartnerTextEditInput } from "./telegram.flow.partnerTextEdit.js";
 import { handlePartnerViewSearchInput } from "./callbacks/partnerDatabase.js";
 import { buildOfficerHomeKeyboard } from "./callbacks/keyboards.officer.js";
 import { buildOfficerHomeText } from "./telegram.messages.js";
+import { SESSION_MODES } from "./telegram.constants.js";
 
 import {
   getProfileFullByTelegramId,
   syncProfileUsernameFromTelegram,
+  updateCloseupPhoto,
 } from "../repositories/profilesRepo.js";
 
 function isPrivateChat(chat) {
   return String(chat?.type || "").trim().toLowerCase() === "private";
+}
+
+function getLargestPhotoFromMessage(msg) {
+  const photos = Array.isArray(msg?.photo) ? msg.photo : [];
+  if (!photos.length) return null;
+  return photos[photos.length - 1] || null;
 }
 
 function buildHelp(role) {
@@ -163,6 +171,58 @@ async function handleAdminInviteStart({
     reply_markup: buildOfficerHomeKeyboard(nextRole),
   });
 
+  return true;
+}
+
+async function handlePartnerCloseupEditInput({
+  env,
+  chatId,
+  text,
+  msg,
+  session,
+  STATE_KEY,
+}) {
+  if (String(session?.mode || "").trim().toLowerCase() !== SESSION_MODES.PARTNER_EDIT_CLOSEUP) {
+    return false;
+  }
+
+  const rawText = String(text || "").trim();
+  if (/^(batal|cancel|keluar)$/i.test(rawText)) {
+    await clearSession(env, STATE_KEY).catch(() => {});
+    await sendMessage(env, chatId, "✅ Edit foto closeup partner dibatalkan.");
+    return true;
+  }
+
+  const targetTelegramId = String(session?.targetTelegramId || "").trim();
+  if (!targetTelegramId) {
+    await clearSession(env, STATE_KEY).catch(() => {});
+    await sendMessage(env, chatId, "⚠️ Session edit foto partner tidak valid.");
+    return true;
+  }
+
+  const largestPhoto = getLargestPhotoFromMessage(msg);
+  if (!largestPhoto?.file_id) {
+    if (rawText) {
+      await sendMessage(
+        env,
+        chatId,
+        "⚠️ Silakan kirim foto closeup baru dalam format foto Telegram.\n\nKetik batal untuk keluar."
+      );
+      return true;
+    }
+
+    return false;
+  }
+
+  const res = await updateCloseupPhoto(env, targetTelegramId, largestPhoto.file_id);
+  if (!res?.ok) {
+    await clearSession(env, STATE_KEY).catch(() => {});
+    await sendMessage(env, chatId, "⚠️ Gagal update foto closeup partner.");
+    return true;
+  }
+
+  await clearSession(env, STATE_KEY).catch(() => {});
+  await sendMessage(env, chatId, "✅ Foto closeup partner berhasil diupdate !!!");
   return true;
 }
 
@@ -295,6 +355,19 @@ export async function handleTelegramWebhook(request, env) {
       });
 
       if (handledModeration) return json({ ok: true });
+    }
+
+    if (session?.mode === SESSION_MODES.PARTNER_EDIT_CLOSEUP && isAdminRole(role)) {
+      const handledPartnerEditCloseup = await handlePartnerCloseupEditInput({
+        env,
+        chatId,
+        text,
+        msg,
+        session,
+        STATE_KEY,
+      });
+
+      if (handledPartnerEditCloseup) return json({ ok: true });
     }
 
     if (session?.mode === "partner_edit_text" && isAdminRole(role)) {
