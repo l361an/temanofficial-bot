@@ -18,11 +18,12 @@ export async function handleCallback(update, env) {
 
   if (!data || !adminId) return json({ ok: true });
 
-  await answerCallbackQuery(env, callbackQueryId).catch(() => {});
-
   try {
     const handled = await handleSelfInlineCallback(update, env);
-    if (handled) return json({ ok: true });
+    if (handled) {
+      await answerCallbackQuery(env, callbackQueryId).catch(() => {});
+      return json({ ok: true });
+    }
   } catch (e) {
     console.error("USER CALLBACK ERROR:", e);
   }
@@ -58,10 +59,31 @@ export async function handleCallback(update, env) {
     data.startsWith(CALLBACK_PREFIX.SETLINK_CONFIRM) ||
     data.startsWith(CALLBACK_PREFIX.SETLINK_CANCEL);
 
-  if (isOfficerAction && !isAdminRole(role)) return json({ ok: true });
-  if (isSAAction && !isSuperadminRole(role)) return json({ ok: true });
+  if (isOfficerAction && !isAdminRole(role)) {
+    await answerCallbackQuery(env, callbackQueryId, {
+      text: "Akses ditolak. Menu ini hanya untuk admin.",
+      show_alert: true,
+    }).catch(() => {});
+    return json({ ok: true });
+  }
 
-  if (data === CALLBACKS.PARTNER_MOD_DELETE && !isSuperadminRole(role)) return json({ ok: true });
+  if (isSAAction && !isSuperadminRole(role)) {
+    await answerCallbackQuery(env, callbackQueryId, {
+      text: "Akses ditolak. Menu ini hanya untuk superadmin.",
+      show_alert: true,
+    }).catch(() => {});
+    return json({ ok: true });
+  }
+
+  if (data === CALLBACKS.PARTNER_MOD_DELETE && !isSuperadminRole(role)) {
+    await answerCallbackQuery(env, callbackQueryId, {
+      text: "Akses ditolak. Hanya superadmin yang bisa hapus partner.",
+      show_alert: true,
+    }).catch(() => {});
+    return json({ ok: true });
+  }
+
+  await answerCallbackQuery(env, callbackQueryId).catch(() => {});
 
   const ctx = { env, update, data, adminId, role, msg, msgChatId, msgId };
 
@@ -78,8 +100,18 @@ export async function handleCallback(update, env) {
         return json({ ok: true });
       }
     }
+
+    await answerCallbackQuery(env, callbackQueryId, {
+      text: `Callback tidak terdaftar: ${data}`,
+      show_alert: true,
+    }).catch(() => {});
   } catch (e) {
     console.error("CALLBACK ERROR:", e);
+
+    await answerCallbackQuery(env, callbackQueryId, {
+      text: "Terjadi error saat memproses menu.",
+      show_alert: true,
+    }).catch(() => {});
   }
 
   return json({ ok: true });
