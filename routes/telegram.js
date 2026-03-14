@@ -38,7 +38,7 @@ import {
   updateCloseupPhoto,
 } from "../repositories/profilesRepo.js";
 
-const PM_PREVIEW_PREFIX = "pm:preview:";
+const PM_PREVIEW_PREFIX = "pm_preview:";
 
 function isPrivateChat(chat) {
   return String(chat?.type || "").trim().toLowerCase() === "private";
