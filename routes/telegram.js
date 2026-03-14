@@ -44,6 +44,18 @@ function isPrivateChat(chat) {
   return String(chat?.type || "").trim().toLowerCase() === "private";
 }
 
+function isOfficerChat(chat, role) {
+  return isAdminRole(role) && isPrivateChat(chat);
+}
+
+function isPartnerChat(chat, role) {
+  return !isAdminRole(role) && isPrivateChat(chat);
+}
+
+function shouldIgnoreNonPrivateInteractiveChat(chat) {
+  return !isPrivateChat(chat);
+}
+
 function getLargestPhotoFromMessage(msg) {
   const photos = Array.isArray(msg?.photo) ? msg.photo : [];
   if (!photos.length) return null;
@@ -284,6 +296,8 @@ export async function handleTelegramWebhook(request, env) {
 
     const STATE_KEY = `state:${telegramId}`;
     const role = await getAdminRole(env, telegramId);
+    const officerChat = isOfficerChat(chat, role);
+    const partnerChat = isPartnerChat(chat, role);
 
     await syncProfileUsernameFromTelegram(env, telegramId, username).catch(() => {});
 
@@ -293,6 +307,14 @@ export async function handleTelegramWebhook(request, env) {
       const baseCmd = cmdToken.split("@")[0];
 
       if (baseCmd === "/help") {
+        if (isAdminRole(role) && !officerChat) {
+          return json({ ok: true });
+        }
+
+        if (!isAdminRole(role) && !partnerChat) {
+          return json({ ok: true });
+        }
+
         await sendMessage(env, chatId, buildHelp(role), { parse_mode: "HTML" });
         return json({ ok: true });
       }
@@ -311,6 +333,10 @@ export async function handleTelegramWebhook(request, env) {
       }
 
       if (isAdminRole(role)) {
+        if (!officerChat) {
+          return json({ ok: true });
+        }
+
         const handled = await handleAdminCommand({
           env,
           chatId,
@@ -321,20 +347,28 @@ export async function handleTelegramWebhook(request, env) {
         if (handled) return json({ ok: true });
       }
 
-      const handledUser = await handleUserCommand({
-        env,
-        chat,
-        chatId,
-        telegramId,
-        role,
-        text: raw,
-      });
+      if (!isAdminRole(role)) {
+        if (!partnerChat) {
+          return json({ ok: true });
+        }
 
-      if (handledUser) return json({ ok: true });
+        const handledUser = await handleUserCommand({
+          env,
+          chat,
+          chatId,
+          telegramId,
+          role,
+          text: raw,
+        });
 
-      await sendMessage(env, chatId, "Command tidak dikenali.", {
-        reply_markup: buildTeManMenuKeyboard(),
-      });
+        if (handledUser) return json({ ok: true });
+
+        await sendMessage(env, chatId, "Command tidak dikenali.", {
+          reply_markup: buildTeManMenuKeyboard(),
+        });
+
+        return json({ ok: true });
+      }
 
       return json({ ok: true });
     }
@@ -342,6 +376,8 @@ export async function handleTelegramWebhook(request, env) {
     const session = await loadSession(env, STATE_KEY);
 
     if (session?.mode === SESSION_MODES.SA_FINANCE && isAdminRole(role)) {
+      if (!officerChat) return json({ ok: true });
+
       const handledFinance = await handleSuperadminFinanceInput({
         env,
         chatId,
@@ -356,6 +392,8 @@ export async function handleTelegramWebhook(request, env) {
     }
 
     if (session?.mode === SESSION_MODES.SA_CATEGORY && isAdminRole(role)) {
+      if (!officerChat) return json({ ok: true });
+
       const handledCategory = await handleSuperadminCategoryInput({
         env,
         chatId,
@@ -368,6 +406,8 @@ export async function handleTelegramWebhook(request, env) {
     }
 
     if (session?.mode === SESSION_MODES.SA_ADMIN_MANAGER && isAdminRole(role)) {
+      if (!officerChat) return json({ ok: true });
+
       const handledAdminManager = await handleSuperadminAdminManagerInput({
         env,
         chatId,
@@ -380,6 +420,8 @@ export async function handleTelegramWebhook(request, env) {
     }
 
     if (session?.mode === SESSION_MODES.PARTNER_VIEW && isAdminRole(role)) {
+      if (!officerChat) return json({ ok: true });
+
       const handledPartnerView = await handlePartnerViewSearchInput({
         env,
         chatId,
@@ -395,6 +437,8 @@ export async function handleTelegramWebhook(request, env) {
     }
 
     if (session?.mode === SESSION_MODES.PARTNER_MODERATION && isAdminRole(role)) {
+      if (!officerChat) return json({ ok: true });
+
       const handledModeration = await handlePartnerModerationInput({
         env,
         chatId,
@@ -408,6 +452,8 @@ export async function handleTelegramWebhook(request, env) {
     }
 
     if (session?.mode === SESSION_MODES.PARTNER_EDIT_CLOSEUP && isAdminRole(role)) {
+      if (!officerChat) return json({ ok: true });
+
       const handledPartnerEditCloseup = await handlePartnerCloseupEditInput({
         env,
         chatId,
@@ -421,6 +467,8 @@ export async function handleTelegramWebhook(request, env) {
     }
 
     if (session?.mode === SESSION_MODES.PARTNER_EDIT_TEXT && isAdminRole(role)) {
+      if (!officerChat) return json({ ok: true });
+
       const handledPartnerEditText = await handlePartnerTextEditInput({
         env,
         chatId,
@@ -433,24 +481,32 @@ export async function handleTelegramWebhook(request, env) {
     }
 
     if (!isAdminRole(role)) {
-      const handledProofUpload = await handlePaymentProofUpload({
-        env,
-        chat,
-        chatId,
-        telegramId,
-        update,
-      });
+      if (partnerChat) {
+        const handledProofUpload = await handlePaymentProofUpload({
+          env,
+          chat,
+          chatId,
+          telegramId,
+          update,
+        });
 
-      if (handledProofUpload) return json({ ok: true });
+        if (handledProofUpload) return json({ ok: true });
+      } else if (shouldIgnoreNonPrivateInteractiveChat(chat)) {
+        return json({ ok: true });
+      }
     }
 
     if (!session && isAdminRole(role)) {
+      if (!officerChat) {
+        return json({ ok: true });
+      }
+
       await sendMessage(env, chatId, "Halo Officer.\nKetik /help untuk daftar command.");
       return json({ ok: true });
     }
 
     if (!session && !isAdminRole(role)) {
-      if (!isPrivateChat(chat)) {
+      if (!partnerChat) {
         return json({ ok: true });
       }
 
@@ -473,6 +529,10 @@ export async function handleTelegramWebhook(request, env) {
     }
 
     if (session?.mode === SESSION_MODES.EDIT_PROFILE) {
+      if (!partnerChat) {
+        return json({ ok: true });
+      }
+
       await handleUserEditFlow({
         env,
         chat,
@@ -485,6 +545,10 @@ export async function handleTelegramWebhook(request, env) {
         update,
       });
 
+      return json({ ok: true });
+    }
+
+    if (!partnerChat) {
       return json({ ok: true });
     }
 
