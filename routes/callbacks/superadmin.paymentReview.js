@@ -34,6 +34,14 @@ function formatClassLabel(value) {
   return raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : "-";
 }
 
+function formatDurationLabel(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "1d") return "1 Hari";
+  if (raw === "3d") return "3 Hari";
+  if (raw === "7d") return "7 Hari";
+  return "1 Bulan";
+}
+
 function formatMoney(value) {
   const n = Number(value || 0);
   if (!Number.isFinite(n)) return "Rp 0";
@@ -76,35 +84,48 @@ function formatNickname(value) {
   return raw || "-";
 }
 
-function hasValue(value) {
-  return !(value === null || value === undefined || String(value).trim() === "");
+function safeJsonParse(value) {
+  if (value == null) return null;
+  if (typeof value === "object") return value;
+
+  const raw = String(value).trim();
+  if (!raw) return null;
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
 }
 
-function parseJsonSafe(value, fallback = null) {
-  try {
-    if (!hasValue(value)) return fallback;
-    return JSON.parse(String(value));
-  } catch {
-    return fallback;
-  }
+function isFilled(value) {
+  if (value == null) return false;
+  return String(value).trim() !== "";
+}
+
+function resolveDurationCode(ticket) {
+  const pricing = safeJsonParse(ticket?.pricing_snapshot_json);
+  const metadata = safeJsonParse(ticket?.metadata_json);
+
+  const pricingCode = String(pricing?.duration_code || "").trim().toLowerCase();
+  if (pricingCode) return pricingCode;
+
+  const metadataCode = String(metadata?.duration_code || "").trim().toLowerCase();
+  if (metadataCode) return metadataCode;
+
+  const durationMonths = Number(ticket?.duration_months || 0);
+  if (durationMonths > 0) return `${durationMonths}m`;
+
+  return "";
 }
 
 function resolveDurationLabelFromTicket(ticket) {
-  const snapshot = parseJsonSafe(ticket?.pricing_snapshot_json, {});
-  const durationLabel = String(snapshot?.duration_label || "").trim();
-  if (durationLabel) return durationLabel;
+  const durationCode = resolveDurationCode(ticket);
+  if (durationCode) return formatDurationLabel(durationCode);
 
-  const durationCode = String(snapshot?.duration_code || "").trim().toLowerCase();
-  if (durationCode === "1d") return "1 Hari";
-  if (durationCode === "3d") return "3 Hari";
-  if (durationCode === "7d") return "7 Hari";
-  if (durationCode === "1m") return "1 Bulan";
-
-  const months = Number(ticket?.duration_months || 0);
-  if (Number.isFinite(months) && months > 0) {
-    return `${months} Bulan`;
-  }
-
+  const durationMonths = Number(ticket?.duration_months || 0);
+  if (durationMonths > 1) return `${durationMonths} Bulan`;
+  if (durationMonths === 1) return "1 Bulan";
   return "-";
 }
 
@@ -160,9 +181,25 @@ async function listActivePaymentReviewerIds(env) {
   return Array.from(ids);
 }
 
+async function buildPartnerIdentity(env, partnerId) {
+  const profile = await getProfileFullByTelegramId(env, String(partnerId || "")).catch(() => null);
+
+  return {
+    profile,
+    partnerUsername: formatUsername(profile?.username),
+    partnerNickname: formatNickname(
+      profile?.nickname ??
+      profile?.nama ??
+      profile?.name ??
+      profile?.full_name
+    ),
+  };
+}
+
 async function broadcastFinalStatusToOtherReviewers(env, ticket, actorAdminId, action) {
   const reviewerIds = await listActivePaymentReviewerIds(env);
   const actorLabel = await getReviewerLabel(env, actorAdminId);
+  const { partnerUsername, partnerNickname } = await buildPartnerIdentity(env, ticket?.partner_id);
 
   const actionLabel = action === "confirm" ? "dikonfirmasi" : "direject";
   const actionEmoji = action === "confirm" ? "✅" : "❌";
@@ -175,6 +212,8 @@ async function broadcastFinalStatusToOtherReviewers(env, ticket, actorAdminId, a
     `${actionEmoji} <b>Payment Sudah ${action === "confirm" ? "Confirmed" : "Rejected"}</b>`,
     "",
     `Kode Tiket: <code>${escapeHtml(String(ticket?.ticket_code || "-"))}</code>`,
+    `Username: <b>${escapeHtml(String(partnerUsername || "-"))}</b>`,
+    `Nickname: <b>${escapeHtml(String(partnerNickname || "-"))}</b>`,
     `Partner ID: <code>${escapeHtml(String(ticket?.partner_id || "-"))}</code>`,
     `Nominal: <b>${escapeHtml(formatMoney(ticket?.amount_final || 0))}</b>`,
     `Status Final: <b>${escapeHtml(actionLabel)}</b>`,
@@ -221,9 +260,11 @@ function buildPaymentConfirmSummary(ticket, profile = null, subscription = null)
     profile?.full_name ??
     "";
 
-  const durationLabel =
-    String(subscription?.duration_label || "").trim() ||
-    resolveDurationLabelFromTicket(ticket);
+  const durationCode = String(
+    subscription?.duration_code || ticket?.duration_code || ticket?.duration_months || ""
+  )
+    .trim()
+    .toLowerCase();
 
   return [
     "💳 <b>Payment Confirmed</b>",
@@ -233,7 +274,7 @@ function buildPaymentConfirmSummary(ticket, profile = null, subscription = null)
     `Username: <b>${escapeHtml(username ? `@${username}` : "-")}</b>`,
     `Nickname: <b>${escapeHtml(formatNickname(nickname))}</b>`,
     `Class Partner: <b>${escapeHtml(formatClassLabel(ticket?.class_id))}</b>`,
-    `Durasi: <b>${escapeHtml(durationLabel)}</b>`,
+    `Durasi: <b>${escapeHtml(formatDurationLabel(durationCode))}</b>`,
     `Masa Aktif: <b>${escapeHtml(formatDateTime(subscription?.start_at))}</b> s.d <b>${escapeHtml(formatDateTime(subscription?.end_at))}</b>`,
     `Nominal: <b>${escapeHtml(formatMoney(ticket?.amount_final))}</b>`,
   ].join("\n");
@@ -270,17 +311,12 @@ async function enrichWaitingRowsWithProfile(env, rows = []) {
   const out = [];
 
   for (const row of rows || []) {
-    const profile = await getProfileFullByTelegramId(env, String(row.partner_id)).catch(() => null);
+    const { partnerUsername, partnerNickname } = await buildPartnerIdentity(env, row.partner_id);
 
     out.push({
       ...row,
-      partner_username: formatUsername(profile?.username),
-      partner_nickname: formatNickname(
-        profile?.nickname ??
-        profile?.nama ??
-        profile?.name ??
-        profile?.full_name
-      ),
+      partner_username: partnerUsername,
+      partner_nickname: partnerNickname,
     });
   }
 
@@ -320,18 +356,11 @@ async function buildWaitingListText(env, rows, page, total) {
   return lines.join("\n");
 }
 
-async function buildWaitingDetailCaption(env, ticket) {
-  const profile = await getProfileFullByTelegramId(env, String(ticket?.partner_id || "")).catch(() => null);
-  const partnerUsername = formatUsername(profile?.username);
-  const partnerNickname = formatNickname(
-    profile?.nickname ??
-    profile?.nama ??
-    profile?.name ??
-    profile?.full_name
-  );
+async function buildWaitingDetailText(env, ticket) {
+  const { partnerUsername, partnerNickname } = await buildPartnerIdentity(env, ticket?.partner_id);
 
   const lines = [
-    "🗂 <b>DETAIL REVIEW PEMBAYARAN</b>",
+    "💳 <b>DETAIL REVIEW PEMBAYARAN</b>",
     "",
     `Kode Tiket: <code>${escapeHtml(String(ticket?.ticket_code || "-"))}</code>`,
     `Username: <b>${escapeHtml(partnerUsername)}</b>`,
@@ -343,22 +372,25 @@ async function buildWaitingDetailCaption(env, ticket) {
     `Harga Dasar: <b>${escapeHtml(formatMoney(ticket?.amount_base || 0))}</b>`,
     `Kode Unik: <b>${escapeHtml(String(ticket?.unique_code || "0"))}</b>`,
     `Total Bayar: <b>${escapeHtml(formatMoney(ticket?.amount_final || 0))}</b>`,
-    `Uploaded At: <b>${escapeHtml(formatDateTime(ticket?.proof_uploaded_at))}</b>`,
-    `Expires At: <b>${escapeHtml(formatDateTime(ticket?.expires_at))}</b>`,
-    `Status: <b>${escapeHtml(String(ticket?.status || "-"))}</b>`,
   ];
 
-  if (hasValue(ticket?.payer_name)) {
+  if (isFilled(ticket?.payer_name)) {
     lines.push(`Nama Pengirim: <b>${escapeHtml(String(ticket.payer_name))}</b>`);
   }
 
-  if (hasValue(ticket?.payer_notes)) {
+  if (isFilled(ticket?.payer_notes)) {
     lines.push(`Catatan: <b>${escapeHtml(String(ticket.payer_notes))}</b>`);
   }
 
-  if (hasValue(ticket?.proof_caption)) {
+  if (isFilled(ticket?.proof_caption)) {
     lines.push(`Caption Bukti: <b>${escapeHtml(String(ticket.proof_caption))}</b>`);
   }
+
+  lines.push(
+    `Uploaded At: <b>${escapeHtml(formatDateTime(ticket?.proof_uploaded_at))}</b>`,
+    `Expires At: <b>${escapeHtml(formatDateTime(ticket?.expires_at))}</b>`,
+    `Status: <b>${escapeHtml(String(ticket?.status || "-"))}</b>`
+  );
 
   return lines.join("\n");
 }
@@ -401,24 +433,30 @@ export function buildSuperadminPaymentReviewHandlers() {
           return true;
         }
 
-        const caption = await buildWaitingDetailCaption(env, ticket);
+        const detailText = await buildWaitingDetailText(env, ticket);
         const replyMarkup = buildWaitingConfirmationItemKeyboard(ticket.id, page);
 
-        if (hasValue(ticket?.proof_asset_id)) {
+        if (ticket?.proof_asset_id) {
           await sendPhoto(
             env,
             adminId,
             String(ticket.proof_asset_id),
-            caption,
+            detailText,
             {
               parse_mode: "HTML",
               reply_markup: replyMarkup,
             }
-          );
+          ).catch(async () => {
+            await sendMessage(env, adminId, detailText, {
+              parse_mode: "HTML",
+              reply_markup: replyMarkup,
+            });
+          });
+
           return true;
         }
 
-        await sendMessage(env, adminId, caption, {
+        await sendMessage(env, adminId, detailText, {
           parse_mode: "HTML",
           reply_markup: replyMarkup,
         });
