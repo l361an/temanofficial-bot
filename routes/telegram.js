@@ -187,14 +187,41 @@ async function handlePartnerCloseupEditInput({
     return false;
   }
 
+  const targetTelegramId = String(session?.targetTelegramId || "").trim();
+
+  const buildSuccessKeyboard = (telegramId) => ({
+    inline_keyboard: [
+      [
+        {
+          text: "⬅️ Back",
+          callback_data: `${CALLBACK_PREFIX.PM_EDIT_BACK}${telegramId}`,
+        },
+        {
+          text: "👁 Preview",
+          callback_data: `${PM_PREVIEW_PREFIX}${telegramId}`,
+        },
+      ],
+      [
+        {
+          text: "🏠 Officer Home",
+          callback_data: CALLBACKS.OFFICER_HOME,
+        },
+      ],
+    ],
+  });
+
   const rawText = String(text || "").trim();
+
   if (/^(batal|cancel|keluar)$/i.test(rawText)) {
     await clearSession(env, STATE_KEY).catch(() => {});
-    await sendMessage(env, chatId, "✅ Edit foto closeup partner dibatalkan.");
+    await sendMessage(env, chatId, "✅ Edit foto closeup partner dibatalkan.", {
+      reply_markup: targetTelegramId
+        ? buildSuccessKeyboard(targetTelegramId)
+        : buildOfficerHomeKeyboard("admin"),
+    });
     return true;
   }
 
-  const targetTelegramId = String(session?.targetTelegramId || "").trim();
   if (!targetTelegramId) {
     await clearSession(env, STATE_KEY).catch(() => {});
     await sendMessage(env, chatId, "⚠️ Session edit foto partner tidak valid.");
@@ -207,7 +234,10 @@ async function handlePartnerCloseupEditInput({
       await sendMessage(
         env,
         chatId,
-        "⚠️ Silakan kirim foto closeup baru dalam format foto Telegram.\n\nKetik batal untuk keluar."
+        "⚠️ Silakan kirim foto closeup baru dalam format foto Telegram.\n\nKetik batal untuk keluar.",
+        {
+          reply_markup: buildSuccessKeyboard(targetTelegramId),
+        }
       );
       return true;
     }
@@ -218,12 +248,16 @@ async function handlePartnerCloseupEditInput({
   const res = await updateCloseupPhoto(env, targetTelegramId, largestPhoto.file_id);
   if (!res?.ok) {
     await clearSession(env, STATE_KEY).catch(() => {});
-    await sendMessage(env, chatId, "⚠️ Gagal update foto closeup partner.");
+    await sendMessage(env, chatId, "⚠️ Gagal update foto closeup partner.", {
+      reply_markup: buildSuccessKeyboard(targetTelegramId),
+    });
     return true;
   }
 
   await clearSession(env, STATE_KEY).catch(() => {});
-  await sendMessage(env, chatId, "✅ Foto closeup partner berhasil diupdate !!!");
+  await sendMessage(env, chatId, "✅ Foto closeup partner berhasil diupdate !!!", {
+    reply_markup: buildSuccessKeyboard(targetTelegramId),
+  });
   return true;
 }
 
