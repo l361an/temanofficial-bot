@@ -1,6 +1,6 @@
 // routes/callbacks/superadmin.paymentReview.js
 
-import { sendMessage, editMessageReplyMarkup } from "../../services/telegramApi.js";
+import { sendMessage, sendPhoto, editMessageReplyMarkup } from "../../services/telegramApi.js";
 import {
   getPaymentTicketById,
   rejectPaymentTicket,
@@ -32,14 +32,6 @@ function formatClassLabel(value) {
   if (raw === "gold") return "Gold";
   if (raw === "platinum") return "Platinum";
   return raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : "-";
-}
-
-function formatDurationLabel(value) {
-  const raw = String(value || "").trim().toLowerCase();
-  if (raw === "1d") return "1 Hari";
-  if (raw === "3d") return "3 Hari";
-  if (raw === "7d") return "7 Hari";
-  return "1 Bulan";
 }
 
 function formatMoney(value) {
@@ -82,6 +74,38 @@ function formatUsername(value) {
 function formatNickname(value) {
   const raw = String(value || "").trim();
   return raw || "-";
+}
+
+function hasValue(value) {
+  return !(value === null || value === undefined || String(value).trim() === "");
+}
+
+function parseJsonSafe(value, fallback = null) {
+  try {
+    if (!hasValue(value)) return fallback;
+    return JSON.parse(String(value));
+  } catch {
+    return fallback;
+  }
+}
+
+function resolveDurationLabelFromTicket(ticket) {
+  const snapshot = parseJsonSafe(ticket?.pricing_snapshot_json, {});
+  const durationLabel = String(snapshot?.duration_label || "").trim();
+  if (durationLabel) return durationLabel;
+
+  const durationCode = String(snapshot?.duration_code || "").trim().toLowerCase();
+  if (durationCode === "1d") return "1 Hari";
+  if (durationCode === "3d") return "3 Hari";
+  if (durationCode === "7d") return "7 Hari";
+  if (durationCode === "1m") return "1 Bulan";
+
+  const months = Number(ticket?.duration_months || 0);
+  if (Number.isFinite(months) && months > 0) {
+    return `${months} Bulan`;
+  }
+
+  return "-";
 }
 
 async function getFinanceState(env) {
@@ -197,11 +221,9 @@ function buildPaymentConfirmSummary(ticket, profile = null, subscription = null)
     profile?.full_name ??
     "";
 
-  const durationCode = String(
-    subscription?.duration_code || ticket?.duration_code || ticket?.duration_months || ""
-  )
-    .trim()
-    .toLowerCase();
+  const durationLabel =
+    String(subscription?.duration_label || "").trim() ||
+    resolveDurationLabelFromTicket(ticket);
 
   return [
     "💳 <b>Payment Confirmed</b>",
@@ -211,7 +233,7 @@ function buildPaymentConfirmSummary(ticket, profile = null, subscription = null)
     `Username: <b>${escapeHtml(username ? `@${username}` : "-")}</b>`,
     `Nickname: <b>${escapeHtml(formatNickname(nickname))}</b>`,
     `Class Partner: <b>${escapeHtml(formatClassLabel(ticket?.class_id))}</b>`,
-    `Durasi: <b>${escapeHtml(formatDurationLabel(durationCode))}</b>`,
+    `Durasi: <b>${escapeHtml(durationLabel)}</b>`,
     `Masa Aktif: <b>${escapeHtml(formatDateTime(subscription?.start_at))}</b> s.d <b>${escapeHtml(formatDateTime(subscription?.end_at))}</b>`,
     `Nominal: <b>${escapeHtml(formatMoney(ticket?.amount_final))}</b>`,
   ].join("\n");
@@ -298,7 +320,7 @@ async function buildWaitingListText(env, rows, page, total) {
   return lines.join("\n");
 }
 
-async function buildWaitingDetailText(env, ticket) {
+async function buildWaitingDetailCaption(env, ticket) {
   const profile = await getProfileFullByTelegramId(env, String(ticket?.partner_id || "")).catch(() => null);
   const partnerUsername = formatUsername(profile?.username);
   const partnerNickname = formatNickname(
@@ -308,26 +330,37 @@ async function buildWaitingDetailText(env, ticket) {
     profile?.full_name
   );
 
-  return [
-    "💳 <b>DETAIL REVIEW PEMBAYARAN</b>",
+  const lines = [
+    "🗂 <b>DETAIL REVIEW PEMBAYARAN</b>",
     "",
     `Kode Tiket: <code>${escapeHtml(String(ticket?.ticket_code || "-"))}</code>`,
     `Username: <b>${escapeHtml(partnerUsername)}</b>`,
     `Nickname: <b>${escapeHtml(partnerNickname)}</b>`,
     `Partner ID: <code>${escapeHtml(String(ticket?.partner_id || "-"))}</code>`,
     `Class: <b>${escapeHtml(formatClassLabel(ticket?.class_id))}</b>`,
-    `Durasi: <b>${escapeHtml(String(ticket?.duration_months || "-"))} Bulan</b>`,
+    `Durasi: <b>${escapeHtml(resolveDurationLabelFromTicket(ticket))}</b>`,
     `Provider: <b>${escapeHtml(String(ticket?.provider || "-"))}</b>`,
     `Harga Dasar: <b>${escapeHtml(formatMoney(ticket?.amount_base || 0))}</b>`,
     `Kode Unik: <b>${escapeHtml(String(ticket?.unique_code || "0"))}</b>`,
     `Total Bayar: <b>${escapeHtml(formatMoney(ticket?.amount_final || 0))}</b>`,
-    `Nama Pengirim: <b>${escapeHtml(String(ticket?.payer_name || "-"))}</b>`,
-    `Catatan: <b>${escapeHtml(String(ticket?.payer_notes || "-"))}</b>`,
-    `Caption Bukti: <b>${escapeHtml(String(ticket?.proof_caption || "-"))}</b>`,
     `Uploaded At: <b>${escapeHtml(formatDateTime(ticket?.proof_uploaded_at))}</b>`,
     `Expires At: <b>${escapeHtml(formatDateTime(ticket?.expires_at))}</b>`,
     `Status: <b>${escapeHtml(String(ticket?.status || "-"))}</b>`,
-  ].join("\n");
+  ];
+
+  if (hasValue(ticket?.payer_name)) {
+    lines.push(`Nama Pengirim: <b>${escapeHtml(String(ticket.payer_name))}</b>`);
+  }
+
+  if (hasValue(ticket?.payer_notes)) {
+    lines.push(`Catatan: <b>${escapeHtml(String(ticket.payer_notes))}</b>`);
+  }
+
+  if (hasValue(ticket?.proof_caption)) {
+    lines.push(`Caption Bukti: <b>${escapeHtml(String(ticket.proof_caption))}</b>`);
+  }
+
+  return lines.join("\n");
 }
 
 export function buildSuperadminPaymentReviewHandlers() {
@@ -368,9 +401,26 @@ export function buildSuperadminPaymentReviewHandlers() {
           return true;
         }
 
-        await sendMessage(env, adminId, await buildWaitingDetailText(env, ticket), {
+        const caption = await buildWaitingDetailCaption(env, ticket);
+        const replyMarkup = buildWaitingConfirmationItemKeyboard(ticket.id, page);
+
+        if (hasValue(ticket?.proof_asset_id)) {
+          await sendPhoto(
+            env,
+            adminId,
+            String(ticket.proof_asset_id),
+            caption,
+            {
+              parse_mode: "HTML",
+              reply_markup: replyMarkup,
+            }
+          );
+          return true;
+        }
+
+        await sendMessage(env, adminId, caption, {
           parse_mode: "HTML",
-          reply_markup: buildWaitingConfirmationItemKeyboard(ticket.id, page),
+          reply_markup: replyMarkup,
         });
 
         return true;
