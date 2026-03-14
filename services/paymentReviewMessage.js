@@ -3,7 +3,7 @@
 import { buildPaymentReviewKeyboard } from "../routes/callbacks/keyboards.finance.js";
 import { getPaymentTicketById } from "../repositories/paymentTicketsRepo.js";
 import { getProfileFullByTelegramId } from "../repositories/profilesRepo.js";
-import { getFirstActiveSuperadminId } from "../repositories/adminsRepo.js";
+import { listAdmins } from "../repositories/adminsRepo.js";
 
 function esc(value) {
   return String(value ?? "")
@@ -42,7 +42,7 @@ function fmtProviderLabel(provider) {
 function fmtStatusLabel(status) {
   const raw = String(status || "").trim().toLowerCase();
   if (raw === "waiting_payment") return "Menunggu Pembayaran";
-  if (raw === "waiting_confirmation") return "Menunggu Konfirmasi Superadmin";
+  if (raw === "waiting_confirmation") return "Menunggu Konfirmasi Admin";
   if (raw === "confirmed") return "Pembayaran Terkonfirmasi";
   if (raw === "rejected") return "Pembayaran Ditolak";
   if (raw === "expired") return "Tiket Kedaluwarsa";
@@ -79,7 +79,27 @@ function fmtDateTime(value) {
   const d = new Date(raw);
   if (Number.isNaN(d.getTime())) return raw;
 
-  return `${pad2(d.getDate())}-${pad2(d.getMonth() + 1)}-${d.getFullYear()} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  return `${pad2(d.getDate())}-${pad2(d.getMonth() + 1)}-${d.getFullYear()} ${pad2(
+    d.getHours()
+  )}:${pad2(d.getMinutes())}`;
+}
+
+function buildReviewerIds(adminRows = []) {
+  const ids = new Set();
+
+  for (const row of adminRows || []) {
+    if (!row?.is_active) continue;
+
+    const role = String(row?.normRole || "").trim().toLowerCase();
+    if (role !== "owner" && role !== "superadmin") continue;
+
+    const telegramId = String(row?.telegram_id || "").trim();
+    if (!telegramId) continue;
+
+    ids.add(telegramId);
+  }
+
+  return Array.from(ids);
 }
 
 export function buildPaymentReviewText(ticket, profile = null) {
@@ -133,7 +153,11 @@ export function buildPaymentReviewText(ticket, profile = null) {
     lines.push("", "🕓 <b>Waktu Upload Bukti</b>", esc(fmtDateTime(ticket?.proof_uploaded_at)));
   }
 
-  lines.push("", "Silakan lakukan verifikasi pembayaran ini.");
+  lines.push(
+    "",
+    "Reviewer: <b>Owner & Superadmin</b>",
+    "Siapa yang klik lebih dulu akan menjadi keputusan final."
+  );
 
   return lines.join("\n");
 }
@@ -153,13 +177,14 @@ export async function buildPaymentReviewMessage(env, ticketId) {
   if (!ticket) return null;
 
   const profile = await getProfileFullByTelegramId(env, String(ticket.partner_id)).catch(() => null);
-  const superadminId = await getFirstActiveSuperadminId(env).catch(() => null);
+  const adminRows = await listAdmins(env, { activeOnly: true }).catch(() => []);
+  const reviewerIds = buildReviewerIds(adminRows);
 
   return {
     ticket,
     profile,
     caption: buildPaymentReviewText(ticket, profile),
     keyboard: buildPaymentReviewKeyboard(ticket.id),
-    superadmin_ids: superadminId ? [String(superadminId)] : [],
+    superadmin_ids: reviewerIds,
   };
 }
