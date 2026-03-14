@@ -6,7 +6,12 @@ import {
   rejectPaymentTicket,
 } from "../../repositories/paymentTicketsRepo.js";
 import { getSetting } from "../../repositories/settingsRepo.js";
-import { getAdminByTelegramId, getFirstActiveSuperadminId } from "../../repositories/adminsRepo.js";
+import {
+  getAdminByTelegramId,
+  getFirstActiveSuperadminId,
+  listAdmins,
+} from "../../repositories/adminsRepo.js";
+import { getProfileFullByTelegramId } from "../../repositories/profilesRepo.js";
 import { confirmPaymentAndActivateSubscription } from "../../services/paymentActivationService.js";
 import {
   buildFinanceKeyboard,
@@ -69,6 +74,16 @@ function normalizeStatus(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+function formatUsername(value) {
+  const raw = String(value || "").trim().replace(/^@/, "");
+  return raw ? `@${raw}` : "-";
+}
+
+function formatNickname(value) {
+  const raw = String(value || "").trim();
+  return raw || "-";
+}
+
 async function getFinanceState(env) {
   const manualRaw = (await getSetting(env, "payment_manual_enabled")) ?? "1";
   return {
@@ -102,6 +117,56 @@ async function getReviewerLabel(env, adminId) {
   return String(admin.telegram_id || adminId || "-");
 }
 
+async function listActivePaymentReviewerIds(env) {
+  const adminRows = await listAdmins(env, { activeOnly: true }).catch(() => []);
+  const ids = new Set();
+
+  for (const row of adminRows || []) {
+    if (!row?.is_active) continue;
+
+    const role = String(row?.normRole || "").trim().toLowerCase();
+    if (role !== "owner" && role !== "superadmin") continue;
+
+    const telegramId = String(row?.telegram_id || "").trim();
+    if (!telegramId) continue;
+
+    ids.add(telegramId);
+  }
+
+  return Array.from(ids);
+}
+
+async function broadcastFinalStatusToOtherReviewers(env, ticket, actorAdminId, action) {
+  const reviewerIds = await listActivePaymentReviewerIds(env);
+  const actorLabel = await getReviewerLabel(env, actorAdminId);
+
+  const actionLabel = action === "confirm" ? "dikonfirmasi" : "direject";
+  const actionEmoji = action === "confirm" ? "✅" : "❌";
+  const processedAt =
+    action === "confirm"
+      ? formatDateTime(ticket?.confirmed_at)
+      : formatDateTime(ticket?.rejected_at);
+
+  const text = [
+    `${actionEmoji} <b>Payment Sudah ${action === "confirm" ? "Confirmed" : "Rejected"}</b>`,
+    "",
+    `Kode Tiket: <code>${escapeHtml(String(ticket?.ticket_code || "-"))}</code>`,
+    `Partner ID: <code>${escapeHtml(String(ticket?.partner_id || "-"))}</code>`,
+    `Nominal: <b>${escapeHtml(formatMoney(ticket?.amount_final || 0))}</b>`,
+    `Status Final: <b>${escapeHtml(actionLabel)}</b>`,
+    `Diproses oleh: <b>${escapeHtml(actorLabel)}</b>`,
+    `Waktu proses: <b>${escapeHtml(processedAt)}</b>`,
+  ].join("\n");
+
+  for (const reviewerId of reviewerIds) {
+    if (String(reviewerId) === String(actorAdminId)) continue;
+
+    await sendMessage(env, reviewerId, text, {
+      parse_mode: "HTML",
+    }).catch(() => {});
+  }
+}
+
 function buildPartnerMenuKeyboard() {
   return {
     inline_keyboard: [[{ text: "📋 Menu TeMan", callback_data: "teman:menu" }]],
@@ -125,6 +190,13 @@ async function buildPartnerRejectKeyboard(env) {
 
 function buildPaymentConfirmSummary(ticket, profile = null, subscription = null) {
   const username = String(profile?.username || "").trim().replace(/^@/, "");
+  const nickname =
+    profile?.nickname ??
+    profile?.nama ??
+    profile?.name ??
+    profile?.full_name ??
+    "";
+
   const durationCode = String(
     subscription?.duration_code || ticket?.duration_code || ticket?.duration_months || ""
   )
@@ -137,6 +209,7 @@ function buildPaymentConfirmSummary(ticket, profile = null, subscription = null)
     `Kode Tiket: <code>${escapeHtml(String(ticket?.ticket_code || "-"))}</code>`,
     `Partner ID: <code>${escapeHtml(String(ticket?.partner_id || "-"))}</code>`,
     `Username: <b>${escapeHtml(username ? `@${username}` : "-")}</b>`,
+    `Nickname: <b>${escapeHtml(formatNickname(nickname))}</b>`,
     `Class Partner: <b>${escapeHtml(formatClassLabel(ticket?.class_id))}</b>`,
     `Durasi: <b>${escapeHtml(formatDurationLabel(durationCode))}</b>`,
     `Masa Aktif: <b>${escapeHtml(formatDateTime(subscription?.start_at))}</b> s.d <b>${escapeHtml(formatDateTime(subscription?.end_at))}</b>`,
@@ -171,8 +244,30 @@ function buildAlreadyProcessedMessage(ticket, actorLabel) {
   ].join("\n");
 }
 
-function buildWaitingListText(rows, page, total) {
+async function enrichWaitingRowsWithProfile(env, rows = []) {
+  const out = [];
+
+  for (const row of rows || []) {
+    const profile = await getProfileFullByTelegramId(env, String(row.partner_id)).catch(() => null);
+
+    out.push({
+      ...row,
+      partner_username: formatUsername(profile?.username),
+      partner_nickname: formatNickname(
+        profile?.nickname ??
+        profile?.nama ??
+        profile?.name ??
+        profile?.full_name
+      ),
+    });
+  }
+
+  return out;
+}
+
+async function buildWaitingListText(env, rows, page, total) {
   const totalPages = Math.max(1, Math.ceil(total / 10));
+  const enrichedRows = await enrichWaitingRowsWithProfile(env, rows);
 
   const lines = [
     "🕓 <b>WAITING CONFIRMATION LIST</b>",
@@ -182,14 +277,16 @@ function buildWaitingListText(rows, page, total) {
     "",
   ];
 
-  if (!rows.length) {
+  if (!enrichedRows.length) {
     lines.push("Tidak ada payment yang menunggu konfirmasi.");
     return lines.join("\n");
   }
 
-  rows.forEach((row, index) => {
+  enrichedRows.forEach((row, index) => {
     lines.push(
       `${index + 1}. <b>${escapeHtml(String(row.ticket_code || `#${row.id}`))}</b>`,
+      `Username: <b>${escapeHtml(String(row.partner_username || "-"))}</b>`,
+      `Nickname: <b>${escapeHtml(String(row.partner_nickname || "-"))}</b>`,
       `Partner ID: <code>${escapeHtml(String(row.partner_id || "-"))}</code>`,
       `Nominal: <b>${escapeHtml(String(row.amount_final_label || formatMoney(row.amount_final)))}</b>`,
       `Uploaded: <b>${escapeHtml(formatDateTime(row.proof_uploaded_at))}</b>`,
@@ -201,11 +298,22 @@ function buildWaitingListText(rows, page, total) {
   return lines.join("\n");
 }
 
-function buildWaitingDetailText(ticket) {
+async function buildWaitingDetailText(env, ticket) {
+  const profile = await getProfileFullByTelegramId(env, String(ticket?.partner_id || "")).catch(() => null);
+  const partnerUsername = formatUsername(profile?.username);
+  const partnerNickname = formatNickname(
+    profile?.nickname ??
+    profile?.nama ??
+    profile?.name ??
+    profile?.full_name
+  );
+
   return [
     "💳 <b>DETAIL REVIEW PEMBAYARAN</b>",
     "",
     `Kode Tiket: <code>${escapeHtml(String(ticket?.ticket_code || "-"))}</code>`,
+    `Username: <b>${escapeHtml(partnerUsername)}</b>`,
+    `Nickname: <b>${escapeHtml(partnerNickname)}</b>`,
     `Partner ID: <code>${escapeHtml(String(ticket?.partner_id || "-"))}</code>`,
     `Class: <b>${escapeHtml(formatClassLabel(ticket?.class_id))}</b>`,
     `Durasi: <b>${escapeHtml(String(ticket?.duration_months || "-"))} Bulan</b>`,
@@ -241,7 +349,7 @@ export function buildSuperadminPaymentReviewHandlers() {
         const rows = await listWaitingConfirmationTickets(env, { page, pageSize: 10 });
         const hasNext = page * 10 < total;
 
-        await sendMessage(env, adminId, buildWaitingListText(rows, page, total), {
+        await sendMessage(env, adminId, await buildWaitingListText(env, rows, page, total), {
           parse_mode: "HTML",
           reply_markup: buildWaitingConfirmationListKeyboard(rows, page, hasNext),
         });
@@ -260,7 +368,7 @@ export function buildSuperadminPaymentReviewHandlers() {
           return true;
         }
 
-        await sendMessage(env, adminId, buildWaitingDetailText(ticket), {
+        await sendMessage(env, adminId, await buildWaitingDetailText(env, ticket), {
           parse_mode: "HTML",
           reply_markup: buildWaitingConfirmationItemKeyboard(ticket.id, page),
         });
@@ -321,6 +429,13 @@ export function buildSuperadminPaymentReviewHandlers() {
           }
         );
 
+        await broadcastFinalStatusToOtherReviewers(
+          env,
+          freshTicket || ticket,
+          adminId,
+          "confirm"
+        );
+
         if (res?.profile?.telegram_id) {
           await sendMessage(
             env,
@@ -379,6 +494,13 @@ export function buildSuperadminPaymentReviewHandlers() {
             parse_mode: "HTML",
             reply_markup: buildFinanceKeyboard(state.manualOn),
           }
+        );
+
+        await broadcastFinalStatusToOtherReviewers(
+          env,
+          freshTicket || ticket,
+          adminId,
+          "reject"
         );
 
         await sendMessage(
