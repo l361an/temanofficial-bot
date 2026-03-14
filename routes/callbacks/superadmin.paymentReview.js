@@ -56,6 +56,10 @@ function formatDateTime(value) {
   )}:${pad2(d.getMinutes())}`;
 }
 
+function normalizeStatus(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
 async function getFinanceState(env) {
   const manualRaw = (await getSetting(env, "payment_manual_enabled")) ?? "1";
   return {
@@ -77,6 +81,16 @@ async function getPrimarySuperadminContact(env) {
     label: admin.label || (username ? `@${username}` : String(admin.telegram_id || superadminId)),
     url: username ? `https://t.me/${username}` : null,
   };
+}
+
+async function getReviewerLabel(env, adminId) {
+  const admin = await getAdminByTelegramId(env, adminId).catch(() => null);
+  if (!admin) return String(adminId || "-");
+
+  const username = String(admin.username || "").trim().replace(/^@/, "");
+  if (username) return `@${username}`;
+  if (admin.nama) return String(admin.nama);
+  return String(admin.telegram_id || adminId || "-");
 }
 
 function buildPartnerMenuKeyboard() {
@@ -121,6 +135,33 @@ function buildPaymentConfirmSummary(ticket, profile = null, subscription = null)
   ].join("\n");
 }
 
+function buildAlreadyProcessedMessage(ticket, actorLabel) {
+  const status = normalizeStatus(ticket?.status);
+  const ticketCode = String(ticket?.ticket_code || "-");
+  const processedAt =
+    status === "confirmed"
+      ? formatDateTime(ticket?.confirmed_at)
+      : status === "rejected"
+        ? formatDateTime(ticket?.rejected_at)
+        : "-";
+
+  const statusLabel =
+    status === "confirmed"
+      ? "dikonfirmasi"
+      : status === "rejected"
+        ? "direject"
+        : "diproses";
+
+  return [
+    `⚠️ Payment ticket <b>${escapeHtml(ticketCode)}</b> sudah ${statusLabel} sebelumnya.`,
+    "",
+    `Diproses oleh: <b>${escapeHtml(actorLabel || "-")}</b>`,
+    `Waktu proses: <b>${escapeHtml(processedAt)}</b>`,
+    "",
+    "Gunakan Waiting Confirmation List nanti sebagai backup monitor pending ticket.",
+  ].join("\n");
+}
+
 export function buildSuperadminPaymentReviewHandlers() {
   const PREFIX = [];
 
@@ -145,8 +186,18 @@ export function buildSuperadminPaymentReviewHandlers() {
           return true;
         }
 
-        if (String(ticket.status) === "confirmed") {
-          await sendMessage(env, adminId, "⚠️ Ticket ini sudah dikonfirmasi sebelumnya.");
+        const currentStatus = normalizeStatus(ticket.status);
+
+        if (currentStatus === "confirmed" || currentStatus === "rejected") {
+          const actorId =
+            currentStatus === "confirmed"
+              ? String(ticket.confirmed_by || "")
+              : String(ticket.rejected_by || "");
+          const actorLabel = actorId ? await getReviewerLabel(env, actorId) : actorId || "-";
+
+          await sendMessage(env, adminId, buildAlreadyProcessedMessage(ticket, actorLabel), {
+            parse_mode: "HTML",
+          });
           return true;
         }
 
@@ -162,12 +213,13 @@ export function buildSuperadminPaymentReviewHandlers() {
           return true;
         }
 
+        const freshTicket = await getPaymentTicketById(env, ticketId).catch(() => ticket);
         const state = await getFinanceState(env);
 
         await sendMessage(
           env,
           adminId,
-          buildPaymentConfirmSummary(ticket, res.profile, res.subscription),
+          buildPaymentConfirmSummary(freshTicket || ticket, res.profile, res.subscription),
           {
             parse_mode: "HTML",
             reply_markup: buildFinanceKeyboard(state.manualOn),
@@ -198,20 +250,38 @@ export function buildSuperadminPaymentReviewHandlers() {
           return true;
         }
 
-        if (String(ticket.status) === "confirmed") {
-          await sendMessage(env, adminId, "⚠️ Ticket ini sudah confirmed, tidak bisa direject.");
+        const currentStatus = normalizeStatus(ticket.status);
+
+        if (currentStatus === "confirmed" || currentStatus === "rejected") {
+          const actorId =
+            currentStatus === "confirmed"
+              ? String(ticket.confirmed_by || "")
+              : String(ticket.rejected_by || "");
+          const actorLabel = actorId ? await getReviewerLabel(env, actorId) : actorId || "-";
+
+          await sendMessage(env, adminId, buildAlreadyProcessedMessage(ticket, actorLabel), {
+            parse_mode: "HTML",
+          });
           return true;
         }
 
-        await rejectPaymentTicket(env, ticketId, adminId, "Rejected by superadmin callback");
+        await rejectPaymentTicket(env, ticketId, adminId, "Rejected by owner/superadmin callback");
 
+        const freshTicket = await getPaymentTicketById(env, ticketId).catch(() => ticket);
         const state = await getFinanceState(env);
 
         await sendMessage(
           env,
           adminId,
-          `❌ Payment ticket direject.\nTicket ID: ${ticketId}\nPartner ID: ${ticket.partner_id}`,
+          [
+            "❌ <b>Payment Rejected</b>",
+            "",
+            `Kode Tiket: <code>${escapeHtml(String(freshTicket?.ticket_code || ticket?.ticket_code || "-"))}</code>`,
+            `Partner ID: <code>${escapeHtml(String(freshTicket?.partner_id || ticket?.partner_id || "-"))}</code>`,
+            `Nominal: <b>${escapeHtml(formatMoney(freshTicket?.amount_final || ticket?.amount_final || 0))}</b>`,
+          ].join("\n"),
           {
+            parse_mode: "HTML",
             reply_markup: buildFinanceKeyboard(state.manualOn),
           }
         );
@@ -219,7 +289,7 @@ export function buildSuperadminPaymentReviewHandlers() {
         await sendMessage(
           env,
           ticket.partner_id,
-          "❌ Bukti pembayaran kamu ditolak. Silakan hubungi Superadmin untuk pengecekan lebih lanjut atau kembali ke Menu TeMan.",
+          "❌ Bukti pembayaran kamu ditolak. Silakan hubungi admin untuk pengecekan lebih lanjut atau kembali ke Menu TeMan.",
           {
             reply_markup: await buildPartnerRejectKeyboard(env),
           }
