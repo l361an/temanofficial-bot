@@ -8,9 +8,18 @@ import {
 import { getSetting } from "../../repositories/settingsRepo.js";
 import { getAdminByTelegramId, getFirstActiveSuperadminId } from "../../repositories/adminsRepo.js";
 import { confirmPaymentAndActivateSubscription } from "../../services/paymentActivationService.js";
-import { buildFinanceKeyboard } from "./keyboards.finance.js";
+import {
+  buildFinanceKeyboard,
+  buildWaitingConfirmationItemKeyboard,
+  buildWaitingConfirmationListKeyboard,
+} from "./keyboards.finance.js";
 import { escapeHtml } from "./shared.js";
 import { CALLBACK_PREFIX } from "../telegram.constants.js";
+import {
+  countWaitingConfirmationTickets,
+  getWaitingConfirmationTicketById,
+  listWaitingConfirmationTickets,
+} from "../../repositories/paymentWaitingRepo.js";
 
 function formatClassLabel(value) {
   const raw = String(value || "").trim().toLowerCase();
@@ -158,7 +167,58 @@ function buildAlreadyProcessedMessage(ticket, actorLabel) {
     `Diproses oleh: <b>${escapeHtml(actorLabel || "-")}</b>`,
     `Waktu proses: <b>${escapeHtml(processedAt)}</b>`,
     "",
-    "Gunakan Waiting Confirmation List nanti sebagai backup monitor pending ticket.",
+    "Gunakan Waiting Confirmation List sebagai backup monitor pending ticket.",
+  ].join("\n");
+}
+
+function buildWaitingListText(rows, page, total) {
+  const totalPages = Math.max(1, Math.ceil(total / 10));
+
+  const lines = [
+    "🕓 <b>WAITING CONFIRMATION LIST</b>",
+    "",
+    `Total pending: <b>${total}</b>`,
+    `Page: <b>${page}</b>/<b>${totalPages}</b>`,
+    "",
+  ];
+
+  if (!rows.length) {
+    lines.push("Tidak ada payment yang menunggu konfirmasi.");
+    return lines.join("\n");
+  }
+
+  rows.forEach((row, index) => {
+    lines.push(
+      `${index + 1}. <b>${escapeHtml(String(row.ticket_code || `#${row.id}`))}</b>`,
+      `Partner ID: <code>${escapeHtml(String(row.partner_id || "-"))}</code>`,
+      `Nominal: <b>${escapeHtml(String(row.amount_final_label || formatMoney(row.amount_final)))}</b>`,
+      `Uploaded: <b>${escapeHtml(formatDateTime(row.proof_uploaded_at))}</b>`,
+      ""
+    );
+  });
+
+  lines.push("Pilih tiket dari tombol di bawah untuk lihat detail.");
+  return lines.join("\n");
+}
+
+function buildWaitingDetailText(ticket) {
+  return [
+    "💳 <b>DETAIL REVIEW PEMBAYARAN</b>",
+    "",
+    `Kode Tiket: <code>${escapeHtml(String(ticket?.ticket_code || "-"))}</code>`,
+    `Partner ID: <code>${escapeHtml(String(ticket?.partner_id || "-"))}</code>`,
+    `Class: <b>${escapeHtml(formatClassLabel(ticket?.class_id))}</b>`,
+    `Durasi: <b>${escapeHtml(String(ticket?.duration_months || "-"))} Bulan</b>`,
+    `Provider: <b>${escapeHtml(String(ticket?.provider || "-"))}</b>`,
+    `Harga Dasar: <b>${escapeHtml(formatMoney(ticket?.amount_base || 0))}</b>`,
+    `Kode Unik: <b>${escapeHtml(String(ticket?.unique_code || "0"))}</b>`,
+    `Total Bayar: <b>${escapeHtml(formatMoney(ticket?.amount_final || 0))}</b>`,
+    `Nama Pengirim: <b>${escapeHtml(String(ticket?.payer_name || "-"))}</b>`,
+    `Catatan: <b>${escapeHtml(String(ticket?.payer_notes || "-"))}</b>`,
+    `Caption Bukti: <b>${escapeHtml(String(ticket?.proof_caption || "-"))}</b>`,
+    `Uploaded At: <b>${escapeHtml(formatDateTime(ticket?.proof_uploaded_at))}</b>`,
+    `Expires At: <b>${escapeHtml(formatDateTime(ticket?.expires_at))}</b>`,
+    `Status: <b>${escapeHtml(String(ticket?.status || "-"))}</b>`,
   ].join("\n");
 }
 
@@ -168,10 +228,45 @@ export function buildSuperadminPaymentReviewHandlers() {
   PREFIX.push({
     match: (d) =>
       d.startsWith(CALLBACK_PREFIX.PAYCONFIRM_OK) ||
-      d.startsWith(CALLBACK_PREFIX.PAYCONFIRM_REJECT),
+      d.startsWith(CALLBACK_PREFIX.PAYCONFIRM_REJECT) ||
+      d.startsWith("paywait:list:") ||
+      d.startsWith("paywait:view:"),
 
     run: async (ctx) => {
       const { env, data, adminId, msgChatId, msgId } = ctx;
+
+      if (data.startsWith("paywait:list:")) {
+        const page = Math.max(1, Number(data.split(":")[2] || 1));
+        const total = await countWaitingConfirmationTickets(env);
+        const rows = await listWaitingConfirmationTickets(env, { page, pageSize: 10 });
+        const hasNext = page * 10 < total;
+
+        await sendMessage(env, adminId, buildWaitingListText(rows, page, total), {
+          parse_mode: "HTML",
+          reply_markup: buildWaitingConfirmationListKeyboard(rows, page, hasNext),
+        });
+
+        return true;
+      }
+
+      if (data.startsWith("paywait:view:")) {
+        const parts = data.split(":");
+        const ticketId = parts[2];
+        const page = Math.max(1, Number(parts[3] || 1));
+        const ticket = await getWaitingConfirmationTicketById(env, ticketId);
+
+        if (!ticket) {
+          await sendMessage(env, adminId, "⚠️ Ticket payment tidak ditemukan.");
+          return true;
+        }
+
+        await sendMessage(env, adminId, buildWaitingDetailText(ticket), {
+          parse_mode: "HTML",
+          reply_markup: buildWaitingConfirmationItemKeyboard(ticket.id, page),
+        });
+
+        return true;
+      }
 
       if (msgChatId && msgId) {
         await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
