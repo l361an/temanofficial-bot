@@ -29,7 +29,7 @@ export function buildAdminManagerKeyboard() {
     inline_keyboard: [
       [{ text: "👤 Admin List", callback_data: CALLBACKS.SUPERADMIN_ADMIN_LIST }],
       [{ text: "🔗 Invite Admin", callback_data: CALLBACKS.SUPERADMIN_ADMIN_ADD }],
-      backAndHomeRow(CALLBACKS.SUPERADMIN_TOOLS_MENU),
+      [officerHomeButton()],
     ],
   };
 }
