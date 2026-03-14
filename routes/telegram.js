@@ -40,20 +40,12 @@ import {
 
 const PM_PREVIEW_PREFIX = "pm_preview:";
 
+function ok() {
+  return json({ ok: true });
+}
+
 function isPrivateChat(chat) {
   return String(chat?.type || "").trim().toLowerCase() === "private";
-}
-
-function isOfficerChat(chat, role) {
-  return isAdminRole(role) && isPrivateChat(chat);
-}
-
-function isPartnerChat(chat, role) {
-  return !isAdminRole(role) && isPrivateChat(chat);
-}
-
-function shouldIgnoreNonPrivateInteractiveChat(chat) {
-  return !isPrivateChat(chat);
 }
 
 function getLargestPhotoFromMessage(msg) {
@@ -276,109 +268,85 @@ async function handlePartnerCloseupEditInput({
   return true;
 }
 
-export async function handleTelegramWebhook(request, env) {
-  try {
-    const update = await request.json();
+async function handleTelegramCommand({
+  env,
+  msg,
+  chat,
+  chatId,
+  telegramId,
+  username,
+  text,
+  role,
+}) {
+  if (!(text && text.startsWith("/"))) return false;
 
-    if (update.callback_query) {
-      return handleCallback(update, env);
-    }
+  const raw = String(text || "").trim();
+  const cmdToken = raw.split(/\s+/)[0];
+  const baseCmd = cmdToken.split("@")[0];
 
-    if (!update.message) return json({ ok: true });
+  if (baseCmd === "/help") {
+    await sendMessage(env, chatId, buildHelp(role), { parse_mode: "HTML" });
+    return true;
+  }
 
-    const msg = update.message;
-    const chat = msg?.chat || null;
-    const { chatId, telegramId, username, text } = parseMessage(msg);
+  if (baseCmd === "/start") {
+    const handledInviteStart = await handleAdminInviteStart({
+      env,
+      msg,
+      chatId,
+      telegramId,
+      username,
+      rawText: raw,
+    });
 
-    if (!chatId || !telegramId) {
-      return json({ ok: true });
-    }
+    if (handledInviteStart) return true;
+  }
 
-    const STATE_KEY = `state:${telegramId}`;
-    const role = await getAdminRole(env, telegramId);
-    const officerChat = isOfficerChat(chat, role);
-    const partnerChat = isPartnerChat(chat, role);
+  if (isAdminRole(role)) {
+    const handledAdmin = await handleAdminCommand({
+      env,
+      chatId,
+      text: raw,
+      role,
+    });
 
-    await syncProfileUsernameFromTelegram(env, telegramId, username).catch(() => {});
+    if (handledAdmin) return true;
+  }
 
-    if (text && text.startsWith("/")) {
-      const raw = String(text || "").trim();
-      const cmdToken = raw.split(/\s+/)[0];
-      const baseCmd = cmdToken.split("@")[0];
+  const handledUser = await handleUserCommand({
+    env,
+    chat,
+    chatId,
+    telegramId,
+    role,
+    text: raw,
+  });
 
-      if (baseCmd === "/help") {
-        if (isAdminRole(role) && !officerChat) {
-          return json({ ok: true });
-        }
+  if (handledUser) return true;
 
-        if (!isAdminRole(role) && !partnerChat) {
-          return json({ ok: true });
-        }
+  await sendMessage(env, chatId, "Command tidak dikenali.", {
+    reply_markup: buildTeManMenuKeyboard(),
+  });
 
-        await sendMessage(env, chatId, buildHelp(role), { parse_mode: "HTML" });
-        return json({ ok: true });
-      }
+  return true;
+}
 
-      if (baseCmd === "/start") {
-        const handledInviteStart = await handleAdminInviteStart({
-          env,
-          msg,
-          chatId,
-          telegramId,
-          username,
-          rawText: raw,
-        });
+async function handleAdminSessionInput({
+  env,
+  chatId,
+  telegramId,
+  text,
+  msg,
+  update,
+  role,
+  session,
+  STATE_KEY,
+}) {
+  if (!isAdminRole(role) || !session) return false;
 
-        if (handledInviteStart) return json({ ok: true });
-      }
-
-      if (isAdminRole(role)) {
-        if (!officerChat) {
-          return json({ ok: true });
-        }
-
-        const handled = await handleAdminCommand({
-          env,
-          chatId,
-          text: raw,
-          role,
-        });
-
-        if (handled) return json({ ok: true });
-      }
-
-      if (!isAdminRole(role)) {
-        if (!partnerChat) {
-          return json({ ok: true });
-        }
-
-        const handledUser = await handleUserCommand({
-          env,
-          chat,
-          chatId,
-          telegramId,
-          role,
-          text: raw,
-        });
-
-        if (handledUser) return json({ ok: true });
-
-        await sendMessage(env, chatId, "Command tidak dikenali.", {
-          reply_markup: buildTeManMenuKeyboard(),
-        });
-
-        return json({ ok: true });
-      }
-
-      return json({ ok: true });
-    }
-
-    const session = await loadSession(env, STATE_KEY);
-
-    if (session?.mode === SESSION_MODES.SA_FINANCE && isAdminRole(role)) {
-      if (!officerChat) return json({ ok: true });
-
-      const handledFinance = await handleSuperadminFinanceInput({
+  if (session?.mode === SESSION_MODES.SA_FINANCE) {
+    return Boolean(
+      await handleSuperadminFinanceInput({
         env,
         chatId,
         telegramId,
@@ -386,43 +354,37 @@ export async function handleTelegramWebhook(request, env) {
         session,
         STATE_KEY,
         update,
-      });
+      })
+    );
+  }
 
-      if (handledFinance) return json({ ok: true });
-    }
-
-    if (session?.mode === SESSION_MODES.SA_CATEGORY && isAdminRole(role)) {
-      if (!officerChat) return json({ ok: true });
-
-      const handledCategory = await handleSuperadminCategoryInput({
+  if (session?.mode === SESSION_MODES.SA_CATEGORY) {
+    return Boolean(
+      await handleSuperadminCategoryInput({
         env,
         chatId,
         text,
         session,
         STATE_KEY,
-      });
+      })
+    );
+  }
 
-      if (handledCategory) return json({ ok: true });
-    }
-
-    if (session?.mode === SESSION_MODES.SA_ADMIN_MANAGER && isAdminRole(role)) {
-      if (!officerChat) return json({ ok: true });
-
-      const handledAdminManager = await handleSuperadminAdminManagerInput({
+  if (session?.mode === SESSION_MODES.SA_ADMIN_MANAGER) {
+    return Boolean(
+      await handleSuperadminAdminManagerInput({
         env,
         chatId,
         text,
         session,
         STATE_KEY,
-      });
+      })
+    );
+  }
 
-      if (handledAdminManager) return json({ ok: true });
-    }
-
-    if (session?.mode === SESSION_MODES.PARTNER_VIEW && isAdminRole(role)) {
-      if (!officerChat) return json({ ok: true });
-
-      const handledPartnerView = await handlePartnerViewSearchInput({
+  if (session?.mode === SESSION_MODES.PARTNER_VIEW) {
+    return Boolean(
+      await handlePartnerViewSearchInput({
         env,
         chatId,
         adminId: telegramId,
@@ -431,108 +393,163 @@ export async function handleTelegramWebhook(request, env) {
         session,
         STATE_KEY,
         msg,
-      });
+      })
+    );
+  }
 
-      if (handledPartnerView) return json({ ok: true });
-    }
-
-    if (session?.mode === SESSION_MODES.PARTNER_MODERATION && isAdminRole(role)) {
-      if (!officerChat) return json({ ok: true });
-
-      const handledModeration = await handlePartnerModerationInput({
+  if (session?.mode === SESSION_MODES.PARTNER_MODERATION) {
+    return Boolean(
+      await handlePartnerModerationInput({
         env,
         chatId,
         text,
         session,
         STATE_KEY,
         role,
-      });
+      })
+    );
+  }
 
-      if (handledModeration) return json({ ok: true });
-    }
-
-    if (session?.mode === SESSION_MODES.PARTNER_EDIT_CLOSEUP && isAdminRole(role)) {
-      if (!officerChat) return json({ ok: true });
-
-      const handledPartnerEditCloseup = await handlePartnerCloseupEditInput({
+  if (session?.mode === SESSION_MODES.PARTNER_EDIT_CLOSEUP) {
+    return Boolean(
+      await handlePartnerCloseupEditInput({
         env,
         chatId,
         text,
         msg,
         session,
         STATE_KEY,
-      });
+      })
+    );
+  }
 
-      if (handledPartnerEditCloseup) return json({ ok: true });
-    }
-
-    if (session?.mode === SESSION_MODES.PARTNER_EDIT_TEXT && isAdminRole(role)) {
-      if (!officerChat) return json({ ok: true });
-
-      const handledPartnerEditText = await handlePartnerTextEditInput({
+  if (session?.mode === SESSION_MODES.PARTNER_EDIT_TEXT) {
+    return Boolean(
+      await handlePartnerTextEditInput({
         env,
         chatId,
         text,
         session,
         STATE_KEY,
-      });
+      })
+    );
+  }
 
-      if (handledPartnerEditText) return json({ ok: true });
+  return false;
+}
+
+async function handleAdminIdleMessage({ env, chatId }) {
+  await sendMessage(env, chatId, "Halo Officer.\nKetik /help untuk daftar command.");
+  return true;
+}
+
+async function handleNonAdminIdleMessage({
+  env,
+  chat,
+  chatId,
+  telegramId,
+}) {
+  if (!isPrivateChat(chat)) {
+    return true;
+  }
+
+  const profile = await getProfileFullByTelegramId(env, telegramId);
+
+  if (profile) {
+    await sendMessage(env, chatId, buildSelfMenuMessage(profile), {
+      parse_mode: "HTML",
+      reply_markup: buildSelfMenuKeyboard(),
+    });
+    return true;
+  }
+
+  await sendMessage(env, chatId, "Klik Menu TeMan untuk mulai.", {
+    reply_markup: buildTeManMenuKeyboard(),
+  });
+
+  return true;
+}
+
+export async function handleTelegramWebhook(request, env) {
+  try {
+    const update = await request.json();
+
+    if (update.callback_query) {
+      return handleCallback(update, env);
     }
 
-    if (!isAdminRole(role)) {
-      if (partnerChat) {
-        const handledProofUpload = await handlePaymentProofUpload({
-          env,
-          chat,
-          chatId,
-          telegramId,
-          update,
-        });
+    if (!update.message) return ok();
 
-        if (handledProofUpload) return json({ ok: true });
-      } else if (shouldIgnoreNonPrivateInteractiveChat(chat)) {
-        return json({ ok: true });
-      }
+    const msg = update.message;
+    const chat = msg?.chat || null;
+    const { chatId, telegramId, username, text } = parseMessage(msg);
+
+    if (!chatId || !telegramId) {
+      return ok();
+    }
+
+    const STATE_KEY = `state:${telegramId}`;
+    const role = await getAdminRole(env, telegramId);
+
+    await syncProfileUsernameFromTelegram(env, telegramId, username).catch(() => {});
+
+    const handledCommand = await handleTelegramCommand({
+      env,
+      msg,
+      chat,
+      chatId,
+      telegramId,
+      username,
+      text,
+      role,
+    });
+
+    if (handledCommand) return ok();
+
+    const session = await loadSession(env, STATE_KEY);
+
+    const handledAdminSession = await handleAdminSessionInput({
+      env,
+      chatId,
+      telegramId,
+      text,
+      msg,
+      update,
+      role,
+      session,
+      STATE_KEY,
+    });
+
+    if (handledAdminSession) return ok();
+
+    if (!isAdminRole(role)) {
+      const handledProofUpload = await handlePaymentProofUpload({
+        env,
+        chat,
+        chatId,
+        telegramId,
+        update,
+      });
+
+      if (handledProofUpload) return ok();
     }
 
     if (!session && isAdminRole(role)) {
-      if (!officerChat) {
-        return json({ ok: true });
-      }
-
-      await sendMessage(env, chatId, "Halo Officer.\nKetik /help untuk daftar command.");
-      return json({ ok: true });
+      await handleAdminIdleMessage({ env, chatId });
+      return ok();
     }
 
     if (!session && !isAdminRole(role)) {
-      if (!partnerChat) {
-        return json({ ok: true });
-      }
-
-      const profile = await getProfileFullByTelegramId(env, telegramId);
-
-      if (profile) {
-        await sendMessage(env, chatId, buildSelfMenuMessage(profile), {
-          parse_mode: "HTML",
-          reply_markup: buildSelfMenuKeyboard(),
-        });
-
-        return json({ ok: true });
-      }
-
-      await sendMessage(env, chatId, "Klik Menu TeMan untuk mulai.", {
-        reply_markup: buildTeManMenuKeyboard(),
+      await handleNonAdminIdleMessage({
+        env,
+        chat,
+        chatId,
+        telegramId,
       });
-
-      return json({ ok: true });
+      return ok();
     }
 
     if (session?.mode === SESSION_MODES.EDIT_PROFILE) {
-      if (!partnerChat) {
-        return json({ ok: true });
-      }
-
       await handleUserEditFlow({
         env,
         chat,
@@ -545,11 +562,7 @@ export async function handleTelegramWebhook(request, env) {
         update,
       });
 
-      return json({ ok: true });
-    }
-
-    if (!partnerChat) {
-      return json({ ok: true });
+      return ok();
     }
 
     await handleRegistrationFlow({
@@ -564,9 +577,9 @@ export async function handleTelegramWebhook(request, env) {
       STATE_KEY,
     });
 
-    return json({ ok: true });
+    return ok();
   } catch (err) {
     console.error("ERROR TELEGRAM WEBHOOK:", err);
-    return json({ ok: true });
+    return ok();
   }
 }
