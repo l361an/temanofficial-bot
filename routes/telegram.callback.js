@@ -12,6 +12,10 @@ import { isScopeAllowed } from "./telegram.guard.js";
 
 const { EXACT, PREFIX } = createHandlers();
 
+function isPrivateChat(chat) {
+  return String(chat?.type || "").trim().toLowerCase() === "private";
+}
+
 export async function handleCallback(update, env) {
   const data = update?.callback_query?.data;
   const adminId = String(update?.callback_query?.from?.id || "");
@@ -24,6 +28,10 @@ export async function handleCallback(update, env) {
 
   const scopeAllowed = await isScopeAllowed(env, chat, msg).catch(() => false);
   if (!scopeAllowed) {
+    return json({ ok: true });
+  }
+
+  if (!isPrivateChat(chat)) {
     return json({ ok: true });
   }
 
@@ -109,10 +117,7 @@ export async function handleCallback(update, env) {
       }
     }
 
-    await answerCallbackQuery(env, callbackQueryId, {
-      text: `Callback tidak terdaftar: ${data}`,
-      show_alert: true,
-    }).catch(() => {});
+    return json({ ok: true });
   } catch (e) {
     console.error("CALLBACK ERROR:", e);
 
