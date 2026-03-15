@@ -31,6 +31,7 @@ import { handlePartnerViewSearchInput } from "./callbacks/partnerDatabase.js";
 import { buildOfficerHomeKeyboard } from "./callbacks/keyboards.officer.js";
 import { buildOfficerHomeText } from "./telegram.messages.js";
 import { SESSION_MODES, CALLBACKS, CALLBACK_PREFIX } from "./telegram.constants.js";
+import { isScopeAllowed } from "./telegram.guard.js";
 
 import {
   getProfileFullByTelegramId,
@@ -305,6 +306,7 @@ async function handleTelegramCommand({
   if (isAdminRole(role)) {
     const handledAdmin = await handleAdminCommand({
       env,
+      chat,
       chatId,
       text: raw,
       role,
@@ -488,6 +490,11 @@ export async function handleTelegramWebhook(request, env) {
       return ok();
     }
 
+    const scopeAllowed = await isScopeAllowed(env, chat, msg).catch(() => false);
+    if (!scopeAllowed) {
+      return ok();
+    }
+
     const STATE_KEY = `state:${telegramId}`;
     const role = await getAdminRole(env, telegramId);
 
@@ -583,3 +590,9 @@ export async function handleTelegramWebhook(request, env) {
     return ok();
   }
 }
+
+const telegramRoutes = {
+  handleTelegramWebhook,
+};
+
+export default telegramRoutes;
