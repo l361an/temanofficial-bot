@@ -8,6 +8,7 @@ import { isAdminRole, isSuperadminRole } from "../utils/roles.js";
 import { handleSelfInlineCallback } from "./telegram.commands.user.js";
 import { createHandlers } from "./callbacks/registry.js";
 import { CALLBACKS, CALLBACK_PREFIX } from "./telegram.constants.js";
+import { isScopeAllowed } from "./telegram.guard.js";
 
 const { EXACT, PREFIX } = createHandlers();
 
@@ -17,6 +18,14 @@ export async function handleCallback(update, env) {
   const callbackQueryId = update?.callback_query?.id;
 
   if (!data || !adminId) return json({ ok: true });
+
+  const msg = update?.callback_query?.message;
+  const chat = msg?.chat || null;
+
+  const scopeAllowed = await isScopeAllowed(env, chat, msg).catch(() => false);
+  if (!scopeAllowed) {
+    return json({ ok: true });
+  }
 
   try {
     const handled = await handleSelfInlineCallback(update, env);
@@ -28,7 +37,6 @@ export async function handleCallback(update, env) {
     console.error("USER CALLBACK ERROR:", e);
   }
 
-  const msg = update?.callback_query?.message;
   const msgChatId = msg?.chat?.id;
   const msgId = msg?.message_id;
 
