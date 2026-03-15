@@ -1,6 +1,6 @@
 // worker.js
 
-import { handleTelegramWebhook } from "./routes/telegram.js";
+import telegramRoutes from "./routes/telegram.js";
 import { handleAdmin } from "./routes/admin.js";
 import { handleProfile } from "./routes/profile.js";
 import { json } from "./utils/response.js";
@@ -18,10 +18,48 @@ export default {
     const pathname = normalizePathname(url.pathname);
     const method = String(request.method || "GET").toUpperCase();
 
+    // NeoBank notif from MacroDroid
+    if (method === "POST" && pathname === "/neobank-notif") {
+      const contentType = request.headers.get("content-type") || "";
+
+      let payload = {};
+
+      try {
+        if (contentType.includes("application/json")) {
+          payload = await request.json();
+        } else if (contentType.includes("application/x-www-form-urlencoded")) {
+          const form = await request.formData();
+          payload = Object.fromEntries(form.entries());
+        } else {
+          const text = await request.text();
+          payload = { raw: text };
+        }
+
+        return json({
+          ok: true,
+          message: "NeoBank notif diterima",
+          path: pathname,
+          method,
+          received: payload,
+        });
+      } catch (error) {
+        return json(
+          {
+            ok: false,
+            message: "Gagal membaca payload NeoBank notif",
+            error: String(error?.message || error),
+            path: pathname,
+            method,
+          },
+          400
+        );
+      }
+    }
+
     // Telegram webhook:
     // support both "/" and "/webhook" supaya tidak mati kalau setWebhook salah path.
     if (method === "POST" && (pathname === "/" || pathname === "/webhook")) {
-      return handleTelegramWebhook(request, env);
+      return telegramRoutes.handleTelegramWebhook(request, env);
     }
 
     if (pathname === "/webhook") {
