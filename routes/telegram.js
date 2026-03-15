@@ -135,12 +135,17 @@ function buildAdminNamaFromMessage(msg, telegramId, username) {
 
 async function handleAdminInviteStart({
   env,
+  chat,
   msg,
   chatId,
   telegramId,
   username,
   rawText,
 }) {
+  if (!isPrivateChat(chat)) {
+    return false;
+  }
+
   const parts = String(rawText || "").trim().split(/\s+/);
   const startParam = String(parts[1] || "").trim();
   const token = parseAdminInviteStartParam(startParam);
@@ -286,6 +291,10 @@ async function handleTelegramCommand({
   const baseCmd = cmdToken.split("@")[0];
 
   if (baseCmd === "/help") {
+    if (!isPrivateChat(chat)) {
+      return true;
+    }
+
     await sendMessage(env, chatId, buildHelp(role), { parse_mode: "HTML" });
     return true;
   }
@@ -293,6 +302,7 @@ async function handleTelegramCommand({
   if (baseCmd === "/start") {
     const handledInviteStart = await handleAdminInviteStart({
       env,
+      chat,
       msg,
       chatId,
       telegramId,
@@ -315,6 +325,10 @@ async function handleTelegramCommand({
     if (handledAdmin) return true;
   }
 
+  if (!isPrivateChat(chat)) {
+    return true;
+  }
+
   const handledUser = await handleUserCommand({
     env,
     chat,
@@ -335,6 +349,7 @@ async function handleTelegramCommand({
 
 async function handleAdminSessionInput({
   env,
+  chat,
   chatId,
   telegramId,
   text,
@@ -345,6 +360,7 @@ async function handleAdminSessionInput({
   STATE_KEY,
 }) {
   if (!isAdminRole(role) || !session) return false;
+  if (!isPrivateChat(chat)) return false;
 
   if (session?.mode === SESSION_MODES.SA_FINANCE) {
     return Boolean(
@@ -440,7 +456,11 @@ async function handleAdminSessionInput({
   return false;
 }
 
-async function handleAdminIdleMessage({ env, chatId }) {
+async function handleAdminIdleMessage({ env, chat, chatId }) {
+  if (!isPrivateChat(chat)) {
+    return true;
+  }
+
   await sendMessage(env, chatId, "Halo Officer.\nKetik /help untuk daftar command.");
   return true;
 }
@@ -517,6 +537,7 @@ export async function handleTelegramWebhook(request, env) {
 
     const handledAdminSession = await handleAdminSessionInput({
       env,
+      chat,
       chatId,
       telegramId,
       text,
@@ -542,7 +563,7 @@ export async function handleTelegramWebhook(request, env) {
     }
 
     if (!session && isAdminRole(role)) {
-      await handleAdminIdleMessage({ env, chatId });
+      await handleAdminIdleMessage({ env, chat, chatId });
       return ok();
     }
 
