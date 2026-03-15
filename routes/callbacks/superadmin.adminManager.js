@@ -24,8 +24,9 @@ import {
   buildAdminStatusPickerKeyboard,
 } from "./keyboards.superadmin.js";
 
-import { CALLBACKS, CALLBACK_PREFIX, SESSION_MODES } from "../telegram.constants.js";
+import { CALLBACKS, CALLBACK_PREFIX, SESSION_MODES, cb } from "../telegram.constants.js";
 import { escapeHtml } from "./shared.js";
+import { backAndHomeRow } from "./keyboards.shared.js";
 
 function fmtValue(value) {
   const v = value === null || value === undefined || value === "" ? "-" : String(value);
@@ -158,6 +159,14 @@ function buildInviteAdminText({ inviteUrl, startCommand, token, role = "admin", 
 
 function buildOwnerOnlyText() {
   return "⛔ Hanya owner yang boleh mengelola data admin.";
+}
+
+function buildAdminWaitingKeyboard(targetTelegramId) {
+  return {
+    inline_keyboard: [
+      backAndHomeRow(cb.saAdminOpen(targetTelegramId)),
+    ],
+  };
 }
 
 async function getActor(env, adminId) {
@@ -347,7 +356,7 @@ export function buildSuperadminAdminManagerHandlers() {
           ].join("\n"),
           {
             parse_mode: "HTML",
-            reply_markup: buildAdminControlPanelKeyboard(row.telegram_id, row, actorRole),
+            reply_markup: buildAdminWaitingKeyboard(row.telegram_id),
           }
         );
 
@@ -391,7 +400,7 @@ export function buildSuperadminAdminManagerHandlers() {
           ].join("\n"),
           {
             parse_mode: "HTML",
-            reply_markup: buildAdminControlPanelKeyboard(row.telegram_id, row, actorRole),
+            reply_markup: buildAdminWaitingKeyboard(row.telegram_id),
           }
         );
 
@@ -436,7 +445,7 @@ export function buildSuperadminAdminManagerHandlers() {
           ].join("\n"),
           {
             parse_mode: "HTML",
-            reply_markup: buildAdminControlPanelKeyboard(row.telegram_id, row, actorRole),
+            reply_markup: buildAdminWaitingKeyboard(row.telegram_id),
           }
         );
 
