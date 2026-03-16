@@ -26,12 +26,13 @@ export async function insertPendingProfile(env, payload) {
       no_whatsapp,
       kecamatan,
       kota,
+      start_price,
       foto_closeup_file_id,
       foto_fullbody_file_id,
       class_id,
       status
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_approval')
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_approval')
   `
   )
     .bind(
@@ -45,6 +46,7 @@ export async function insertPendingProfile(env, payload) {
       payload.no_whatsapp,
       payload.kecamatan,
       payload.kota,
+      payload.start_price ?? null,
       payload.foto_closeup_file_id,
       payload.foto_fullbody_file_id,
       classId
