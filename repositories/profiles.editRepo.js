@@ -176,3 +176,35 @@ export async function updateCloseupPhoto(env, telegramId, fotoCloseupFileId) {
 
   return { ok: true };
 }
+
+export async function setCatalogVisibilityByTelegramId(env, telegramId, isVisible) {
+  const tid = String(telegramId || "").trim();
+  if (!tid) return { ok: false, reason: "empty_tid" };
+
+  const visible = Number(isVisible) === 1 ? 1 : 0;
+
+  const existing = await env.DB.prepare(
+    `
+    SELECT telegram_id, is_catalog_visible
+    FROM profiles
+    WHERE telegram_id = ?
+    LIMIT 1
+  `
+  )
+    .bind(tid)
+    .first();
+
+  if (!existing?.telegram_id) return { ok: false, reason: "not_found" };
+
+  await env.DB.prepare(
+    `
+    UPDATE profiles
+    SET is_catalog_visible = ?, diupdate_pada = datetime('now')
+    WHERE telegram_id = ?
+  `
+  )
+    .bind(visible, tid)
+    .run();
+
+  return { ok: true, is_catalog_visible: visible };
+}
