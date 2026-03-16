@@ -25,6 +25,7 @@ export {
   syncProfileUsernameFromTelegram,
   updateEditableProfileFields,
   updateCloseupPhoto,
+  setCatalogVisibilityByTelegramId,
 } from "./profiles.editRepo.js";
 
 export {
