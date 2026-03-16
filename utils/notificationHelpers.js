@@ -6,6 +6,8 @@ function cleanUsername(username) {
 }
 
 export function buildPartnerApprovedMessage({ linkAturan }) {
+  const safeLink = String(linkAturan || "").trim() || "-";
+
   return (
 `✅ PENDAFTARAN PARTNER DISETUJUI
 
@@ -13,7 +15,7 @@ Selamat! Pendaftaran partner kamu telah disetujui dan akun kamu sekarang sudah a
 
 Sebelum mulai menggunakan layanan partner, silakan baca dan pahami aturan partner berikut:
 
-${linkAturan}
+${safeLink}
 
 Setelah itu kamu dapat melanjutkan menggunakan Menu TeMan untuk mengelola profil dan aktivitas partner.
 
@@ -30,12 +32,12 @@ export function buildOwnerApprovedMessage({
   return (
 `✅ PARTNER BERHASIL DI-APPROVE
 
-Nickname    : ${nickname || "-"}
+Nickname    : ${String(nickname || "-")}
 Username    : ${cleanUsername(username)}
-Telegram ID : ${telegramId}
-Verificator : ${verificator || "-"}
+Telegram ID : ${String(telegramId || "-")}
+Verificator : ${String(verificator || "-")}
 
-Status akhir : APPROVED
+Status akhir: APPROVED
 
 Notifikasi aktivasi telah dikirim ke partner dan officer terkait.`
   );
@@ -50,10 +52,10 @@ export function buildOfficerApprovedMessage({
   return (
 `📢 PARTNER BARU AKTIF
 
-Nickname    : ${nickname || "-"}
+Nickname    : ${String(nickname || "-")}
 Username    : ${cleanUsername(username)}
-Telegram ID : ${telegramId}
-Verificator : ${verificator || "-"}
+Telegram ID : ${String(telegramId || "-")}
+Verificator : ${String(verificator || "-")}
 
 Partner telah disetujui oleh owner dan sekarang resmi aktif sebagai partner TeMan.`
   );
