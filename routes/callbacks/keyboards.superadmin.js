@@ -5,6 +5,7 @@ import { officerHomeButton, backAndHomeRow } from "./keyboards.shared.js";
 function buildSystemToolsRows(withBack = false) {
   const rows = [
     [{ text: "🧩 Config", callback_data: CALLBACKS.SUPERADMIN_CONFIG_MENU }],
+    [{ text: "📢 Katalog Group & Topic", callback_data: CALLBACKS.SUPERADMIN_CATALOG_SETTINGS_MENU }],
     [{ text: "🗂️ Category", callback_data: CALLBACKS.SUPERADMIN_CATEGORY_MENU }],
     [{ text: "💰 Finance", callback_data: CALLBACKS.SUPERADMIN_FINANCE_MENU }],
   ];
@@ -133,6 +134,32 @@ export function buildConfigAturanKeyboard() {
     inline_keyboard: [
       [{ text: "✏️ Edit", callback_data: CALLBACKS.SUPERADMIN_CONFIG_ATURAN_EDIT }],
       backAndHomeRow(CALLBACKS.SUPERADMIN_CONFIG_MENU),
+    ],
+  };
+}
+
+export function buildCatalogSettingsKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "🆔 Group Chat ID", callback_data: CALLBACKS.SUPERADMIN_CATALOG_GROUP }],
+      [{ text: "🧵 Topic ID", callback_data: CALLBACKS.SUPERADMIN_CATALOG_TOPIC }],
+      backAndHomeRow(CALLBACKS.SUPERADMIN_TOOLS_MENU),
+    ],
+  };
+}
+
+export function buildCatalogGroupKeyboard() {
+  return {
+    inline_keyboard: [
+      backAndHomeRow(CALLBACKS.SUPERADMIN_CATALOG_SETTINGS_MENU),
+    ],
+  };
+}
+
+export function buildCatalogTopicKeyboard() {
+  return {
+    inline_keyboard: [
+      backAndHomeRow(CALLBACKS.SUPERADMIN_CATALOG_SETTINGS_MENU),
     ],
   };
 }
