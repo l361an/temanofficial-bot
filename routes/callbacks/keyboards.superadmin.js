@@ -151,6 +151,7 @@ export function buildCatalogSettingsKeyboard() {
 export function buildCatalogGroupKeyboard() {
   return {
     inline_keyboard: [
+      [{ text: "✏️ Edit", callback_data: CALLBACKS.SUPERADMIN_CATALOG_GROUP_EDIT }],
       backAndHomeRow(CALLBACKS.SUPERADMIN_CATALOG_SETTINGS_MENU),
     ],
   };
@@ -159,6 +160,7 @@ export function buildCatalogGroupKeyboard() {
 export function buildCatalogTopicKeyboard() {
   return {
     inline_keyboard: [
+      [{ text: "✏️ Edit", callback_data: CALLBACKS.SUPERADMIN_CATALOG_TOPIC_EDIT }],
       backAndHomeRow(CALLBACKS.SUPERADMIN_CATALOG_SETTINGS_MENU),
     ],
   };
