@@ -1,9 +1,10 @@
 // routes/telegram.callback.js
+
 import { answerCallbackQuery } from "../services/telegramApi.js";
 import { json } from "../utils/response.js";
 
 import { getAdminRole } from "../repositories/adminsRepo.js";
-import { isAdminRole, isSuperadminRole } from "../utils/roles.js";
+import { isAdminRole } from "../utils/roles.js";
 
 import { handleSelfInlineCallback } from "./telegram.commands.user.js";
 import { createHandlers } from "./callbacks/registry.js";
@@ -14,6 +15,10 @@ const { EXACT, PREFIX } = createHandlers();
 
 function isPrivateChat(chat) {
   return String(chat?.type || "").trim().toLowerCase() === "private";
+}
+
+function isOwner(role) {
+  return role === "owner";
 }
 
 export async function handleCallback(update, env) {
@@ -27,13 +32,9 @@ export async function handleCallback(update, env) {
   const chat = msg?.chat || null;
 
   const scopeAllowed = await isScopeAllowed(env, chat, msg).catch(() => false);
-  if (!scopeAllowed) {
-    return json({ ok: true });
-  }
+  if (!scopeAllowed) return json({ ok: true });
 
-  if (!isPrivateChat(chat)) {
-    return json({ ok: true });
-  }
+  if (!isPrivateChat(chat)) return json({ ok: true });
 
   try {
     const handled = await handleSelfInlineCallback(update, env);
@@ -50,50 +51,29 @@ export async function handleCallback(update, env) {
 
   const role = await getAdminRole(env, adminId);
 
+  const isVerificationAction =
+    data.startsWith(CALLBACK_PREFIX.PICK_VER) ||
+    data.startsWith(CALLBACK_PREFIX.SET_VER) ||
+    data.startsWith(CALLBACK_PREFIX.APPROVE) ||
+    data.startsWith(CALLBACK_PREFIX.REJECT);
+
+  if (isVerificationAction && !isOwner(role)) {
+    await answerCallbackQuery(env, callbackQueryId, {
+      text: "Hanya owner yang boleh melakukan approval partner.",
+      show_alert: true,
+    }).catch(() => {});
+    return json({ ok: true });
+  }
+
   const isOfficerAction =
     data === CALLBACKS.OFFICER_HOME ||
     data.startsWith("pt:") ||
     data.startsWith("pm:") ||
-    data.startsWith("mod:") ||
-    data.startsWith(CALLBACK_PREFIX.PICK_VER) ||
-    data.startsWith(CALLBACK_PREFIX.SET_VER) ||
-    data.startsWith(CALLBACK_PREFIX.BACK_VER) ||
-    data.startsWith(CALLBACK_PREFIX.APPROVE) ||
-    data.startsWith(CALLBACK_PREFIX.REJECT);
-
-  const isSAAction =
-    data.startsWith("sa:") ||
-    data.startsWith(CALLBACK_PREFIX.PM_CLASS_START) ||
-    data.startsWith(CALLBACK_PREFIX.PM_CLASS_SET) ||
-    data.startsWith(CALLBACK_PREFIX.PM_CLASS_BACK) ||
-    data.startsWith(CALLBACK_PREFIX.PM_VER_START) ||
-    data.startsWith(CALLBACK_PREFIX.PM_VER_SET) ||
-    data.startsWith(CALLBACK_PREFIX.PM_VER_BACK) ||
-    data.startsWith(CALLBACK_PREFIX.PM_PHOTO_START) ||
-    data.startsWith(CALLBACK_PREFIX.SETWELCOME_CONFIRM) ||
-    data.startsWith(CALLBACK_PREFIX.SETWELCOME_CANCEL) ||
-    data.startsWith(CALLBACK_PREFIX.SETLINK_CONFIRM) ||
-    data.startsWith(CALLBACK_PREFIX.SETLINK_CANCEL);
+    data.startsWith("mod:");
 
   if (isOfficerAction && !isAdminRole(role)) {
     await answerCallbackQuery(env, callbackQueryId, {
-      text: "Akses ditolak. Menu ini hanya untuk admin.",
-      show_alert: true,
-    }).catch(() => {});
-    return json({ ok: true });
-  }
-
-  if (isSAAction && !isSuperadminRole(role)) {
-    await answerCallbackQuery(env, callbackQueryId, {
-      text: "Akses ditolak. Menu ini hanya untuk superadmin.",
-      show_alert: true,
-    }).catch(() => {});
-    return json({ ok: true });
-  }
-
-  if (data === CALLBACKS.PARTNER_MOD_DELETE && !isSuperadminRole(role)) {
-    await answerCallbackQuery(env, callbackQueryId, {
-      text: "Akses ditolak. Hanya superadmin yang bisa hapus partner.",
+      text: "Akses ditolak.",
       show_alert: true,
     }).catch(() => {});
     return json({ ok: true });
