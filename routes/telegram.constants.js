@@ -76,6 +76,8 @@ export const CALLBACKS = {
   SUPERADMIN_CATALOG_GROUP_EDIT: "sa:catalog:group:edit",
   SUPERADMIN_CATALOG_TOPIC: "sa:catalog:topic",
   SUPERADMIN_CATALOG_TOPIC_EDIT: "sa:catalog:topic:edit",
+
+  SELF_CATALOG_TOGGLE: "self:catalog:toggle",
 };
 
 export const CALLBACK_PREFIX = {
