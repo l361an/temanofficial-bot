@@ -1,19 +1,22 @@
 // routes/telegram.flow.selfProfile.js
 
-import { sendMessage } from "../services/telegramApi.js";
+import { sendMessage, upsertCallbackMessage } from "../services/telegramApi.js";
 import { saveSession } from "../utils/session.js";
 import {
   getProfileByTelegramId,
   getProfileFullByTelegramId,
+  setCatalogVisibilityByTelegramId,
 } from "../repositories/profilesRepo.js";
+import { getSubscriptionInfoByTelegramId } from "../repositories/partnerSubscriptionsRepo.js";
 
 import { sendHtml, buildTeManMenuKeyboard } from "./telegram.user.shared.js";
+import { CALLBACKS } from "./telegram.constants.js";
 import {
   buildSelfMenuKeyboard,
   buildSelfMenuMessage,
   sendSelfMenu,
 } from "./telegram.flow.selfProfile.menu.js";
-import { sendSelfProfile } from "./telegram.flow.selfProfile.view.js";
+import { sendSelfProfile, hasPremiumAccess } from "./telegram.flow.selfProfile.view.js";
 import {
   handleSelfProfileEditCallback,
   handleUserProfileEditFlow,
@@ -24,6 +27,50 @@ export {
   buildSelfMenuMessage,
   handleUserProfileEditFlow,
 };
+
+async function denyCatalogToggle(env, chatId, profile, sourceMessage = null) {
+  const text = [
+    "⚠️ <b>Toggle katalog ditolak.</b>",
+    "",
+    "Fitur ini hanya bisa dipakai kalau premium partner sedang aktif.",
+  ].join("\n");
+
+  const extra = {
+    parse_mode: "HTML",
+    reply_markup: buildSelfMenuKeyboard(profile),
+    disable_web_page_preview: true,
+  };
+
+  if (sourceMessage) {
+    await upsertCallbackMessage(env, sourceMessage, text, extra);
+    return;
+  }
+
+  await sendMessage(env, chatId, text, extra);
+}
+
+async function confirmCatalogToggle(env, chatId, profile, sourceMessage = null) {
+  const isVisible = Number(profile?.is_catalog_visible || 0) === 1;
+
+  const text = [
+    "✅ <b>Visibilitas katalog berhasil diupdate.</b>",
+    "",
+    `Status katalog sekarang: <b>${isVisible ? "ON" : "OFF"}</b>`,
+  ].join("\n");
+
+  const extra = {
+    parse_mode: "HTML",
+    reply_markup: buildSelfMenuKeyboard(profile),
+    disable_web_page_preview: true,
+  };
+
+  if (sourceMessage) {
+    await upsertCallbackMessage(env, sourceMessage, text, extra);
+    return;
+  }
+
+  await sendMessage(env, chatId, text, extra);
+}
 
 export async function handleSelfProfileInlineCallback(update, env) {
   const data = update?.callback_query?.data || "";
@@ -63,6 +110,34 @@ export async function handleSelfProfileInlineCallback(update, env) {
     if (!p) return true;
 
     await sendSelfProfile(env, chatId, telegramId);
+    return true;
+  }
+
+  if (data === CALLBACKS.SELF_CATALOG_TOGGLE) {
+    const profile = await ensureRegistered();
+    if (!profile) return true;
+
+    const subInfo = await getSubscriptionInfoByTelegramId(env, telegramId);
+
+    if (!hasPremiumAccess(profile, subInfo)) {
+      await denyCatalogToggle(env, chatId, profile, msg);
+      return true;
+    }
+
+    const nextVisible = Number(profile?.is_catalog_visible || 0) === 1 ? 0 : 1;
+
+    await setCatalogVisibilityByTelegramId(env, telegramId, nextVisible);
+
+    const freshProfile = await getProfileFullByTelegramId(env, telegramId);
+
+    if (!freshProfile) {
+      await sendHtml(env, chatId, "Data partner tidak ditemukan.", {
+        reply_markup: buildTeManMenuKeyboard(),
+      });
+      return true;
+    }
+
+    await confirmCatalogToggle(env, chatId, freshProfile, msg);
     return true;
   }
 
