@@ -35,16 +35,91 @@ function buildMasaAktifText(subInfo) {
   return `${startAt} s.d ${endAt}`;
 }
 
-function buildPremiumStatusText(profile, subInfo) {
+function hasPremiumAccess(profile, subInfo) {
   const partnerStatus = String(profile?.status || "").trim().toLowerCase();
   const isManualSuspended = Number(profile?.is_manual_suspended || 0) === 1;
 
-  if (partnerStatus === "suspended" || isManualSuspended) return "Non-aktif";
-  if (subInfo?.is_active && subInfo?.row) return "Aktif";
-  return "Non-aktif";
+  if (partnerStatus === "suspended" || isManualSuspended) return false;
+  if (subInfo?.is_active && subInfo?.row) return true;
+  return false;
 }
 
-function buildProfileSummaryText(profile, kategoriText, premiumStatusText, masaAktifText) {
+function buildPremiumStatusText(profile, subInfo) {
+  return hasPremiumAccess(profile, subInfo) ? "Aktif" : "Non-aktif";
+}
+
+function formatMoney(value) {
+  const num = Number(value || 0);
+  if (!Number.isFinite(num) || num <= 0) return "-";
+
+  try {
+    return new Intl.NumberFormat("id-ID").format(num);
+  } catch {
+    return String(Math.floor(num));
+  }
+}
+
+function buildStartPriceText(profile) {
+  const num = Number(profile?.start_price || 0);
+  if (!Number.isFinite(num) || num <= 0) return "-";
+  return `Rp ${formatMoney(num)}`;
+}
+
+function resolveCatalogState(profile, subInfo) {
+  const partnerStatus = String(profile?.status || "").trim().toLowerCase();
+  const isManualSuspended = Number(profile?.is_manual_suspended || 0) === 1;
+  const isCatalogVisible = Number(profile?.is_catalog_visible || 0) === 1;
+  const hasStartPrice = Number(profile?.start_price || 0) > 0;
+  const premiumActive = hasPremiumAccess(profile, subInfo);
+
+  if (partnerStatus !== "approved") {
+    return {
+      statusText: "Belum Tampil",
+      noteText: "Partner belum approved.",
+    };
+  }
+
+  if (isManualSuspended) {
+    return {
+      statusText: "Belum Tampil",
+      noteText: "Partner sedang suspended.",
+    };
+  }
+
+  if (!premiumActive) {
+    return {
+      statusText: "Belum Tampil",
+      noteText: "Premium belum aktif.",
+    };
+  }
+
+  if (!hasStartPrice) {
+    return {
+      statusText: "Belum Tampil",
+      noteText: "Tarif minimum belum diisi.",
+    };
+  }
+
+  if (!isCatalogVisible) {
+    return {
+      statusText: "Disembunyikan",
+      noteText: "Visibilitas katalog sedang off.",
+    };
+  }
+
+  return {
+    statusText: "Tampil",
+    noteText: "Profile siap tampil di katalog.",
+  };
+}
+
+function buildProfileSummaryText(
+  profile,
+  kategoriText,
+  premiumStatusText,
+  masaAktifText,
+  catalogState
+) {
   return [
     "👤 <b>PROFILE PARTNER</b>",
     "",
@@ -57,11 +132,16 @@ function buildProfileSummaryText(profile, kategoriText, premiumStatusText, masaA
     fmtKV("No. Whatsapp", profile.no_whatsapp),
     fmtKV("Kecamatan", profile.kecamatan),
     fmtKV("Kota", profile.kota),
+    fmtKV("Tarif Minimum", buildStartPriceText(profile)),
     fmtKV("Status Partner", buildPartnerStatusText(profile)),
     "",
     "💎 <b>PREMIUM PARTNER</b>",
     fmtKV("Akses Premium", premiumStatusText),
     fmtKV("Masa Aktif", masaAktifText),
+    "",
+    "📢 <b>KATALOG PARTNER</b>",
+    fmtKV("Status Katalog", catalogState.statusText),
+    fmtKV("Catatan", catalogState.noteText),
   ].join("\n");
 }
 
@@ -78,6 +158,7 @@ export async function sendSelfProfile(env, chatId, telegramId) {
   const subInfo = await getSubscriptionInfoByTelegramId(env, telegramId);
   const masaAktifText = buildMasaAktifText(subInfo);
   const premiumStatusText = buildPremiumStatusText(profile, subInfo);
+  const catalogState = resolveCatalogState(profile, subInfo);
 
   const categories = profile.id
     ? await listCategoryKodesByProfileId(env, profile.id)
@@ -89,7 +170,8 @@ export async function sendSelfProfile(env, chatId, telegramId) {
     profile,
     kategoriText,
     premiumStatusText,
-    masaAktifText
+    masaAktifText,
+    catalogState
   );
 
   await sendLongMessage(env, chatId, textSummary, {
