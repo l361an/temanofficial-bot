@@ -69,6 +69,10 @@ export const CALLBACKS = {
   SUPERADMIN_ADMIN_LIST: "sa:admin:list",
   SUPERADMIN_ADMIN_ADD: "sa:admin:add",
   SUPERADMIN_ADMIN_BACK: "sa:admin:back",
+
+  SUPERADMIN_CATALOG_SETTINGS_MENU: "sa:catalog:menu",
+  SUPERADMIN_CATALOG_GROUP: "sa:catalog:group",
+  SUPERADMIN_CATALOG_TOPIC: "sa:catalog:topic",
 };
 
 export const CALLBACK_PREFIX = {
