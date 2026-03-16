@@ -1,6 +1,7 @@
 // services/notifyAdmin.js
+
 import { sendMessage, sendPhoto } from "./telegramApi.js";
-import { getFirstActiveSuperadminId } from "../repositories/adminsRepo.js";
+import { listAdmins } from "../repositories/adminsRepo.js";
 
 async function dbGetCategoryCodes(env, ids) {
   const cleanIds = Array.isArray(ids) ? ids.filter(Boolean) : [];
@@ -15,7 +16,6 @@ async function dbGetCategoryCodes(env, ids) {
   return (res?.results || []).map((r) => r.kode).filter(Boolean);
 }
 
-// ✅ Keyboard awal hanya Pick Verificator
 function buildPickVerKeyboard(telegramId) {
   return {
     inline_keyboard: [
@@ -24,11 +24,16 @@ function buildPickVerKeyboard(telegramId) {
   };
 }
 
-export async function notifySuperadmin(env, data) {
-  const adminId = await getFirstActiveSuperadminId(env);
+async function getOwners(env) {
+  const rows = await listAdmins(env, { activeOnly: true }).catch(() => []);
+  return rows.filter((r) => r.normRole === "owner");
+}
 
-  if (!adminId) {
-    console.warn("No active superadmin found in admins table. Skipping notify.");
+export async function notifySuperadmin(env, data) {
+  const owners = await getOwners(env);
+
+  if (!owners.length) {
+    console.warn("No active owner found. Skipping registration notify.");
     return;
   }
 
@@ -37,18 +42,17 @@ export async function notifySuperadmin(env, data) {
     ? `@${String(data.username).replace(/^@/, "")}`
     : "-";
 
-  // kategori: resolve category_ids -> kode
   const categoryIds = Array.isArray(data.category_ids) ? data.category_ids : [];
   let categoryCodes = [];
+
   try {
     categoryCodes = await dbGetCategoryCodes(env, categoryIds);
   } catch (e) {
     console.error("LOAD CATEGORY CODES ERROR:", e);
-    categoryCodes = [];
   }
+
   const categoryText = categoryCodes.length ? categoryCodes.join(", ") : "-";
 
-  // ✅ 1) DATA PARTNER
   const text =
 `📥 PARTNER BARU MENDAFTAR
 
@@ -60,30 +64,32 @@ NIK: ${data.nik}
 WhatsApp: ${data.no_whatsapp}
 Kota: ${data.kota}
 Kecamatan: ${data.kecamatan}
+Tarif Minimum: IDR ${Number(data.start_price || 0).toLocaleString("id-ID")}
 Kategori: ${categoryText}
 
-⚠️ Alur: pilih verificator dulu → baru Approve.`;
+⚠️ Owner harus memilih verificator lalu approve.`;
 
-  await sendMessage(env, adminId, text);
+  for (const owner of owners) {
+    const ownerId = String(owner.telegram_id);
 
-  // ✅ 2) Foto closeup
-  if (data.foto_closeup_file_id) {
-    await sendPhoto(env, adminId, data.foto_closeup_file_id, "📸 Foto Closeup");
-  }
+    await sendMessage(env, ownerId, text);
 
-  // ✅ 3) Foto fullbody
-  if (data.foto_fullbody_file_id) {
-    await sendPhoto(env, adminId, data.foto_fullbody_file_id, "📸 Foto Full Body");
-  }
-
-  // ✅ 4) Foto KTP (hanya tombol Pick Verificator)
-  await sendPhoto(
-    env,
-    adminId,
-    data.foto_ktp_file_id,
-    "🪪 Foto KTP\nVerificator: -",
-    {
-      reply_markup: buildPickVerKeyboard(data.telegram_id),
+    if (data.foto_closeup_file_id) {
+      await sendPhoto(env, ownerId, data.foto_closeup_file_id, "📸 Foto Closeup");
     }
-  );
+
+    if (data.foto_fullbody_file_id) {
+      await sendPhoto(env, ownerId, data.foto_fullbody_file_id, "📸 Foto Full Body");
+    }
+
+    await sendPhoto(
+      env,
+      ownerId,
+      data.foto_ktp_file_id,
+      "🪪 Foto KTP\nVerificator: -",
+      {
+        reply_markup: buildPickVerKeyboard(data.telegram_id),
+      }
+    );
+  }
 }
