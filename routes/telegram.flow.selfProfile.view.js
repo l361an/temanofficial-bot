@@ -35,7 +35,7 @@ function buildMasaAktifText(subInfo) {
   return `${startAt} s.d ${endAt}`;
 }
 
-function hasPremiumAccess(profile, subInfo) {
+export function hasPremiumAccess(profile, subInfo) {
   const partnerStatus = String(profile?.status || "").trim().toLowerCase();
   const isManualSuspended = Number(profile?.is_manual_suspended || 0) === 1;
 
