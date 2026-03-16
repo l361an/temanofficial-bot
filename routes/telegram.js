@@ -656,6 +656,36 @@ export async function handleTelegramWebhook(request, env) {
 
     if (handledAdminSession) return ok();
 
+    if (session?.mode === SESSION_MODES.EDIT_PROFILE) {
+      await handleUserEditFlow({
+        env,
+        chat,
+        chatId,
+        telegramId,
+        username,
+        text,
+        session,
+        STATE_KEY,
+        update,
+      });
+
+      return ok();
+    }
+
+    const handledRegistration = await handleRegistrationFlow({
+      update,
+      env,
+      chat,
+      chatId,
+      telegramId,
+      username,
+      text,
+      session,
+      STATE_KEY,
+    });
+
+    if (handledRegistration) return ok();
+
     if (!isAdminRole(role)) {
       const handledProofUpload = await handlePaymentProofUpload({
         env,
@@ -682,34 +712,6 @@ export async function handleTelegramWebhook(request, env) {
       });
       return ok();
     }
-
-    if (session?.mode === SESSION_MODES.EDIT_PROFILE) {
-      await handleUserEditFlow({
-        env,
-        chat,
-        chatId,
-        telegramId,
-        username,
-        text,
-        session,
-        STATE_KEY,
-        update,
-      });
-
-      return ok();
-    }
-
-    await handleRegistrationFlow({
-      update,
-      env,
-      chat,
-      chatId,
-      telegramId,
-      username,
-      text,
-      session,
-      STATE_KEY,
-    });
 
     return ok();
   } catch (err) {
