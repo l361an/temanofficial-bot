@@ -10,6 +10,7 @@ export const SESSION_MODES = {
   SA_CATEGORY: "sa_category",
   SA_FINANCE: "sa_finance",
   SA_ADMIN_MANAGER: "sa_admin_manager",
+  SA_CATALOG_SETTINGS: "sa_catalog_settings",
 };
 
 export const CALLBACKS = {
@@ -72,7 +73,9 @@ export const CALLBACKS = {
 
   SUPERADMIN_CATALOG_SETTINGS_MENU: "sa:catalog:menu",
   SUPERADMIN_CATALOG_GROUP: "sa:catalog:group",
+  SUPERADMIN_CATALOG_GROUP_EDIT: "sa:catalog:group:edit",
   SUPERADMIN_CATALOG_TOPIC: "sa:catalog:topic",
+  SUPERADMIN_CATALOG_TOPIC_EDIT: "sa:catalog:topic:edit",
 };
 
 export const CALLBACK_PREFIX = {
@@ -120,6 +123,11 @@ export const CALLBACK_PREFIX = {
   SA_ADMIN_DEACTIVATE: "saadmin:deactivate:",
   SA_ADMIN_ACTIVATE: "saadmin:activate:",
   SA_ADMIN_DELETE: "saadmin:delete:",
+
+  SETCATALOGGROUP_CONFIRM: "setcataloggroup_confirm:",
+  SETCATALOGGROUP_CANCEL: "setcataloggroup_cancel:",
+  SETCATALOGTOPIC_CONFIRM: "setcatalogtopic_confirm:",
+  SETCATALOGTOPIC_CANCEL: "setcatalogtopic_cancel:",
 };
 
 export const OBSOLETE_ADMIN_COMMANDS = new Set([
@@ -177,4 +185,9 @@ export const cb = {
   saAdminDeactivate: (telegramId) => `${CALLBACK_PREFIX.SA_ADMIN_DEACTIVATE}${telegramId}`,
   saAdminActivate: (telegramId) => `${CALLBACK_PREFIX.SA_ADMIN_ACTIVATE}${telegramId}`,
   saAdminDelete: (telegramId) => `${CALLBACK_PREFIX.SA_ADMIN_DELETE}${telegramId}`,
+
+  setCatalogGroupConfirm: (adminId) => `${CALLBACK_PREFIX.SETCATALOGGROUP_CONFIRM}${adminId}`,
+  setCatalogGroupCancel: (adminId) => `${CALLBACK_PREFIX.SETCATALOGGROUP_CANCEL}${adminId}`,
+  setCatalogTopicConfirm: (adminId) => `${CALLBACK_PREFIX.SETCATALOGTOPIC_CONFIRM}${adminId}`,
+  setCatalogTopicCancel: (adminId) => `${CALLBACK_PREFIX.SETCATALOGTOPIC_CANCEL}${adminId}`,
 };
