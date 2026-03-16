@@ -42,6 +42,16 @@ function statusMessage(status) {
   return "ℹ️ Kamu sudah pernah terdaftar.";
 }
 
+function normalizeStartPrice(value) {
+  const cleaned = String(value || "").replace(/[^\d]/g, "").trim();
+  if (!cleaned) return null;
+
+  const num = Number(cleaned);
+  if (!Number.isFinite(num) || num <= 0) return null;
+
+  return Math.floor(num);
+}
+
 export async function handleRegistrationFlow({
   update,
   env,
@@ -200,13 +210,37 @@ export async function handleRegistrationFlow({
     }
 
     session.data.kota = safeText;
+    session.step = "input_start_price";
+    await saveSession(env, STATE_KEY, session);
+    await sendMessage(
+      env,
+      chatId,
+      "Masukkan Tarif Minimum dalam angka saja:\nContoh: 150000"
+    );
+    return true;
+  }
+
+  // 7. TARIF MINIMUM
+  if (session.step === "input_start_price") {
+    const startPrice = normalizeStartPrice(safeText);
+
+    if (!startPrice) {
+      await sendMessage(
+        env,
+        chatId,
+        "Tarif Minimum harus berupa angka lebih dari 0.\nContoh: 150000"
+      );
+      return true;
+    }
+
+    session.data.start_price = startPrice;
     session.step = "upload_closeup";
     await saveSession(env, STATE_KEY, session);
     await sendMessage(env, chatId, "📸 Upload FOTO CLOSEUP:");
     return true;
   }
 
-  // 7. FOTO CLOSEUP
+  // 8. FOTO CLOSEUP
   if (session.step === "upload_closeup") {
     if (!update?.message?.photo) {
       await sendMessage(env, chatId, "Kirim foto closeup.");
@@ -222,7 +256,7 @@ export async function handleRegistrationFlow({
     return true;
   }
 
-  // 8. FOTO FULL BODY
+  // 9. FOTO FULL BODY
   if (session.step === "upload_fullbody") {
     if (!update?.message?.photo) {
       await sendMessage(env, chatId, "Kirim foto full body.");
@@ -238,7 +272,7 @@ export async function handleRegistrationFlow({
     return true;
   }
 
-  // 9. FOTO KTP + FINALIZE
+  // 10. FOTO KTP + FINALIZE
   if (session.step === "upload_ktp") {
     if (!update?.message?.photo) {
       await sendMessage(env, chatId, "Kirim foto KTP.");
@@ -276,6 +310,7 @@ export async function handleRegistrationFlow({
         no_whatsapp: d.no_whatsapp,
         kecamatan: d.kecamatan,
         kota: d.kota,
+        start_price: d.start_price,
         foto_closeup_file_id: d.foto_closeup_file_id,
         foto_fullbody_file_id: d.foto_fullbody_file_id,
       });
@@ -294,6 +329,7 @@ export async function handleRegistrationFlow({
         no_whatsapp: d.no_whatsapp,
         kota: d.kota,
         kecamatan: d.kecamatan,
+        start_price: d.start_price,
         foto_ktp_file_id: d.foto_ktp_file_id,
         foto_closeup_file_id: d.foto_closeup_file_id,
         foto_fullbody_file_id: d.foto_fullbody_file_id,
