@@ -133,6 +133,7 @@ export async function updateEditableProfileFields(env, telegramId, patch) {
     "kecamatan",
     "kota",
     "channel_url",
+    "start_price",
   ];
 
   const keys = Object.keys(patch || {}).filter((k) => allowed.includes(k));
