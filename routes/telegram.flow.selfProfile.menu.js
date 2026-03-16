@@ -2,6 +2,7 @@
 
 import { sendMessage, upsertCallbackMessage } from "../services/telegramApi.js";
 import { getProfileFullByTelegramId } from "../repositories/profilesRepo.js";
+import { CALLBACKS } from "./telegram.constants.js";
 import { sendHtml, buildTeManMenuKeyboard, escapeHtml } from "./telegram.user.shared.js";
 
 function fmtPartnerStatusLabel(status) {
@@ -14,11 +15,17 @@ function fmtPartnerStatusLabel(status) {
   return raw ? raw.replaceAll("_", " ") : "-";
 }
 
-export function buildSelfMenuKeyboard() {
+function buildCatalogToggleLabel(profile) {
+  const isVisible = Number(profile?.is_catalog_visible || 0) === 1;
+  return isVisible ? "📢 Katalog: ON" : "📢 Katalog: OFF";
+}
+
+export function buildSelfMenuKeyboard(profile = null) {
   return {
     inline_keyboard: [
       [{ text: "👤 Lihat Profile", callback_data: "self:view" }],
       [{ text: "📝 Update Profile", callback_data: "self:update" }],
+      [{ text: buildCatalogToggleLabel(profile), callback_data: CALLBACKS.SELF_CATALOG_TOGGLE }],
       [{ text: "💎 Premium Partner", callback_data: "self:payment" }],
     ],
   };
@@ -55,7 +62,7 @@ export async function sendSelfMenu(env, chatId, telegramId, options = {}) {
   const text = buildSelfMenuMessage(profile);
   const extra = {
     parse_mode: "HTML",
-    reply_markup: buildSelfMenuKeyboard(),
+    reply_markup: buildSelfMenuKeyboard(profile),
     disable_web_page_preview: true,
   };
 
