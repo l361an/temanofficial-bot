@@ -31,6 +31,7 @@ export function buildUpdateKeyboard() {
       [{ text: "🏙️ Ubah Kota", callback_data: "self:edit:kota" }],
       [{ text: "🗂️ Ubah Kategori", callback_data: "self:edit:kategori" }],
       [{ text: "📸 Ubah Foto Closeup", callback_data: "self:edit:closeup" }],
+      [{ text: "💰 Ubah Tarif Minimum", callback_data: "self:edit:start_price" }],
       [{ text: "⬅️ Kembali ke Menu", callback_data: "teman:menu" }],
     ],
   };
@@ -41,7 +42,21 @@ const EDIT_TEXT_FIELDS = {
   no_whatsapp: { field: "no_whatsapp", prompt: "Ketik <b>No. Whatsapp</b> baru:" },
   kecamatan: { field: "kecamatan", prompt: "Ketik <b>Kecamatan</b> baru:" },
   kota: { field: "kota", prompt: "Ketik <b>Kota</b> baru:" },
+  start_price: {
+    field: "start_price",
+    prompt: "Ketik <b>Tarif Minimum</b> dalam angka saja.\n\nContoh: <code>150000</code>",
+  },
 };
+
+function normalizePriceInput(value) {
+  const cleaned = String(value || "").replace(/[^\d]/g, "").trim();
+  if (!cleaned) return null;
+
+  const num = Number(cleaned);
+  if (!Number.isFinite(num) || num <= 0) return null;
+
+  return Math.floor(num);
+}
 
 async function askTextInput(env, chatId, STATE_KEY, field, prompt) {
   await saveSession(env, STATE_KEY, {
@@ -182,18 +197,38 @@ export async function handleUserProfileEditFlow({ env, chatId, telegramId, text,
 
   if (session?.step === "await_text") {
     const field = session?.field;
-    const value = String(text || "").trim();
+    const rawValue = String(text || "").trim();
 
-    if (!value) {
+    if (!rawValue) {
       await sendHtml(env, chatId, "⚠️ Input kosong. Coba lagi ya.", {
         reply_markup: buildTeManMenuKeyboard(),
       });
       return;
     }
 
-    if (!["nickname", "no_whatsapp", "kecamatan", "kota"].includes(field)) {
+    if (!["nickname", "no_whatsapp", "kecamatan", "kota", "start_price"].includes(field)) {
       await stopEdit(env, chatId, STATE_KEY, "⚠️ Field tidak valid.");
       return;
+    }
+
+    let value = rawValue;
+
+    if (field === "start_price") {
+      const normalized = normalizePriceInput(rawValue);
+
+      if (!normalized) {
+        await sendHtml(
+          env,
+          chatId,
+          "⚠️ Tarif Minimum harus berupa angka lebih dari 0.\n\nContoh: <code>150000</code>",
+          {
+            reply_markup: buildTeManMenuKeyboard(),
+          }
+        );
+        return;
+      }
+
+      value = normalized;
     }
 
     await updateEditableProfileFields(env, telegramId, { [field]: value });
