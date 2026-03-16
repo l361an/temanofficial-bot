@@ -1,11 +1,11 @@
 // routes/callbacks/superadmin.js
 
 import { buildSuperadminConfigHandlers } from "./superadmin.config.js";
+import { buildSuperadminCatalogSettingsHandlers } from "./superadmin.catalogSettings.js";
 import { buildSuperadminCategoryHandlers } from "./superadmin.category.js";
 import { buildSuperadminFinanceHandlers } from "./superadmin.finance.js";
 import { buildSuperadminPaymentReviewHandlers } from "./superadmin.paymentReview.js";
 import { buildSuperadminAdminManagerHandlers } from "./superadmin.adminManager.js";
-import { buildSuperadminCatalogSettingsHandlers } from "./superadmin.catalogSettings.js";
 
 function mergeHandlers(...parts) {
   const EXACT = {};
