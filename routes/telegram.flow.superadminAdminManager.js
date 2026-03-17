@@ -1,100 +1,99 @@
-// routes/callbacks/superadmin.adminManager.js
+// routes/telegram.flow.superadminAdminManager.js
 
-import { sendMessage, upsertCallbackMessage } from "../../services/telegramApi.js";
+import { sendMessage } from "../services/telegramApi.js";
 import {
-  listAdmins,
   getAdminByTelegramId,
-  updateAdminRole,
-  updateAdminStatus,
-  deactivateAdminByTelegramId,
-  activateAdminByTelegramId,
-  deleteAdminByTelegramId,
-} from "../../repositories/adminsRepo.js";
+  updateAdminUsername,
+  updateAdminNama,
+  updateAdminKota,
+} from "../repositories/adminsRepo.js";
 import {
-  createAdminInviteToken,
-  buildAdminInviteStartParam,
-} from "../../repositories/adminInviteTokensRepo.js";
-import { saveSession, clearSession } from "../../utils/session.js";
+  clearSession,
+  getSessionMeta,
+} from "../utils/session.js";
+import { buildAdminControlPanelKeyboard, buildAdminManagerKeyboard } from "./callbacks/keyboards.superadmin.js";
+import { SESSION_MODES } from "./telegram.constants.js";
 
-import {
-  buildAdminManagerKeyboard,
-  buildAdminListKeyboard,
-  buildAdminControlPanelKeyboard,
-  buildAdminRolePickerKeyboard,
-  buildAdminStatusPickerKeyboard,
-} from "./keyboards.superadmin.js";
+const EDITABLE_ACTIONS = new Set([
+  "edit_username",
+  "edit_nama",
+  "edit_kota",
+]);
 
-import { CALLBACKS, CALLBACK_PREFIX, SESSION_MODES, cb } from "../telegram.constants.js";
-import { escapeHtml } from "./shared.js";
-import { backAndHomeRow } from "./keyboards.shared.js";
+const SESSION_MAX_AGE_MS = 15 * 60 * 1000;
+
+function logError(tag, meta = {}) {
+  console.error(tag, meta);
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
 
 function fmtValue(value) {
   const v = value === null || value === undefined || value === "" ? "-" : String(value);
   return escapeHtml(v);
 }
 
-function getBotUsername(env) {
-  return String(
-    env.TELEGRAM_BOT_USERNAME ||
-      env.BOT_USERNAME ||
-      env.PUBLIC_BOT_USERNAME ||
-      ""
-  )
-    .trim()
-    .replace(/^@/, "");
+function normalizeText(text) {
+  return String(text || "").trim();
 }
 
-function buildInviteArtifacts(env, token) {
-  const cleanToken = String(token || "").trim();
-  const username = getBotUsername(env);
-  const startParam = buildAdminInviteStartParam(cleanToken);
-  const startCommand = startParam ? `/start ${startParam}` : "";
-  const inviteUrl =
-    username && startParam ? `https://t.me/${username}?start=${startParam}` : null;
-
-  return {
-    username,
-    token: cleanToken,
-    startParam,
-    startCommand,
-    inviteUrl,
-  };
+function isCancelText(text) {
+  return /^(batal|cancel|keluar)$/i.test(normalizeText(text));
 }
 
-function buildAdminManagerText() {
-  return [
-    "👮 <b>Admin Management</b>",
-    "",
-    "Pilih aksi di bawah.",
-  ].join("\n");
-}
+function normalizeUsernameInput(text) {
+  const raw = normalizeText(text);
+  if (!raw) return { ok: false, reason: "empty_username" };
+  if (raw === "-") return { ok: true, value: null };
 
-function buildAdminListText(rows) {
-  if (!rows.length) {
-    return [
-      "👤 <b>Admin List</b>",
-      "",
-      "Belum ada admin yang terdaftar.",
-    ].join("\n");
+  const cleaned = raw.replace(/^@+/, "").trim().toLowerCase();
+  if (!cleaned) return { ok: false, reason: "empty_username" };
+
+  if (!/^[a-z0-9_]{5,32}$/i.test(cleaned)) {
+    return { ok: false, reason: "invalid_username_format" };
   }
 
-  const lines = ["👤 <b>Admin List</b>", ""];
+  return { ok: true, value: cleaned };
+}
 
-  rows.forEach((row, i) => {
-    const uname = row?.username ? `@${String(row.username).replace(/^@/, "")}` : "-";
-    lines.push(
-      `${i + 1}. <b>${escapeHtml(row.label || "-")}</b>`,
-      `   ID: <code>${fmtValue(row.telegram_id)}</code>`,
-      `   Username: ${escapeHtml(uname)}`,
-      `   Nama: ${fmtValue(row.nama)}`,
-      `   Kota: ${fmtValue(row.kota)}`,
-      `   Role: <b>${fmtValue(row.normRole)}</b>`,
-      `   Status: <b>${fmtValue(row.normStatus)}</b>`,
-      ""
-    );
-  });
+function normalizeNamaInput(text) {
+  const raw = normalizeText(text);
+  if (!raw) return { ok: false, reason: "empty_nama" };
+  if (raw === "-") return { ok: false, reason: "empty_nama" };
 
-  return lines.join("\n").trim();
+  return { ok: true, value: raw };
+}
+
+function normalizeKotaInput(text) {
+  const raw = normalizeText(text);
+  if (!raw) return { ok: false, reason: "empty_kota" };
+  if (raw === "-") return { ok: true, value: null };
+
+  return { ok: true, value: raw };
+}
+
+function getSessionAgeMs(session) {
+  const meta = getSessionMeta(session);
+  const updatedAt = String(meta?.updated_at || "").trim();
+  if (!updatedAt) return null;
+
+  const ts = new Date(updatedAt).getTime();
+  if (!Number.isFinite(ts)) return null;
+
+  return Date.now() - ts;
+}
+
+function isSessionExpired(session) {
+  const age = getSessionAgeMs(session);
+  if (age === null) return false;
+  return age > SESSION_MAX_AGE_MS;
 }
 
 function buildAdminDetailText(row) {
@@ -110,544 +109,347 @@ function buildAdminDetailText(row) {
   ].join("\n");
 }
 
-function buildInviteAdminText({ inviteUrl, startCommand, token, role = "admin", expiresAt }) {
-  const lines = [
-    "🔗 <b>Invite Admin</b>",
+function buildCancelSuccessText(targetLabel) {
+  return [
+    "✅ Edit admin dibatalkan.",
     "",
-    "Invite link berhasil dibuat.",
-    `Role: <b>${escapeHtml(role)}</b>`,
-    `Expired At: <code>${escapeHtml(expiresAt || "-")}</code>`,
-    "",
-  ];
-
-  if (inviteUrl) {
-    lines.push("Link invite:");
-    lines.push(`<code>${escapeHtml(inviteUrl)}</code>`);
-    lines.push("");
-  } else {
-    lines.push("Bot username env belum ditemukan, jadi deep link otomatis belum bisa dibentuk.");
-    lines.push("");
-  }
-
-  if (startCommand) {
-    lines.push("Fallback command:");
-    lines.push(`<code>${escapeHtml(startCommand)}</code>`);
-    lines.push("");
-  }
-
-  lines.push("Token invite:");
-  lines.push(`<code>${escapeHtml(token || "-")}</code>`);
-  lines.push("");
-
-  if (!inviteUrl) {
-    lines.push("Set salah satu env berikut kalau ingin link t.me terbentuk otomatis:");
-    lines.push("• TELEGRAM_BOT_USERNAME");
-    lines.push("• BOT_USERNAME");
-    lines.push("• PUBLIC_BOT_USERNAME");
-    lines.push("");
-  }
-
-  lines.push("Flow:");
-  lines.push("1. Owner kirim link invite jika tersedia, atau kirim fallback command ke candidate admin");
-  lines.push("2. Candidate buka bot TeMan");
-  lines.push("3. Candidate kirim fallback command ke bot jika tidak memakai deep link");
-  lines.push("4. Bot validasi token");
-  lines.push("5. User menjadi admin");
-
-  return lines.join("\n");
+    `Target: <b>${escapeHtml(targetLabel || "-")}</b>`,
+  ].join("\n");
 }
 
-function buildOwnerOnlyText() {
-  return "⛔ Hanya owner yang boleh mengelola data admin.";
+function buildSessionExpiredText() {
+  return [
+    "⚠️ Session edit admin sudah kedaluwarsa.",
+    "",
+    "Silakan buka panel admin lagi lalu ulangi aksi edit dari menu terbaru.",
+  ].join("\n");
 }
 
-function buildAdminWaitingKeyboard(targetTelegramId) {
+function buildInvalidSessionText() {
+  return [
+    "⚠️ Session edit admin tidak valid.",
+    "",
+    "Silakan buka ulang panel admin dari menu terbaru.",
+  ].join("\n");
+}
+
+function buildValidationErrorText(action, reason) {
+  if (action === "edit_username") {
+    if (reason === "empty_username") {
+      return "⚠️ Username tidak boleh kosong. Kirim username baru tanpa @ atau dengan @.\nKetik <b>-</b> untuk kosongkan username.";
+    }
+    if (reason === "invalid_username_format") {
+      return "⚠️ Format username tidak valid. Gunakan 5-32 karakter, hanya huruf, angka, atau underscore.";
+    }
+    return "⚠️ Username admin tidak valid.";
+  }
+
+  if (action === "edit_nama") {
+    if (reason === "empty_nama") {
+      return "⚠️ Nama admin tidak boleh kosong.";
+    }
+    return "⚠️ Nama admin tidak valid.";
+  }
+
+  if (action === "edit_kota") {
+    if (reason === "empty_kota") {
+      return "⚠️ Kota tidak boleh kosong. Ketik <b>-</b> untuk kosongkan kota.";
+    }
+    return "⚠️ Kota admin tidak valid.";
+  }
+
+  return "⚠️ Input tidak valid.";
+}
+
+function buildSuccessText(action, row) {
+  const target = escapeHtml(row?.label || row?.nama || row?.telegram_id || "-");
+
+  if (action === "edit_username") {
+    return [
+      "✅ <b>Username admin berhasil diupdate</b>",
+      "",
+      `Target: <b>${target}</b>`,
+      `Username baru: <b>${escapeHtml(row?.username ? `@${String(row.username).replace(/^@/, "")}` : "-")}</b>`,
+    ].join("\n");
+  }
+
+  if (action === "edit_nama") {
+    return [
+      "✅ <b>Nama admin berhasil diupdate</b>",
+      "",
+      `Target: <b>${target}</b>`,
+      `Nama baru: <b>${fmtValue(row?.nama)}</b>`,
+    ].join("\n");
+  }
+
+  if (action === "edit_kota") {
+    return [
+      "✅ <b>Kota admin berhasil diupdate</b>",
+      "",
+      `Target: <b>${target}</b>`,
+      `Kota baru: <b>${fmtValue(row?.kota)}</b>`,
+    ].join("\n");
+  }
+
+  return "✅ Data admin berhasil diupdate.";
+}
+
+function buildMutationErrorText(action, reason) {
+  if (reason === "not_found") {
+    return "⚠️ Data admin tidak ditemukan.";
+  }
+
+  if (action === "edit_nama" && reason === "empty_nama") {
+    return "⚠️ Nama admin tidak boleh kosong.";
+  }
+
+  if (action === "edit_username" && reason === "invalid_username") {
+    return "⚠️ Username admin tidak valid.";
+  }
+
+  return "⚠️ Gagal update data admin.";
+}
+
+async function clearSessionSafely(env, stateKey, meta = {}) {
+  try {
+    await clearSession(env, stateKey);
+    return { ok: true };
+  } catch (err) {
+    logError("[sa.admin_manager_input.clear_session.failed]", {
+      stateKey,
+      ...meta,
+      err: err?.message || String(err || ""),
+    });
+    return { ok: false, err };
+  }
+}
+
+async function resolveTargetRow(env, targetTelegramId) {
+  if (!targetTelegramId) return null;
+  return await getAdminByTelegramId(env, targetTelegramId);
+}
+
+async function updateAdminField(env, action, targetTelegramId, rawText) {
+  if (action === "edit_username") {
+    const normalized = normalizeUsernameInput(rawText);
+    if (!normalized.ok) return normalized;
+
+    const res = await updateAdminUsername(env, targetTelegramId, normalized.value);
+    return {
+      ok: !!res?.ok,
+      reason: res?.reason || null,
+      row: res?.row || null,
+    };
+  }
+
+  if (action === "edit_nama") {
+    const normalized = normalizeNamaInput(rawText);
+    if (!normalized.ok) return normalized;
+
+    const res = await updateAdminNama(env, targetTelegramId, normalized.value);
+    return {
+      ok: !!res?.ok,
+      reason: res?.reason || null,
+      row: res?.row || null,
+    };
+  }
+
+  if (action === "edit_kota") {
+    const normalized = normalizeKotaInput(rawText);
+    if (!normalized.ok) return normalized;
+
+    const res = await updateAdminKota(env, targetTelegramId, normalized.value);
+    return {
+      ok: !!res?.ok,
+      reason: res?.reason || null,
+      row: res?.row || null,
+    };
+  }
+
   return {
-    inline_keyboard: [
-      backAndHomeRow(cb.saAdminOpen(targetTelegramId)),
-    ],
+    ok: false,
+    reason: "unsupported_action",
+    row: null,
   };
 }
 
-async function getActor(env, adminId) {
-  return await getAdminByTelegramId(env, adminId);
-}
+export async function handleSuperadminAdminManagerInput({
+  env,
+  chatId,
+  text,
+  session,
+  STATE_KEY,
+}) {
+  if (!session) return false;
+  if (session?.mode !== SESSION_MODES.SA_ADMIN_MANAGER) return false;
 
-async function isOwnerActor(env, adminId) {
-  const actor = await getActor(env, adminId);
-  return actor?.normRole === "owner";
-}
+  const action = normalizeText(session?.action);
+  const targetTelegramId = normalizeText(session?.target_telegram_id);
+  const targetLabel = normalizeText(session?.target_label);
+  const step = normalizeText(session?.step || "await_text");
 
-async function denyOwnerOnly(ctx) {
-  const { env, adminId } = ctx;
-  await clearSession(env, `state:${adminId}`).catch(() => {});
-  await sendMessage(env, adminId, buildOwnerOnlyText(), {
-    parse_mode: "HTML",
-    reply_markup: buildAdminManagerKeyboard(),
-  });
-  return true;
-}
+  if (!EDITABLE_ACTIONS.has(action)) {
+    return false;
+  }
 
-async function renderMenuMessage(ctx, text, extra) {
-  const { env, adminId, msg } = ctx;
+  if (step !== "await_text") {
+    await clearSessionSafely(env, STATE_KEY, {
+      action,
+      targetTelegramId,
+      reason: "invalid_step",
+      step,
+    });
 
-  if (msg) {
-    await upsertCallbackMessage(env, msg, text, extra).catch(async () => {
-      await sendMessage(env, adminId, text, extra);
+    await sendMessage(env, chatId, buildInvalidSessionText(), {
+      parse_mode: "HTML",
+      reply_markup: buildAdminManagerKeyboard(),
     });
     return true;
   }
 
-  await sendMessage(env, adminId, text, extra);
+  if (!targetTelegramId) {
+    await clearSessionSafely(env, STATE_KEY, {
+      action,
+      reason: "missing_target",
+    });
+
+    await sendMessage(env, chatId, buildInvalidSessionText(), {
+      parse_mode: "HTML",
+      reply_markup: buildAdminManagerKeyboard(),
+    });
+    return true;
+  }
+
+  if (isSessionExpired(session)) {
+    await clearSessionSafely(env, STATE_KEY, {
+      action,
+      targetTelegramId,
+      reason: "session_expired",
+      sessionMeta: getSessionMeta(session),
+    });
+
+    await sendMessage(env, chatId, buildSessionExpiredText(), {
+      parse_mode: "HTML",
+      reply_markup: buildAdminManagerKeyboard(),
+    });
+    return true;
+  }
+
+  const rawText = normalizeText(text);
+
+  if (!rawText) {
+    return true;
+  }
+
+  const currentTarget = await resolveTargetRow(env, targetTelegramId);
+  if (!currentTarget) {
+    await clearSessionSafely(env, STATE_KEY, {
+      action,
+      targetTelegramId,
+      reason: "target_not_found",
+    });
+
+    await sendMessage(env, chatId, "⚠️ Data admin target tidak ditemukan.", {
+      reply_markup: buildAdminManagerKeyboard(),
+    });
+    return true;
+  }
+
+  if (isCancelText(rawText)) {
+    await clearSessionSafely(env, STATE_KEY, {
+      action,
+      targetTelegramId,
+      reason: "user_cancel",
+    });
+
+    await sendMessage(env, chatId, buildCancelSuccessText(targetLabel || currentTarget.label), {
+      parse_mode: "HTML",
+      reply_markup: buildAdminControlPanelKeyboard(currentTarget.telegram_id, currentTarget, "owner"),
+    });
+    return true;
+  }
+
+  const result = await updateAdminField(env, action, targetTelegramId, rawText);
+
+  if (!result?.ok) {
+    const validationOnly =
+      result?.reason === "empty_username" ||
+      result?.reason === "invalid_username_format" ||
+      result?.reason === "empty_nama" ||
+      result?.reason === "empty_kota";
+
+    if (validationOnly) {
+      await sendMessage(env, chatId, buildValidationErrorText(action, result.reason), {
+        parse_mode: "HTML",
+        reply_markup: buildAdminControlPanelKeyboard(currentTarget.telegram_id, currentTarget, "owner"),
+      });
+      return true;
+    }
+
+    if (result?.reason === "unsupported_action") {
+      await clearSessionSafely(env, STATE_KEY, {
+        action,
+        targetTelegramId,
+        reason: "unsupported_action",
+      });
+
+      await sendMessage(env, chatId, buildInvalidSessionText(), {
+        parse_mode: "HTML",
+        reply_markup: buildAdminManagerKeyboard(),
+      });
+      return true;
+    }
+
+    logError("[sa.admin_manager_input.update_failed]", {
+      action,
+      targetTelegramId,
+      reason: result?.reason || "unknown",
+      sessionMeta: getSessionMeta(session),
+    });
+
+    await clearSessionSafely(env, STATE_KEY, {
+      action,
+      targetTelegramId,
+      reason: result?.reason || "update_failed",
+    });
+
+    await sendMessage(env, chatId, buildMutationErrorText(action, result?.reason), {
+      parse_mode: "HTML",
+      reply_markup: buildAdminControlPanelKeyboard(currentTarget.telegram_id, currentTarget, "owner"),
+    });
+    return true;
+  }
+
+  const freshRow =
+    result?.row || (await resolveTargetRow(env, targetTelegramId));
+
+  await clearSessionSafely(env, STATE_KEY, {
+    action,
+    targetTelegramId,
+    reason: "success",
+  });
+
+  await sendMessage(env, chatId, buildSuccessText(action, freshRow || currentTarget), {
+    parse_mode: "HTML",
+    reply_markup: buildAdminControlPanelKeyboard(
+      (freshRow || currentTarget).telegram_id,
+      freshRow || currentTarget,
+      "owner"
+    ),
+  });
+
+  await sendMessage(env, chatId, buildAdminDetailText(freshRow || currentTarget), {
+    parse_mode: "HTML",
+    reply_markup: buildAdminControlPanelKeyboard(
+      (freshRow || currentTarget).telegram_id,
+      freshRow || currentTarget,
+      "owner"
+    ),
+  });
+
   return true;
 }
 
-async function renderAdminList(ctx) {
-  const rows = await listAdmins(ctx.env);
-
-  return renderMenuMessage(ctx, buildAdminListText(rows), {
-    parse_mode: "HTML",
-    reply_markup: buildAdminListKeyboard(rows),
-    disable_web_page_preview: true,
-  });
-}
-
-async function renderAdminDetail(ctx, targetTelegramId) {
-  const row = await getAdminByTelegramId(ctx.env, targetTelegramId);
-  const actor = await getActor(ctx.env, ctx.adminId);
-  const actorRole = actor?.normRole || "admin";
-
-  if (!row) {
-    return renderMenuMessage(ctx, "⚠️ Data admin tidak ditemukan.", {
-      reply_markup: buildAdminManagerKeyboard(),
-    });
-  }
-
-  return renderMenuMessage(ctx, buildAdminDetailText(row), {
-    parse_mode: "HTML",
-    reply_markup: buildAdminControlPanelKeyboard(row.telegram_id, row, actorRole),
-  });
-}
-
-export function buildSuperadminAdminManagerHandlers() {
-  const EXACT = {};
-  const PREFIX = [];
-
-  EXACT[CALLBACKS.SUPERADMIN_ADMIN_MENU] = async (ctx) => {
-    const { env, adminId } = ctx;
-
-    await clearSession(env, `state:${adminId}`).catch(() => {});
-
-    return renderMenuMessage(ctx, buildAdminManagerText(), {
-      parse_mode: "HTML",
-      reply_markup: buildAdminManagerKeyboard(),
-    });
-  };
-
-  EXACT[CALLBACKS.SUPERADMIN_ADMIN_LIST] = async (ctx) => {
-    const { env, adminId } = ctx;
-
-    await clearSession(env, `state:${adminId}`).catch(() => {});
-    return renderAdminList(ctx);
-  };
-
-  EXACT[CALLBACKS.SUPERADMIN_ADMIN_ADD] = async (ctx) => {
-    const { env, adminId } = ctx;
-
-    await clearSession(env, `state:${adminId}`).catch(() => {});
-
-    if (!(await isOwnerActor(env, adminId))) {
-      return denyOwnerOnly(ctx);
-    }
-
-    const created = await createAdminInviteToken(env, {
-      createdBy: adminId,
-      role: "admin",
-      expiryHours: 24,
-    });
-
-    const artifacts = buildInviteArtifacts(env, created?.token);
-
-    return renderMenuMessage(
-      ctx,
-      buildInviteAdminText({
-        inviteUrl: artifacts.inviteUrl,
-        startCommand: artifacts.startCommand,
-        token: created?.token,
-        role: created?.role || "admin",
-        expiresAt: created?.expires_at,
-      }),
-      {
-        parse_mode: "HTML",
-        reply_markup: buildAdminManagerKeyboard(),
-        disable_web_page_preview: true,
-      }
-    );
-  };
-
-  EXACT[CALLBACKS.SUPERADMIN_ADMIN_BACK] = async (ctx) => {
-    const { env, adminId } = ctx;
-    await clearSession(env, `state:${adminId}`).catch(() => {});
-    return renderMenuMessage(ctx, buildAdminManagerText(), {
-      parse_mode: "HTML",
-      reply_markup: buildAdminManagerKeyboard(),
-    });
-  };
-
-  PREFIX.push({
-    match: (d) =>
-      d.startsWith(CALLBACK_PREFIX.SA_ADMIN_OPEN) ||
-      d.startsWith(CALLBACK_PREFIX.SA_ADMIN_EDIT_USERNAME) ||
-      d.startsWith(CALLBACK_PREFIX.SA_ADMIN_EDIT_NAMA) ||
-      d.startsWith(CALLBACK_PREFIX.SA_ADMIN_EDIT_KOTA) ||
-      d.startsWith(CALLBACK_PREFIX.SA_ADMIN_EDIT_ROLE) ||
-      d.startsWith(CALLBACK_PREFIX.SA_ADMIN_EDIT_STATUS) ||
-      d.startsWith(CALLBACK_PREFIX.SA_ADMIN_ROLE_SET) ||
-      d.startsWith(CALLBACK_PREFIX.SA_ADMIN_STATUS_SET) ||
-      d.startsWith(CALLBACK_PREFIX.SA_ADMIN_DEACTIVATE) ||
-      d.startsWith(CALLBACK_PREFIX.SA_ADMIN_ACTIVATE) ||
-      d.startsWith(CALLBACK_PREFIX.SA_ADMIN_DELETE),
-
-    run: async (ctx) => {
-      const { env, adminId, data } = ctx;
-      const actor = await getActor(env, adminId);
-      const actorRole = actor?.normRole || "admin";
-
-      if (data.startsWith(CALLBACK_PREFIX.SA_ADMIN_OPEN)) {
-        const targetTelegramId = String(data.slice(CALLBACK_PREFIX.SA_ADMIN_OPEN.length) || "").trim();
-        return renderAdminDetail(ctx, targetTelegramId);
-      }
-
-      if (data.startsWith(CALLBACK_PREFIX.SA_ADMIN_EDIT_USERNAME)) {
-        if (actorRole !== "owner") {
-          return denyOwnerOnly(ctx);
-        }
-
-        const targetTelegramId = String(data.slice(CALLBACK_PREFIX.SA_ADMIN_EDIT_USERNAME.length) || "").trim();
-        const row = await getAdminByTelegramId(env, targetTelegramId);
-
-        if (!row) {
-          await sendMessage(env, adminId, "⚠️ Data admin tidak ditemukan.", {
-            reply_markup: buildAdminManagerKeyboard(),
-          });
-          return true;
-        }
-
-        await saveSession(env, `state:${adminId}`, {
-          mode: SESSION_MODES.SA_ADMIN_MANAGER,
-          action: "edit_username",
-          target_telegram_id: row.telegram_id,
-          step: "await_text",
-        });
-
-        await sendMessage(
-          env,
-          adminId,
-          [
-            "✏️ <b>Edit Username Admin</b>",
-            "",
-            `Target: <b>${escapeHtml(row.label || "-")}</b>`,
-            `Saat ini: <b>${escapeHtml(row.username ? `@${String(row.username).replace(/^@/, "")}` : "-")}</b>`,
-            "",
-            "Kirim username baru tanpa @ atau dengan @.",
-            "Ketik <b>-</b> untuk kosongkan username.",
-            "",
-            "Ketik <b>batal</b> untuk keluar.",
-          ].join("\n"),
-          {
-            parse_mode: "HTML",
-            reply_markup: buildAdminWaitingKeyboard(row.telegram_id),
-          }
-        );
-
-        return true;
-      }
-
-      if (data.startsWith(CALLBACK_PREFIX.SA_ADMIN_EDIT_NAMA)) {
-        if (actorRole !== "owner") {
-          return denyOwnerOnly(ctx);
-        }
-
-        const targetTelegramId = String(data.slice(CALLBACK_PREFIX.SA_ADMIN_EDIT_NAMA.length) || "").trim();
-        const row = await getAdminByTelegramId(env, targetTelegramId);
-
-        if (!row) {
-          await sendMessage(env, adminId, "⚠️ Data admin tidak ditemukan.", {
-            reply_markup: buildAdminManagerKeyboard(),
-          });
-          return true;
-        }
-
-        await saveSession(env, `state:${adminId}`, {
-          mode: SESSION_MODES.SA_ADMIN_MANAGER,
-          action: "edit_nama",
-          target_telegram_id: row.telegram_id,
-          step: "await_text",
-        });
-
-        await sendMessage(
-          env,
-          adminId,
-          [
-            "✏️ <b>Edit Nama Admin</b>",
-            "",
-            `Target: <b>${escapeHtml(row.label || "-")}</b>`,
-            `Saat ini: <b>${fmtValue(row.nama)}</b>`,
-            "",
-            "Kirim nama baru.",
-            "",
-            "Ketik <b>batal</b> untuk keluar.",
-          ].join("\n"),
-          {
-            parse_mode: "HTML",
-            reply_markup: buildAdminWaitingKeyboard(row.telegram_id),
-          }
-        );
-
-        return true;
-      }
-
-      if (data.startsWith(CALLBACK_PREFIX.SA_ADMIN_EDIT_KOTA)) {
-        if (actorRole !== "owner") {
-          return denyOwnerOnly(ctx);
-        }
-
-        const targetTelegramId = String(data.slice(CALLBACK_PREFIX.SA_ADMIN_EDIT_KOTA.length) || "").trim();
-        const row = await getAdminByTelegramId(env, targetTelegramId);
-
-        if (!row) {
-          await sendMessage(env, adminId, "⚠️ Data admin tidak ditemukan.", {
-            reply_markup: buildAdminManagerKeyboard(),
-          });
-          return true;
-        }
-
-        await saveSession(env, `state:${adminId}`, {
-          mode: SESSION_MODES.SA_ADMIN_MANAGER,
-          action: "edit_kota",
-          target_telegram_id: row.telegram_id,
-          step: "await_text",
-        });
-
-        await sendMessage(
-          env,
-          adminId,
-          [
-            "✏️ <b>Edit Kota Admin</b>",
-            "",
-            `Target: <b>${escapeHtml(row.label || "-")}</b>`,
-            `Saat ini: <b>${fmtValue(row.kota)}</b>`,
-            "",
-            "Kirim kota baru.",
-            "Ketik <b>-</b> untuk kosongkan kota.",
-            "",
-            "Ketik <b>batal</b> untuk keluar.",
-          ].join("\n"),
-          {
-            parse_mode: "HTML",
-            reply_markup: buildAdminWaitingKeyboard(row.telegram_id),
-          }
-        );
-
-        return true;
-      }
-
-      if (data.startsWith(CALLBACK_PREFIX.SA_ADMIN_EDIT_ROLE)) {
-        if (actorRole !== "owner") {
-          return denyOwnerOnly(ctx);
-        }
-
-        const targetTelegramId = String(data.slice(CALLBACK_PREFIX.SA_ADMIN_EDIT_ROLE.length) || "").trim();
-        const row = await getAdminByTelegramId(env, targetTelegramId);
-
-        if (!row) {
-          await sendMessage(env, adminId, "⚠️ Data admin tidak ditemukan.", {
-            reply_markup: buildAdminManagerKeyboard(),
-          });
-          return true;
-        }
-
-        return renderMenuMessage(ctx, buildAdminDetailText(row), {
-          parse_mode: "HTML",
-          reply_markup: buildAdminRolePickerKeyboard(row.telegram_id),
-        });
-      }
-
-      if (data.startsWith(CALLBACK_PREFIX.SA_ADMIN_EDIT_STATUS)) {
-        if (actorRole !== "owner") {
-          return denyOwnerOnly(ctx);
-        }
-
-        const targetTelegramId = String(data.slice(CALLBACK_PREFIX.SA_ADMIN_EDIT_STATUS.length) || "").trim();
-        const row = await getAdminByTelegramId(env, targetTelegramId);
-
-        if (!row) {
-          await sendMessage(env, adminId, "⚠️ Data admin tidak ditemukan.", {
-            reply_markup: buildAdminManagerKeyboard(),
-          });
-          return true;
-        }
-
-        return renderMenuMessage(ctx, buildAdminDetailText(row), {
-          parse_mode: "HTML",
-          reply_markup: buildAdminStatusPickerKeyboard(row.telegram_id),
-        });
-      }
-
-      if (data.startsWith(CALLBACK_PREFIX.SA_ADMIN_ROLE_SET)) {
-        if (actorRole !== "owner") {
-          return denyOwnerOnly(ctx);
-        }
-
-        const raw = String(data.slice(CALLBACK_PREFIX.SA_ADMIN_ROLE_SET.length) || "").trim();
-        const [targetTelegramId, nextRole = ""] = raw.split(":");
-
-        const res = await updateAdminRole(env, targetTelegramId, nextRole);
-        if (!res?.ok) {
-          const reason = String(res?.reason || "");
-          const msg =
-            reason === "last_superadmin"
-              ? "⛔ Superadmin aktif terakhir tidak boleh diturunkan / dinonaktifkan."
-              : reason === "not_found"
-                ? "⚠️ Data admin tidak ditemukan."
-                : "⚠️ Gagal update role admin.";
-          await sendMessage(env, adminId, msg, {
-            reply_markup: buildAdminManagerKeyboard(),
-          });
-          return true;
-        }
-
-        return renderAdminDetail(ctx, targetTelegramId);
-      }
-
-      if (data.startsWith(CALLBACK_PREFIX.SA_ADMIN_STATUS_SET)) {
-        if (actorRole !== "owner") {
-          return denyOwnerOnly(ctx);
-        }
-
-        const raw = String(data.slice(CALLBACK_PREFIX.SA_ADMIN_STATUS_SET.length) || "").trim();
-        const [targetTelegramId, nextStatus = ""] = raw.split(":");
-
-        const res = await updateAdminStatus(env, targetTelegramId, nextStatus);
-        if (!res?.ok) {
-          const reason = String(res?.reason || "");
-          const msg =
-            reason === "last_superadmin"
-              ? "⛔ Superadmin aktif terakhir tidak boleh dinonaktifkan."
-              : reason === "not_found"
-                ? "⚠️ Data admin tidak ditemukan."
-                : "⚠️ Gagal update status admin.";
-          await sendMessage(env, adminId, msg, {
-            reply_markup: buildAdminManagerKeyboard(),
-          });
-          return true;
-        }
-
-        return renderAdminDetail(ctx, targetTelegramId);
-      }
-
-      if (data.startsWith(CALLBACK_PREFIX.SA_ADMIN_DEACTIVATE)) {
-        if (actorRole !== "owner") {
-          return denyOwnerOnly(ctx);
-        }
-
-        const targetTelegramId = String(data.slice(CALLBACK_PREFIX.SA_ADMIN_DEACTIVATE.length) || "").trim();
-
-        const res = await deactivateAdminByTelegramId(env, targetTelegramId);
-        if (!res?.ok) {
-          const reason = String(res?.reason || "");
-          const msg =
-            reason === "last_superadmin"
-              ? "⛔ Superadmin aktif terakhir tidak boleh dinonaktifkan."
-              : reason === "not_found"
-                ? "⚠️ Data admin tidak ditemukan."
-                : "⚠️ Gagal menonaktifkan admin.";
-          await sendMessage(env, adminId, msg, {
-            reply_markup: buildAdminManagerKeyboard(),
-          });
-          return true;
-        }
-
-        return renderAdminDetail(ctx, targetTelegramId);
-      }
-
-      if (data.startsWith(CALLBACK_PREFIX.SA_ADMIN_ACTIVATE)) {
-        if (actorRole !== "owner") {
-          return denyOwnerOnly(ctx);
-        }
-
-        const targetTelegramId = String(data.slice(CALLBACK_PREFIX.SA_ADMIN_ACTIVATE.length) || "").trim();
-
-        const res = await activateAdminByTelegramId(env, targetTelegramId);
-        if (!res?.ok) {
-          const reason = String(res?.reason || "");
-          const msg =
-            reason === "not_found"
-              ? "⚠️ Data admin tidak ditemukan."
-              : "⚠️ Gagal mengaktifkan admin.";
-          await sendMessage(env, adminId, msg, {
-            reply_markup: buildAdminManagerKeyboard(),
-          });
-          return true;
-        }
-
-        return renderAdminDetail(ctx, targetTelegramId);
-      }
-
-      if (data.startsWith(CALLBACK_PREFIX.SA_ADMIN_DELETE)) {
-        if (actorRole !== "owner") {
-          return denyOwnerOnly(ctx);
-        }
-
-        const targetTelegramId = String(data.slice(CALLBACK_PREFIX.SA_ADMIN_DELETE.length) || "").trim();
-        const row = await getAdminByTelegramId(env, targetTelegramId);
-
-        if (!row) {
-          await sendMessage(env, adminId, "⚠️ Data admin tidak ditemukan.", {
-            reply_markup: buildAdminManagerKeyboard(),
-          });
-          return true;
-        }
-
-        if (row.normRole === "owner") {
-          await sendMessage(env, adminId, "⛔ Owner tidak bisa dihapus.", {
-            reply_markup: buildAdminControlPanelKeyboard(row.telegram_id, row, actorRole),
-          });
-          return true;
-        }
-
-        const res = await deleteAdminByTelegramId(env, targetTelegramId);
-        if (!res?.ok) {
-          const reason = String(res?.reason || "");
-          const msg =
-            reason === "last_superadmin"
-              ? "⛔ Superadmin aktif terakhir tidak boleh dihapus."
-              : reason === "not_found"
-                ? "⚠️ Data admin tidak ditemukan."
-                : "⚠️ Gagal menghapus admin.";
-          await sendMessage(env, adminId, msg, {
-            reply_markup: buildAdminManagerKeyboard(),
-          });
-          return true;
-        }
-
-        return renderMenuMessage(
-          ctx,
-          [
-            "✅ <b>Admin berhasil dihapus</b>",
-            "",
-            `Target: <code>${escapeHtml(targetTelegramId)}</code>`,
-          ].join("\n"),
-          {
-            parse_mode: "HTML",
-            reply_markup: buildAdminManagerKeyboard(),
-          }
-        );
-      }
-
-      return true;
-    },
-  });
-
-  return { EXACT, PREFIX };
-}
+export default {
+  handleSuperadminAdminManagerInput,
+};
