@@ -197,7 +197,7 @@ async function handleOwnerCatalogBootstrapCommand({
         threadId: msg?.message_thread_id ?? null,
         err: err?.message || String(err || ""),
       });
-      return { ok: false };
+      return { ok: false, reason: "exception" };
     });
 
     if (!result?.ok) {
@@ -205,11 +205,13 @@ async function handleOwnerCatalogBootstrapCommand({
       return true;
     }
 
+    const isCreated = Boolean("created" in result ? result.created : false);
+
     await sendMessage(
       env,
       chatId,
       [
-        result.created
+        isCreated
           ? "✅ Grup ini berhasil ditambahkan sebagai target katalog."
           : "✅ Target katalog ini berhasil diaktifkan kembali.",
         "",
@@ -233,7 +235,7 @@ async function handleOwnerCatalogBootstrapCommand({
         threadId: msg?.message_thread_id ?? null,
         err: err?.message || String(err || ""),
       });
-      return { ok: false };
+      return { ok: false, reason: "exception" };
     });
 
     if (!result?.ok) {
