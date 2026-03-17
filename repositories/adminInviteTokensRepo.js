@@ -61,6 +61,19 @@ function mapRow(row) {
   };
 }
 
+function resolveInactiveReason(row) {
+  if (!row) return "not_found";
+  if (row.is_expired) return "expired";
+
+  const status = normalizeStatus(row.status);
+  if (status === "used") return "used";
+  if (status === "revoked") return "revoked";
+  if (status === "expired") return "expired";
+  if (status !== "active") return status || "not_active";
+
+  return "not_active";
+}
+
 export async function getAdminInviteTokenByToken(env, token) {
   const value = cleanText(token);
   if (!value) return null;
@@ -143,65 +156,6 @@ export async function createAdminInviteToken(
   return await getAdminInviteTokenByToken(env, token);
 }
 
-export async function markAdminInviteTokenUsed(env, token, usedBy) {
-  const value = cleanText(token);
-  const usedByValue = cleanText(usedBy);
-
-  if (!value) return { ok: false, reason: "empty_token" };
-  if (!usedByValue) return { ok: false, reason: "empty_used_by" };
-
-  const row = await getAdminInviteTokenByToken(env, value);
-  if (!row) return { ok: false, reason: "not_found" };
-  if (row.status !== "active") return { ok: false, reason: "not_active" };
-  if (row.is_expired) return { ok: false, reason: "expired" };
-
-  const now = nowIso();
-
-  await env.DB.prepare(
-    `
-    UPDATE admin_invite_tokens
-    SET
-      status = 'used',
-      used_by = ?,
-      used_at = ?,
-      updated_at = ?
-    WHERE token = ?
-    `
-  )
-    .bind(usedByValue, now, now, value)
-    .run();
-
-  return {
-    ok: true,
-    row: await getAdminInviteTokenByToken(env, value),
-  };
-}
-
-export async function revokeAdminInviteToken(env, token) {
-  const value = cleanText(token);
-  if (!value) return { ok: false, reason: "empty_token" };
-
-  const row = await getAdminInviteTokenByToken(env, value);
-  if (!row) return { ok: false, reason: "not_found" };
-
-  await env.DB.prepare(
-    `
-    UPDATE admin_invite_tokens
-    SET
-      status = 'revoked',
-      updated_at = ?
-    WHERE token = ?
-    `
-  )
-    .bind(nowIso(), value)
-    .run();
-
-  return {
-    ok: true,
-    row: await getAdminInviteTokenByToken(env, value),
-  };
-}
-
 export async function expireAdminInviteTokens(env) {
   const now = nowIso();
 
@@ -238,6 +192,87 @@ export async function validateAdminInviteToken(env, token) {
   return {
     ok: true,
     row,
+  };
+}
+
+/**
+ * Atomic consume:
+ * hanya berhasil jika token masih active dan belum expired pada saat UPDATE dilakukan.
+ */
+export async function consumeAdminInviteToken(env, token, usedBy) {
+  const value = cleanText(token);
+  const usedByValue = cleanText(usedBy);
+
+  if (!value) return { ok: false, reason: "empty_token" };
+  if (!usedByValue) return { ok: false, reason: "empty_used_by" };
+
+  await expireAdminInviteTokens(env);
+
+  const now = nowIso();
+
+  const res = await env.DB.prepare(
+    `
+    UPDATE admin_invite_tokens
+    SET
+      status = 'used',
+      used_by = ?,
+      used_at = ?,
+      updated_at = ?
+    WHERE token = ?
+      AND status = 'active'
+      AND (expires_at IS NULL OR expires_at > ?)
+    `
+  )
+    .bind(usedByValue, now, now, value, now)
+    .run();
+
+  const changes = Number(res?.meta?.changes || 0);
+
+  if (changes > 0) {
+    return {
+      ok: true,
+      row: await getAdminInviteTokenByToken(env, value),
+    };
+  }
+
+  const row = await getAdminInviteTokenByToken(env, value);
+  return {
+    ok: false,
+    reason: resolveInactiveReason(row),
+    row: row || null,
+  };
+}
+
+/**
+ * Backward-compatible wrapper.
+ * Sekarang mark juga atomik, jadi caller lama tetap lebih aman.
+ */
+export async function markAdminInviteTokenUsed(env, token, usedBy) {
+  return consumeAdminInviteToken(env, token, usedBy);
+}
+
+export async function revokeAdminInviteToken(env, token) {
+  const value = cleanText(token);
+  if (!value) return { ok: false, reason: "empty_token" };
+
+  const row = await getAdminInviteTokenByToken(env, value);
+  if (!row) return { ok: false, reason: "not_found" };
+
+  await env.DB.prepare(
+    `
+    UPDATE admin_invite_tokens
+    SET
+      status = 'revoked',
+      updated_at = ?
+    WHERE token = ?
+    `
+  )
+    .bind(nowIso(), value)
+    .run();
+
+  return {
+    ok: true,
+    row: await getAdminInviteTokenByToken(env, value),
   };
 }
 
