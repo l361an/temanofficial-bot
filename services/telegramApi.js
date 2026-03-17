@@ -157,6 +157,71 @@ function buildPremiumPartnerAdminRights() {
   };
 }
 
+function getMessageTarget(message) {
+  return {
+    chatId: message?.chat?.id || null,
+    messageId: message?.message_id || null,
+  };
+}
+
+async function invalidateOldPanel(env, message) {
+  const { chatId, messageId } = getMessageTarget(message);
+
+  if (!chatId || !messageId) {
+    return {
+      ok: false,
+      skipped: true,
+      description: "message target not found",
+      chat_id: chatId,
+      message_id: messageId,
+    };
+  }
+
+  try {
+    const res = await editMessageReplyMarkup(env, chatId, messageId, null);
+
+    if (res?.ok || isNotModifiedResponse(res)) {
+      return {
+        ok: true,
+        skipped: false,
+        chat_id: chatId,
+        message_id: messageId,
+        response: res,
+      };
+    }
+
+    logTelegramError("[telegram.invalidate_old_panel.failed]", {
+      chatId,
+      messageId,
+      description: res?.description || null,
+    });
+
+    return {
+      ok: false,
+      skipped: false,
+      description: res?.description || "failed_to_invalidate_old_panel",
+      chat_id: chatId,
+      message_id: messageId,
+      response: res || null,
+    };
+  } catch (err) {
+    logTelegramError("[telegram.invalidate_old_panel.exception]", {
+      chatId,
+      messageId,
+      err: err?.message || String(err || ""),
+    });
+
+    return {
+      ok: false,
+      skipped: false,
+      description: err?.message || "exception_invalidating_old_panel",
+      chat_id: chatId,
+      message_id: messageId,
+      response: null,
+    };
+  }
+}
+
 export async function sendMessage(env, chatId, text, extra = {}) {
   return post(env, "sendMessage", {
     chat_id: chatId,
@@ -225,8 +290,7 @@ export async function editMessageCaption(env, chatId, messageId, caption, extra 
 }
 
 export async function editCallbackMessage(env, message, text, extra = {}) {
-  const chatId = message?.chat?.id;
-  const messageId = message?.message_id;
+  const { chatId, messageId } = getMessageTarget(message);
 
   if (!chatId || !messageId) {
     return { ok: false, description: "message target not found" };
@@ -296,8 +360,7 @@ export async function upsertCallbackMessage(env, message, text, extra = {}) {
     return edited;
   }
 
-  const chatId = message?.chat?.id;
-  const oldMessageId = message?.message_id || null;
+  const { chatId, messageId: oldMessageId } = getMessageTarget(message);
 
   if (!chatId) {
     return {
@@ -317,6 +380,16 @@ export async function upsertCallbackMessage(env, message, text, extra = {}) {
     });
   }
 
+  const invalidation = await invalidateOldPanel(env, message);
+
+  if (!invalidation?.ok && !invalidation?.skipped) {
+    logTelegramError("[telegram.upsert.old_panel_invalidation_failed]", {
+      chatId,
+      oldMessageId,
+      description: invalidation?.description || null,
+    });
+  }
+
   const sendExtra = cleanPayload({
     ...extra,
   });
@@ -329,6 +402,8 @@ export async function upsertCallbackMessage(env, message, text, extra = {}) {
       description: sendRes?.description || "failed_to_send_fallback_message",
       mode: "failed",
       old_message_id: oldMessageId,
+      old_panel_invalidated: Boolean(invalidation?.ok),
+      old_panel_invalidation_response: invalidation || null,
       edit_response: edited || null,
       send_response: sendRes || null,
     };
@@ -342,6 +417,8 @@ export async function upsertCallbackMessage(env, message, text, extra = {}) {
     chat_id: chatId,
     message_id: sendRes?.result?.message_id ?? null,
     old_message_id: oldMessageId,
+    old_panel_invalidated: Boolean(invalidation?.ok),
+    old_panel_invalidation_response: invalidation || null,
     edit_response: edited || null,
     response: sendRes,
   };
