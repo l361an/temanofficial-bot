@@ -14,13 +14,86 @@ import {
 import { deleteSetting, escapeHtml } from "./shared.js";
 import { CALLBACKS, CALLBACK_PREFIX, SESSION_MODES } from "../telegram.constants.js";
 
+function logError(tag, meta = {}) {
+  console.error(tag, meta);
+}
+
+function getStateKey(adminId) {
+  return `state:${adminId}`;
+}
+
+async function clearSessionSafely(env, adminId, meta = {}) {
+  const stateKey = getStateKey(adminId);
+
+  try {
+    await clearSession(env, stateKey);
+    return { ok: true };
+  } catch (err) {
+    logError("[sa.config.clear_session.failed]", {
+      adminId,
+      stateKey,
+      ...meta,
+      err: err?.message || String(err || ""),
+    });
+    return { ok: false, err };
+  }
+}
+
+async function saveConfigSession(env, adminId, sessionPatch, meta = {}) {
+  const stateKey = getStateKey(adminId);
+
+  const session = {
+    mode: SESSION_MODES.SA_CONFIG,
+    flow_id: "sa_config",
+    flow_version: 1,
+    source_chat_id: sessionPatch?.source_chat_id ?? null,
+    source_message_id: sessionPatch?.source_message_id ?? null,
+    ...sessionPatch,
+  };
+
+  try {
+    return await saveSession(env, stateKey, session);
+  } catch (err) {
+    logError("[sa.config.save_session.failed]", {
+      adminId,
+      stateKey,
+      sessionPatch,
+      ...meta,
+      err: err?.message || String(err || ""),
+    });
+    throw err;
+  }
+}
+
 async function renderMenuMessage(ctx, text, extra) {
-  const { env, adminId, msg } = ctx;
+  const { env, adminId, msg, data } = ctx;
 
   if (msg) {
-    await upsertCallbackMessage(env, msg, text, extra).catch(async () => {
+    const res = await upsertCallbackMessage(env, msg, text, extra);
+
+    if (!res?.ok) {
+      logError("[sa.config.render_menu.failed]", {
+        adminId,
+        data: data || null,
+        description: res?.description || null,
+        mode: res?.mode || null,
+        messageId: msg?.message_id || null,
+      });
+
       await sendMessage(env, adminId, text, extra);
-    });
+      return true;
+    }
+
+    if (res?.mode === "sent") {
+      logError("[sa.config.render_menu.stale_panel_fallback]", {
+        adminId,
+        data: data || null,
+        oldMessageId: res?.old_message_id || null,
+        newMessageId: res?.message_id || null,
+        oldPanelInvalidated: !!res?.old_panel_invalidated,
+      });
+    }
+
     return true;
   }
 
@@ -44,6 +117,24 @@ function buildConfigText() {
   ].join("\n");
 }
 
+function buildWelcomeText(current) {
+  return [
+    "👋 <b>Welcome Message</b>",
+    "",
+    "<b>Current:</b>",
+    `<pre>${escapeHtml(current || "-")}</pre>`,
+  ].join("\n");
+}
+
+function buildAturanText(current) {
+  return [
+    "🔗 <b>Link Aturan</b>",
+    "",
+    "<b>Current:</b>",
+    `<pre>${escapeHtml(current || "-")}</pre>`,
+  ].join("\n");
+}
+
 export function buildSuperadminConfigHandlers() {
   const EXACT = {};
   const PREFIX = [];
@@ -51,7 +142,9 @@ export function buildSuperadminConfigHandlers() {
   EXACT[CALLBACKS.SUPERADMIN_TOOLS_MENU] = async (ctx) => {
     const { env, adminId } = ctx;
 
-    await clearSession(env, `state:${adminId}`).catch(() => {});
+    await clearSessionSafely(env, adminId, {
+      action: "open_tools_menu",
+    });
 
     return renderMenuMessage(ctx, buildSystemSettingsText(), {
       parse_mode: "HTML",
@@ -62,7 +155,9 @@ export function buildSuperadminConfigHandlers() {
   EXACT[CALLBACKS.SUPERADMIN_SETTINGS_MENU] = async (ctx) => {
     const { env, adminId } = ctx;
 
-    await clearSession(env, `state:${adminId}`).catch(() => {});
+    await clearSessionSafely(env, adminId, {
+      action: "open_settings_menu",
+    });
 
     return renderMenuMessage(ctx, buildSystemSettingsText(), {
       parse_mode: "HTML",
@@ -73,7 +168,9 @@ export function buildSuperadminConfigHandlers() {
   EXACT[CALLBACKS.SUPERADMIN_CONFIG_MENU] = async (ctx) => {
     const { env, adminId } = ctx;
 
-    await clearSession(env, `state:${adminId}`).catch(() => {});
+    await clearSessionSafely(env, adminId, {
+      action: "open_config_menu",
+    });
 
     return renderMenuMessage(ctx, buildConfigText(), {
       parse_mode: "HTML",
@@ -84,28 +181,35 @@ export function buildSuperadminConfigHandlers() {
   EXACT[CALLBACKS.SUPERADMIN_CONFIG_WELCOME] = async (ctx) => {
     const { env, adminId } = ctx;
 
-    await clearSession(env, `state:${adminId}`).catch(() => {});
+    await clearSessionSafely(env, adminId, {
+      action: "open_welcome_menu",
+    });
 
     const current = (await getSetting(env, "welcome_partner")) || "-";
 
-    return renderMenuMessage(
-      ctx,
-      "👋 <b>Welcome Message</b>\n\n<b>Current:</b>\n<pre>" + escapeHtml(current) + "</pre>",
-      {
-        parse_mode: "HTML",
-        reply_markup: buildConfigWelcomeKeyboard(),
-      }
-    );
+    return renderMenuMessage(ctx, buildWelcomeText(current), {
+      parse_mode: "HTML",
+      reply_markup: buildConfigWelcomeKeyboard(),
+    });
   };
 
   EXACT[CALLBACKS.SUPERADMIN_CONFIG_WELCOME_EDIT] = async (ctx) => {
-    const { env, adminId } = ctx;
+    const { env, adminId, msg, data } = ctx;
 
-    await saveSession(env, `state:${adminId}`, {
-      mode: SESSION_MODES.SA_CONFIG,
-      area: "welcome",
-      step: "await_text",
-    });
+    await saveConfigSession(
+      env,
+      adminId,
+      {
+        area: "welcome",
+        step: "await_text",
+        source_callback_data: data || null,
+        source_chat_id: msg?.chat?.id || null,
+        source_message_id: msg?.message_id || null,
+      },
+      {
+        action: "start_welcome_edit",
+      }
+    );
 
     await sendMessage(
       env,
@@ -125,29 +229,36 @@ export function buildSuperadminConfigHandlers() {
   EXACT[CALLBACKS.SUPERADMIN_CONFIG_ATURAN] = async (ctx) => {
     const { env, adminId } = ctx;
 
-    await clearSession(env, `state:${adminId}`).catch(() => {});
+    await clearSessionSafely(env, adminId, {
+      action: "open_aturan_menu",
+    });
 
     const current = (await getSetting(env, "link_aturan")) || "-";
 
-    return renderMenuMessage(
-      ctx,
-      "🔗 <b>Link Aturan</b>\n\n<b>Current:</b>\n<pre>" + escapeHtml(current) + "</pre>",
-      {
-        parse_mode: "HTML",
-        disable_web_page_preview: true,
-        reply_markup: buildConfigAturanKeyboard(),
-      }
-    );
+    return renderMenuMessage(ctx, buildAturanText(current), {
+      parse_mode: "HTML",
+      disable_web_page_preview: true,
+      reply_markup: buildConfigAturanKeyboard(),
+    });
   };
 
   EXACT[CALLBACKS.SUPERADMIN_CONFIG_ATURAN_EDIT] = async (ctx) => {
-    const { env, adminId } = ctx;
+    const { env, adminId, msg, data } = ctx;
 
-    await saveSession(env, `state:${adminId}`, {
-      mode: SESSION_MODES.SA_CONFIG,
-      area: "aturan",
-      step: "await_text",
-    });
+    await saveConfigSession(
+      env,
+      adminId,
+      {
+        area: "aturan",
+        step: "await_text",
+        source_callback_data: data || null,
+        source_chat_id: msg?.chat?.id || null,
+        source_message_id: msg?.message_id || null,
+      },
+      {
+        action: "start_aturan_edit",
+      }
+    );
 
     await sendMessage(
       env,
@@ -180,27 +291,52 @@ export function buildSuperadminConfigHandlers() {
         const draftText = await getSetting(env, draftKey);
 
         if (!draftText) {
-          await sendMessage(env, adminId, "⚠️ Draft welcome tidak ditemukan / sudah dibatalkan.");
-          return true;
+          return renderMenuMessage(ctx, "⚠️ Draft welcome tidak ditemukan / sudah dibatalkan.", {
+            reply_markup: buildSuperadminToolsKeyboard(),
+          });
         }
 
         if (action === "setwelcome_cancel") {
-          await deleteSetting(env, draftKey);
-          await sendMessage(env, adminId, "❌ Draft welcome dibatalkan.", {
+          try {
+            await deleteSetting(env, draftKey);
+          } catch (err) {
+            logError("[sa.config.delete_draft_welcome.failed]", {
+              adminId,
+              draftKey,
+              action,
+              err: err?.message || String(err || ""),
+            });
+            throw err;
+          }
+
+          return renderMenuMessage(ctx, "❌ Draft welcome dibatalkan.", {
             reply_markup: buildSuperadminToolsKeyboard(),
           });
-          return true;
         }
 
         await upsertSetting(env, "welcome_partner", draftText);
-        await deleteSetting(env, draftKey);
 
-        await sendMessage(env, adminId, "✅ Welcome message berhasil diupdate.\n\n*Welcome baru:*\n" + draftText, {
-          parse_mode: "Markdown",
-          disable_web_page_preview: true,
-          reply_markup: buildSuperadminToolsKeyboard(),
-        });
-        return true;
+        try {
+          await deleteSetting(env, draftKey);
+        } catch (err) {
+          logError("[sa.config.delete_draft_welcome.failed]", {
+            adminId,
+            draftKey,
+            action,
+            err: err?.message || String(err || ""),
+          });
+          throw err;
+        }
+
+        return renderMenuMessage(
+          ctx,
+          "✅ Welcome message berhasil diupdate.\n\n*Welcome baru:*\n" + draftText,
+          {
+            parse_mode: "Markdown",
+            disable_web_page_preview: true,
+            reply_markup: buildSuperadminToolsKeyboard(),
+          }
+        );
       }
 
       if (action === "setlink_confirm" || action === "setlink_cancel") {
@@ -208,26 +344,47 @@ export function buildSuperadminConfigHandlers() {
         const draftUrl = await getSetting(env, draftKey);
 
         if (!draftUrl) {
-          await sendMessage(env, adminId, "⚠️ Draft link aturan tidak ditemukan / sudah dibatalkan.");
-          return true;
+          return renderMenuMessage(ctx, "⚠️ Draft link aturan tidak ditemukan / sudah dibatalkan.", {
+            reply_markup: buildSuperadminToolsKeyboard(),
+          });
         }
 
         if (action === "setlink_cancel") {
-          await deleteSetting(env, draftKey);
-          await sendMessage(env, adminId, "❌ Draft link aturan dibatalkan.", {
+          try {
+            await deleteSetting(env, draftKey);
+          } catch (err) {
+            logError("[sa.config.delete_draft_link.failed]", {
+              adminId,
+              draftKey,
+              action,
+              err: err?.message || String(err || ""),
+            });
+            throw err;
+          }
+
+          return renderMenuMessage(ctx, "❌ Draft link aturan dibatalkan.", {
             reply_markup: buildSuperadminToolsKeyboard(),
           });
-          return true;
         }
 
         await upsertSetting(env, "link_aturan", draftUrl);
-        await deleteSetting(env, draftKey);
 
-        await sendMessage(env, adminId, `✅ Link aturan berhasil diupdate:\n${draftUrl}`, {
+        try {
+          await deleteSetting(env, draftKey);
+        } catch (err) {
+          logError("[sa.config.delete_draft_link.failed]", {
+            adminId,
+            draftKey,
+            action,
+            err: err?.message || String(err || ""),
+          });
+          throw err;
+        }
+
+        return renderMenuMessage(ctx, `✅ Link aturan berhasil diupdate:\n${draftUrl}`, {
           disable_web_page_preview: true,
           reply_markup: buildSuperadminToolsKeyboard(),
         });
-        return true;
       }
 
       return true;
