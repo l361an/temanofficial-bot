@@ -25,6 +25,11 @@ import { SESSION_MODES } from "./telegram.constants.js";
 import { isScopeAllowed } from "./telegram.guard.js";
 import { handlePartnerCloseupEditInput } from "./telegram.flow.partnerCloseupEdit.js";
 import { handleAdminInviteStart } from "./telegram.flow.adminInviteActivation.js";
+import {
+  addOrUpdateCatalogTarget,
+  deactivateCatalogTarget,
+  getCatalogTargets,
+} from "../repositories/catalogTargetsRepo.js";
 
 import {
   getProfileFullByTelegramId,
@@ -41,6 +46,20 @@ function logError(tag, meta = {}) {
 
 function isPrivateChat(chat) {
   return String(chat?.type || "").trim().toLowerCase() === "private";
+}
+
+function normalizeString(value) {
+  return String(value || "").trim();
+}
+
+function normalizeCommandToken(value) {
+  const raw = normalizeString(value);
+  if (!raw.startsWith("/")) return "";
+  return raw.split(/\s+/)[0].split("@")[0].toLowerCase();
+}
+
+function isOwnerRole(role) {
+  return normalizeString(role).toLowerCase() === "owner";
 }
 
 function buildHelp(role) {
@@ -74,6 +93,177 @@ function buildHelp(role) {
     "• `/start` — Menu TeMan\n" +
     "• `/me` — Cek role"
   );
+}
+
+function buildCatalogTargetLine(item, index) {
+  const chatTitle = normalizeString(item?.chat_title) || "(Tanpa Nama)";
+  const chatId = normalizeString(item?.chat_id) || "-";
+  const topicId = normalizeString(item?.topic_id);
+  const status = item?.is_active ? "AKTIF" : "NONAKTIF";
+
+  return [
+    `${index + 1}. <b>${escapeHtml(chatTitle)}</b>`,
+    `   Chat ID : <code>${escapeHtml(chatId)}</code>`,
+    `   Topic   : ${topicId ? `<code>${escapeHtml(topicId)}</code>` : "-"}`,
+    `   Status  : <b>${status}</b>`,
+  ].join("\n");
+}
+
+function buildCatalogTargetsListText(items = []) {
+  if (!Array.isArray(items) || !items.length) {
+    return "📭 Belum ada target katalog yang tersimpan.";
+  }
+
+  return [
+    "📚 <b>Daftar Target Katalog</b>",
+    "",
+    ...items.map((item, index) => buildCatalogTargetLine(item, index)),
+  ].join("\n\n");
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+async function handleOwnerCatalogBootstrapCommand({
+  env,
+  chat,
+  msg,
+  chatId,
+  telegramId,
+  role,
+  text,
+}) {
+  const cmd = normalizeCommandToken(text);
+  const ownerOnlyCommands = new Set([
+    "/aktifkankatalog",
+    "/nonaktifkankatalog",
+    "/listkataloggroup",
+  ]);
+
+  if (!ownerOnlyCommands.has(cmd)) {
+    return false;
+  }
+
+  if (!isOwnerRole(role)) {
+    return true;
+  }
+
+  if (cmd === "/listkataloggroup") {
+    if (!isPrivateChat(chat)) {
+      return true;
+    }
+
+    const items = await getCatalogTargets(env).catch((err) => {
+      logError("[catalog.targets.list.failed]", {
+        telegramId,
+        err: err?.message || String(err || ""),
+      });
+      return [];
+    });
+
+    await sendMessage(env, chatId, buildCatalogTargetsListText(items), {
+      parse_mode: "HTML",
+    });
+    return true;
+  }
+
+  if (isPrivateChat(chat)) {
+    await sendMessage(
+      env,
+      chatId,
+      "⚠️ Command ini harus dijalankan langsung di grup / topic target katalog."
+    );
+    return true;
+  }
+
+  const targetPayload = {
+    chat_id: chat?.id,
+    chat_title: chat?.title || chat?.username || "Group Tanpa Nama",
+    topic_id: msg?.message_thread_id ?? null,
+    added_by: telegramId,
+  };
+
+  if (cmd === "/aktifkankatalog") {
+    const result = await addOrUpdateCatalogTarget(env, targetPayload).catch((err) => {
+      logError("[catalog.targets.activate.failed]", {
+        telegramId,
+        chatId,
+        threadId: msg?.message_thread_id ?? null,
+        err: err?.message || String(err || ""),
+      });
+      return { ok: false };
+    });
+
+    if (!result?.ok) {
+      await sendMessage(env, chatId, "⚠️ Gagal mengaktifkan target katalog ini.");
+      return true;
+    }
+
+    await sendMessage(
+      env,
+      chatId,
+      [
+        result.created
+          ? "✅ Grup ini berhasil ditambahkan sebagai target katalog."
+          : "✅ Target katalog ini berhasil diaktifkan kembali.",
+        "",
+        `Group : ${targetPayload.chat_title}`,
+        `Chat ID : ${normalizeString(targetPayload.chat_id)}`,
+        `Topic ID : ${
+          normalizeString(targetPayload.topic_id)
+            ? normalizeString(targetPayload.topic_id)
+            : "-"
+        }`,
+      ].join("\n")
+    );
+    return true;
+  }
+
+  if (cmd === "/nonaktifkankatalog") {
+    const result = await deactivateCatalogTarget(env, targetPayload).catch((err) => {
+      logError("[catalog.targets.deactivate.failed]", {
+        telegramId,
+        chatId,
+        threadId: msg?.message_thread_id ?? null,
+        err: err?.message || String(err || ""),
+      });
+      return { ok: false };
+    });
+
+    if (!result?.ok) {
+      await sendMessage(
+        env,
+        chatId,
+        "⚠️ Target katalog ini belum ditemukan atau gagal dinonaktifkan."
+      );
+      return true;
+    }
+
+    await sendMessage(
+      env,
+      chatId,
+      [
+        "✅ Target katalog ini berhasil dinonaktifkan.",
+        "",
+        `Group : ${targetPayload.chat_title}`,
+        `Chat ID : ${normalizeString(targetPayload.chat_id)}`,
+        `Topic ID : ${
+          normalizeString(targetPayload.topic_id)
+            ? normalizeString(targetPayload.topic_id)
+            : "-"
+        }`,
+      ].join("\n")
+    );
+    return true;
+  }
+
+  return false;
 }
 
 async function handleTelegramCommand({
@@ -327,6 +517,22 @@ export async function handleTelegramWebhook(request, env) {
       return ok();
     }
 
+    const role = await getAdminRole(env, telegramId);
+
+    const handledOwnerCatalogBootstrap = await handleOwnerCatalogBootstrapCommand({
+      env,
+      chat,
+      msg,
+      chatId,
+      telegramId,
+      role,
+      text,
+    });
+
+    if (handledOwnerCatalogBootstrap) {
+      return ok();
+    }
+
     const scopeAllowed = await isScopeAllowed(env, chat, msg).catch((err) => {
       logError("[telegram.scope_check.failed]", {
         chatId,
@@ -341,7 +547,6 @@ export async function handleTelegramWebhook(request, env) {
     }
 
     const STATE_KEY = `state:${telegramId}`;
-    const role = await getAdminRole(env, telegramId);
 
     await syncProfileUsernameFromTelegram(env, telegramId, username).catch((err) => {
       logError("[profile.sync_username.failed]", {
