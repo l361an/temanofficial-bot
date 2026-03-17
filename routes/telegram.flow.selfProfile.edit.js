@@ -492,7 +492,9 @@ export async function handleUserProfileEditFlow({
     });
 
     try {
-      await sendPhoto(env, chatId, photoFileId, "✅ Foto closeup berhasil diupdate.");
+      await sendPhoto(env, chatId, photoFileId, "✅ Foto closeup berhasil diupdate.", {
+        reply_markup: buildTeManMenuKeyboard(),
+      });
     } catch (err) {
       logEditWarning("[selfProfile.edit.confirmation_photo_failed]", {
         telegramId,
