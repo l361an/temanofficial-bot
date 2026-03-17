@@ -8,13 +8,13 @@ function normalizeString(value) {
   return String(value || "").trim();
 }
 
+function normalizeChatId(value) {
+  return normalizeString(value);
+}
+
 function normalizeTopicId(value) {
   const raw = normalizeString(value);
   return raw || null;
-}
-
-function normalizeChatId(value) {
-  return normalizeString(value);
 }
 
 function nowIso() {
@@ -55,9 +55,9 @@ function serializeTargets(targets) {
 }
 
 function buildTargetKey(chatId, topicId) {
-  const a = normalizeChatId(chatId);
-  const b = normalizeTopicId(topicId);
-  return `${a}::${b || "-"}`;
+  const normalizedChatId = normalizeChatId(chatId);
+  const normalizedTopicId = normalizeTopicId(topicId);
+  return `${normalizedChatId}::${normalizedTopicId || "-"}`;
 }
 
 export async function getCatalogTargets(env) {
@@ -114,12 +114,15 @@ export async function addOrUpdateCatalogTarget(env, payload = {}) {
 
   await saveCatalogTargets(env, nextTargets);
 
+  const savedItem =
+    nextTargets.find(
+      (item) => buildTargetKey(item.chat_id, item.topic_id) === targetKey
+    ) || null;
+
   return {
     ok: true,
     created: !found,
-    item: found
-      ? nextTargets.find((item) => buildTargetKey(item.chat_id, item.topic_id) === targetKey) || null
-      : nextItem,
+    item: savedItem,
     items: nextTargets,
   };
 }
