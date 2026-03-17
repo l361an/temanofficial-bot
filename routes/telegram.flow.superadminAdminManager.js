@@ -3,6 +3,7 @@
 import { sendMessage } from "../services/telegramApi.js";
 import {
   getAdminByTelegramId,
+  getAdminRole,
   updateAdminUsername,
   updateAdminNama,
   updateAdminKota,
@@ -11,7 +12,10 @@ import {
   clearSession,
   getSessionMeta,
 } from "../utils/session.js";
-import { buildAdminControlPanelKeyboard, buildAdminManagerKeyboard } from "./callbacks/keyboards.superadmin.js";
+import {
+  buildAdminControlPanelKeyboard,
+  buildAdminManagerKeyboard,
+} from "./callbacks/keyboards.superadmin.js";
 import { SESSION_MODES } from "./telegram.constants.js";
 
 const EDITABLE_ACTIONS = new Set([
@@ -46,6 +50,10 @@ function normalizeText(text) {
 
 function isCancelText(text) {
   return /^(batal|cancel|keluar)$/i.test(normalizeText(text));
+}
+
+function isOwnerRole(role) {
+  return normalizeText(role).toLowerCase() === "owner";
 }
 
 function normalizeUsernameInput(text) {
@@ -131,6 +139,10 @@ function buildInvalidSessionText() {
     "",
     "Silakan buka ulang panel admin dari menu terbaru.",
   ].join("\n");
+}
+
+function buildOwnerOnlyText() {
+  return "⛔ Hanya owner yang boleh mengubah data admin.";
 }
 
 function buildValidationErrorText(action, reason) {
@@ -229,6 +241,20 @@ async function resolveTargetRow(env, targetTelegramId) {
   return await getAdminByTelegramId(env, targetTelegramId);
 }
 
+async function resolveActorRole(env, telegramId, roleFromCaller) {
+  const role = normalizeText(roleFromCaller);
+  if (role) return role;
+
+  if (!telegramId) return "";
+  return (await getAdminRole(env, telegramId).catch((err) => {
+    logError("[sa.admin_manager_input.get_actor_role.failed]", {
+      telegramId,
+      err: err?.message || String(err || ""),
+    });
+    return "";
+  })) || "";
+}
+
 async function updateAdminField(env, action, targetTelegramId, rawText) {
   if (action === "edit_username") {
     const normalized = normalizeUsernameInput(rawText);
@@ -276,6 +302,8 @@ async function updateAdminField(env, action, targetTelegramId, rawText) {
 export async function handleSuperadminAdminManagerInput({
   env,
   chatId,
+  telegramId,
+  role,
   text,
   session,
   STATE_KEY,
@@ -290,6 +318,23 @@ export async function handleSuperadminAdminManagerInput({
 
   if (!EDITABLE_ACTIONS.has(action)) {
     return false;
+  }
+
+  const actorRole = await resolveActorRole(env, telegramId, role);
+
+  if (!isOwnerRole(actorRole)) {
+    await clearSessionSafely(env, STATE_KEY, {
+      action,
+      targetTelegramId,
+      reason: "owner_only_guard",
+      actorRole,
+    });
+
+    await sendMessage(env, chatId, buildOwnerOnlyText(), {
+      parse_mode: "HTML",
+      reply_markup: buildAdminManagerKeyboard(),
+    });
+    return true;
   }
 
   if (step !== "await_text") {
@@ -336,7 +381,6 @@ export async function handleSuperadminAdminManagerInput({
   }
 
   const rawText = normalizeText(text);
-
   if (!rawText) {
     return true;
   }
@@ -364,7 +408,7 @@ export async function handleSuperadminAdminManagerInput({
 
     await sendMessage(env, chatId, buildCancelSuccessText(targetLabel || currentTarget.label), {
       parse_mode: "HTML",
-      reply_markup: buildAdminControlPanelKeyboard(currentTarget.telegram_id, currentTarget, "owner"),
+      reply_markup: buildAdminControlPanelKeyboard(currentTarget.telegram_id, currentTarget, actorRole),
     });
     return true;
   }
@@ -381,7 +425,7 @@ export async function handleSuperadminAdminManagerInput({
     if (validationOnly) {
       await sendMessage(env, chatId, buildValidationErrorText(action, result.reason), {
         parse_mode: "HTML",
-        reply_markup: buildAdminControlPanelKeyboard(currentTarget.telegram_id, currentTarget, "owner"),
+        reply_markup: buildAdminControlPanelKeyboard(currentTarget.telegram_id, currentTarget, actorRole),
       });
       return true;
     }
@@ -405,6 +449,7 @@ export async function handleSuperadminAdminManagerInput({
       targetTelegramId,
       reason: result?.reason || "unknown",
       sessionMeta: getSessionMeta(session),
+      actorRole,
     });
 
     await clearSessionSafely(env, STATE_KEY, {
@@ -415,13 +460,12 @@ export async function handleSuperadminAdminManagerInput({
 
     await sendMessage(env, chatId, buildMutationErrorText(action, result?.reason), {
       parse_mode: "HTML",
-      reply_markup: buildAdminControlPanelKeyboard(currentTarget.telegram_id, currentTarget, "owner"),
+      reply_markup: buildAdminControlPanelKeyboard(currentTarget.telegram_id, currentTarget, actorRole),
     });
     return true;
   }
 
-  const freshRow =
-    result?.row || (await resolveTargetRow(env, targetTelegramId));
+  const freshRow = result?.row || (await resolveTargetRow(env, targetTelegramId));
 
   await clearSessionSafely(env, STATE_KEY, {
     action,
@@ -434,7 +478,7 @@ export async function handleSuperadminAdminManagerInput({
     reply_markup: buildAdminControlPanelKeyboard(
       (freshRow || currentTarget).telegram_id,
       freshRow || currentTarget,
-      "owner"
+      actorRole
     ),
   });
 
@@ -443,7 +487,7 @@ export async function handleSuperadminAdminManagerInput({
     reply_markup: buildAdminControlPanelKeyboard(
       (freshRow || currentTarget).telegram_id,
       freshRow || currentTarget,
-      "owner"
+      actorRole
     ),
   });
 
