@@ -1,6 +1,9 @@
 // routes/telegram.flow.paymentProofUpload.js
 
-import { getOpenPaymentTicketByPartnerId, markPaymentProofUploaded } from "../repositories/paymentTicketsRepo.js";
+import {
+  getOpenPaymentTicketByPartnerId,
+  markPaymentProofUploaded,
+} from "../repositories/paymentTicketsRepo.js";
 import { buildPaymentReviewMessage } from "../services/paymentReviewMessage.js";
 
 function extractPhotoFileId(msg) {
@@ -10,6 +13,14 @@ function extractPhotoFileId(msg) {
 
   const largest = msg.photo[msg.photo.length - 1];
   return largest?.file_id || null;
+}
+
+async function replyUser(ctx, text) {
+  try {
+    await ctx.reply(text);
+  } catch (err) {
+    console.error("reply payment proof upload error", err);
+  }
 }
 
 export async function handlePaymentProofUpload(ctx, env) {
@@ -26,34 +37,87 @@ export async function handlePaymentProofUpload(ctx, env) {
   if (!ticket) return false;
 
   if (ticket.status !== "waiting_payment") {
-    await ctx.reply(
+    await replyUser(
+      ctx,
       "Tidak ada pembayaran yang menunggu bukti transfer saat ini."
     );
     return true;
   }
 
-  await markPaymentProofUploaded(env, ticket.id, proofFileId);
+  let review = null;
+  try {
+    review = await buildPaymentReviewMessage(env, ticket.id);
+  } catch (err) {
+    console.error("build payment review message error", err);
+    await replyUser(
+      ctx,
+      "Bukti pembayaran belum bisa diproses saat ini. Silakan coba lagi beberapa saat lagi."
+    );
+    return true;
+  }
 
-  const review = await buildPaymentReviewMessage(env, ticket.id);
+  const reviewerIds = Array.isArray(review?.superadmin_ids)
+    ? review.superadmin_ids
+        .map((id) => String(id || "").trim())
+        .filter(Boolean)
+    : [];
 
-  if (review?.superadmin_ids?.length) {
-    for (const adminId of review.superadmin_ids) {
-      try {
-        await ctx.telegram.sendPhoto(
-          adminId,
-          proofFileId,
-          {
-            caption: review.caption,
-            reply_markup: review.keyboard
-          }
-        );
-      } catch (err) {
-        console.error("send review payment error", err);
-      }
+  if (!review || reviewerIds.length === 0) {
+    console.error("payment reviewer unavailable", {
+      ticketId: ticket.id,
+      partnerId: telegramId,
+    });
+
+    await replyUser(
+      ctx,
+      "Admin pembayaran sedang tidak tersedia. Bukti transfer belum disimpan. Silakan coba lagi beberapa saat lagi."
+    );
+    return true;
+  }
+
+  let deliveredCount = 0;
+
+  for (const adminId of reviewerIds) {
+    try {
+      await ctx.telegram.sendPhoto(adminId, proofFileId, {
+        caption: review.caption,
+        reply_markup: review.keyboard,
+      });
+      deliveredCount += 1;
+    } catch (err) {
+      console.error("send review payment error", {
+        adminId,
+        ticketId: ticket.id,
+        error: String(err?.message || err),
+      });
     }
   }
 
-  await ctx.reply(
+  if (deliveredCount === 0) {
+    await replyUser(
+      ctx,
+      "Bukti transfer belum berhasil dikirim ke admin. Silakan coba lagi beberapa saat lagi."
+    );
+    return true;
+  }
+
+  try {
+    await markPaymentProofUploaded(env, ticket.id, proofFileId);
+  } catch (err) {
+    console.error("mark payment proof uploaded error", {
+      ticketId: ticket.id,
+      error: String(err?.message || err),
+    });
+
+    await replyUser(
+      ctx,
+      "Bukti transfer sudah terdeteksi, tetapi sistem gagal menyimpan status pembayaran. Mohon segera hubungi admin TeMan."
+    );
+    return true;
+  }
+
+  await replyUser(
+    ctx,
     "Bukti pembayaran berhasil dikirim. Mohon tunggu verifikasi dari admin TeMan."
   );
 
