@@ -3,6 +3,7 @@ import {
   sendMessage,
   sendPhoto,
   upsertCallbackMessage,
+  editMessageReplyMarkup,
 } from "../../services/telegramApi.js";
 import {
   getProfileFullByTelegramId,
@@ -34,12 +35,175 @@ import {
 
 export { buildPartnerViewPromptText } from "./partnerDatabase.format.js";
 
+function logRenderWarning(tag, meta = {}) {
+  console.error(tag, meta);
+}
+
 function buildAnchorResult(baseChatId, baseMessageId, apiRes = null) {
+  const resolvedChatId =
+    apiRes?.chat_id ?? apiRes?.result?.chat?.id ?? baseChatId ?? null;
+
+  const resolvedMessageId =
+    apiRes?.message_id ?? apiRes?.result?.message_id ?? baseMessageId ?? null;
+
   return {
-    ok: true,
-    anchor_chat_id: apiRes?.result?.chat?.id ?? baseChatId ?? null,
-    anchor_message_id: apiRes?.result?.message_id ?? baseMessageId ?? null,
+    ok: Boolean(apiRes?.ok),
+    anchor_chat_id: resolvedChatId,
+    anchor_message_id: resolvedMessageId,
+    mode: apiRes?.mode ?? null,
+    strategy: apiRes?.strategy ?? null,
+    response: apiRes ?? null,
   };
+}
+
+async function safeInvalidateSourcePanel(env, sourceMessage, context = {}) {
+  const chatId = sourceMessage?.chat?.id ?? null;
+  const messageId = sourceMessage?.message_id ?? null;
+
+  if (!chatId || !messageId) {
+    return {
+      ok: false,
+      skipped: true,
+      description: "source_message_not_found",
+      chat_id: chatId,
+      message_id: messageId,
+    };
+  }
+
+  try {
+    const res = await editMessageReplyMarkup(env, chatId, messageId, null);
+    if (res?.ok) {
+      return {
+        ok: true,
+        skipped: false,
+        chat_id: chatId,
+        message_id: messageId,
+        response: res,
+      };
+    }
+
+    logRenderWarning("[partnerDatabase.render.invalidate_source_panel_failed]", {
+      chatId,
+      messageId,
+      description: res?.description || null,
+      ...context,
+    });
+
+    return {
+      ok: false,
+      skipped: false,
+      description: res?.description || "failed_to_invalidate_source_panel",
+      chat_id: chatId,
+      message_id: messageId,
+      response: res || null,
+    };
+  } catch (err) {
+    logRenderWarning("[partnerDatabase.render.invalidate_source_panel_exception]", {
+      chatId,
+      messageId,
+      err: err?.message || String(err || ""),
+      ...context,
+    });
+
+    return {
+      ok: false,
+      skipped: false,
+      description: err?.message || "exception_invalidating_source_panel",
+      chat_id: chatId,
+      message_id: messageId,
+      response: null,
+    };
+  }
+}
+
+async function getLatestPaymentTicket(env, partnerId) {
+  const row = await env.DB.prepare(
+    `
+    SELECT *
+    FROM payment_tickets
+    WHERE partner_id = ?
+    ORDER BY datetime(created_at) DESC, datetime(updated_at) DESC, id DESC
+    LIMIT 1
+  `
+  )
+    .bind(String(partnerId))
+    .first();
+
+  return row ?? null;
+}
+
+async function loadPartnerContext(env, telegramId) {
+  const profile = await getProfileFullByTelegramId(env, telegramId);
+  if (!profile) return null;
+
+  const categories = profile.id
+    ? await listCategoryKodesByProfileId(env, profile.id).catch((err) => {
+        logRenderWarning("[partnerDatabase.render.load_context.categories_failed]", {
+          telegramId,
+          profileId: profile.id,
+          err: err?.message || String(err || ""),
+        });
+        return [];
+      })
+    : [];
+
+  let verificatorDisplay = "-";
+  if (profile.verificator_admin_id) {
+    const vid = String(profile.verificator_admin_id);
+    const vRow = await getAdminByTelegramId(env, vid).catch((err) => {
+      logRenderWarning("[partnerDatabase.render.load_context.verificator_lookup_failed]", {
+        telegramId,
+        verificatorAdminId: vid,
+        err: err?.message || String(err || ""),
+      });
+      return null;
+    });
+
+    const vUser = vRow?.username
+      ? cleanHandle(vRow.username)
+      : vRow?.label
+        ? String(vRow.label)
+        : "-";
+
+    verificatorDisplay = `${vid} - ${vUser || "-"}`;
+  }
+
+  const subInfo = await getSubscriptionInfoByTelegramId(env, telegramId).catch((err) => {
+    logRenderWarning("[partnerDatabase.render.load_context.subscription_lookup_failed]", {
+      telegramId,
+      err: err?.message || String(err || ""),
+    });
+
+    return {
+      found: false,
+      is_active: false,
+      row: null,
+    };
+  });
+
+  const latestPayment = await getLatestPaymentTicket(env, telegramId).catch((err) => {
+    logRenderWarning("[partnerDatabase.render.load_context.latest_payment_lookup_failed]", {
+      telegramId,
+      err: err?.message || String(err || ""),
+    });
+    return null;
+  });
+
+  return {
+    profile,
+    categories,
+    subInfo,
+    latestPayment,
+    verificatorDisplay,
+  };
+}
+
+function collectDetailPhotos(profile) {
+  return [
+    { fileId: profile?.foto_closeup_file_id, label: "📸 <b>Foto Closeup</b>" },
+    { fileId: profile?.foto_fullbody_file_id, label: "📸 <b>Foto Fullbody</b>" },
+    { fileId: profile?.foto_ktp_file_id, label: "🪪 <b>Foto KTP</b>" },
+  ].filter((item) => item.fileId);
 }
 
 export async function renderPartnerDatabaseMessage(
@@ -66,9 +230,21 @@ export async function renderPartnerDatabaseMessage(
   };
 
   if (sourceMessage) {
-    const res = await upsertCallbackMessage(env, sourceMessage, text, extra).catch(
-      async () => await sendMessage(env, adminId, text, extra)
-    );
+    const res = await upsertCallbackMessage(env, sourceMessage, text, extra).catch((err) => {
+      logRenderWarning("[partnerDatabase.render.upsert_callback_message_exception]", {
+        adminId,
+        sourceChatId: sourceMessage?.chat?.id ?? null,
+        sourceMessageId: sourceMessage?.message_id ?? null,
+        err: err?.message || String(err || ""),
+      });
+
+      return {
+        ok: false,
+        mode: "failed",
+        strategy: "upsert_exception",
+        description: err?.message || "upsert_callback_message_exception",
+      };
+    });
 
     return buildAnchorResult(
       sourceMessage?.chat?.id ?? adminId,
@@ -77,73 +253,38 @@ export async function renderPartnerDatabaseMessage(
     );
   }
 
-  const sent = await sendMessage(env, adminId, text, extra);
+  const sent = await sendMessage(env, adminId, text, extra).catch((err) => {
+    logRenderWarning("[partnerDatabase.render.send_message_exception]", {
+      adminId,
+      err: err?.message || String(err || ""),
+    });
+
+    return {
+      ok: false,
+      mode: "failed",
+      strategy: "send_exception",
+      description: err?.message || "send_message_exception",
+    };
+  });
+
   return buildAnchorResult(adminId, null, sent);
 }
 
-async function getLatestPaymentTicket(env, partnerId) {
-  const row = await env.DB.prepare(
-    `
-    SELECT *
-    FROM payment_tickets
-    WHERE partner_id = ?
-    ORDER BY datetime(created_at) DESC, datetime(updated_at) DESC, id DESC
-    LIMIT 1
-  `
-  )
-    .bind(String(partnerId))
-    .first();
+async function sendDetailsFlowMessages(
+  env,
+  adminId,
+  profile,
+  detailsText,
+  replyMarkup,
+  { sourceMessage = null } = {}
+) {
+  const invalidation = await safeInvalidateSourcePanel(env, sourceMessage, {
+    adminId,
+    telegramId: profile?.telegram_id ?? null,
+    flow: "partner_details",
+  });
 
-  return row ?? null;
-}
-
-async function loadPartnerContext(env, telegramId) {
-  const profile = await getProfileFullByTelegramId(env, telegramId);
-  if (!profile) return null;
-
-  const categories = profile.id
-    ? await listCategoryKodesByProfileId(env, profile.id).catch(() => [])
-    : [];
-
-  let verificatorDisplay = "-";
-  if (profile.verificator_admin_id) {
-    const vid = String(profile.verificator_admin_id);
-    const vRow = await getAdminByTelegramId(env, vid).catch(() => null);
-    const vUser = vRow?.username
-      ? cleanHandle(vRow.username)
-      : vRow?.label
-        ? String(vRow.label)
-        : "-";
-    verificatorDisplay = `${vid} - ${vUser || "-"}`;
-  }
-
-  const subInfo = await getSubscriptionInfoByTelegramId(env, telegramId).catch(() => ({
-    found: false,
-    is_active: false,
-    row: null,
-  }));
-
-  const latestPayment = await getLatestPaymentTicket(env, telegramId).catch(() => null);
-
-  return {
-    profile,
-    categories,
-    subInfo,
-    latestPayment,
-    verificatorDisplay,
-  };
-}
-
-function collectDetailPhotos(profile) {
-  return [
-    { fileId: profile?.foto_closeup_file_id, label: "📸 <b>Foto Closeup</b>" },
-    { fileId: profile?.foto_fullbody_file_id, label: "📸 <b>Foto Fullbody</b>" },
-    { fileId: profile?.foto_ktp_file_id, label: "🪪 <b>Foto KTP</b>" },
-  ].filter((item) => item.fileId);
-}
-
-async function sendDetailsFlowMessages(env, adminId, profile, detailsText, replyMarkup) {
-  await sendMessage(env, adminId, detailsText, {
+  const detailsRes = await sendMessage(env, adminId, detailsText, {
     parse_mode: "HTML",
     disable_web_page_preview: true,
   });
@@ -152,7 +293,15 @@ async function sendDetailsFlowMessages(env, adminId, profile, detailsText, reply
   for (const item of photos) {
     await sendPhoto(env, adminId, item.fileId, item.label, {
       parse_mode: "HTML",
-    }).catch(() => {});
+    }).catch((err) => {
+      logRenderWarning("[partnerDatabase.render.send_detail_photo_failed]", {
+        adminId,
+        telegramId: profile?.telegram_id ?? null,
+        fileId: item.fileId,
+        label: item.label,
+        err: err?.message || String(err || ""),
+      });
+    });
   }
 
   const navRes = await sendMessage(env, adminId, "Pilih aksi di bawah:", {
@@ -162,8 +311,14 @@ async function sendDetailsFlowMessages(env, adminId, profile, detailsText, reply
   });
 
   return {
-    anchor_chat_id: adminId,
+    ok: Boolean(navRes?.ok),
+    anchor_chat_id: navRes?.result?.chat?.id ?? adminId,
     anchor_message_id: navRes?.result?.message_id ?? null,
+    details_message_id: detailsRes?.result?.message_id ?? null,
+    old_panel_invalidated: Boolean(invalidation?.ok),
+    old_panel_invalidation_response: invalidation || null,
+    nav_response: navRes || null,
+    details_response: detailsRes || null,
   };
 }
 
@@ -237,7 +392,7 @@ export async function renderPartnerControlPanel(
     fallbackMessage
   );
 
-  return true;
+  return Boolean(panelAnchor?.ok);
 }
 
 export async function renderPartnerDetailsPage(
@@ -260,6 +415,7 @@ export async function renderPartnerDetailsPage(
     return false;
   }
 
+  const sourceMessage = readSourceMessage(session, fallbackMessage, adminId);
   const replyMarkup = buildPartnerDetailsKeyboard(context.profile.telegram_id, role);
   const detailsText = buildPartnerDetailsText(context);
 
@@ -268,7 +424,8 @@ export async function renderPartnerDetailsPage(
     adminId,
     context.profile,
     detailsText,
-    replyMarkup
+    replyMarkup,
+    { sourceMessage }
   );
 
   await persistPartnerViewSession(
@@ -288,7 +445,7 @@ export async function renderPartnerDetailsPage(
     fallbackMessage
   );
 
-  return true;
+  return Boolean(anchor?.ok);
 }
 
 export async function renderPartnerSubscriptionPage(
@@ -336,5 +493,5 @@ export async function renderPartnerSubscriptionPage(
     fallbackMessage
   );
 
-  return true;
+  return Boolean(panelAnchor?.ok);
 }
