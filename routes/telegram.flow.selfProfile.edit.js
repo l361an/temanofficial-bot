@@ -5,19 +5,34 @@ import { sendMessage, sendPhoto } from "../services/telegramApi.js";
 import {
   getProfileFullByTelegramId,
   updateEditableProfileFields,
-  setProfileCategoriesByProfileId,
   updateCloseupPhoto,
+  setProfileCategoriesByProfileId,
 } from "../repositories/profilesRepo.js";
-import { loadCategoriesForChoice } from "./telegram.flow.selfProfile.js";
-import { showSelfProfileMenu } from "./telegram.flow.selfProfile.menu.js";
+import {
+  loadCategoriesForChoice,
+  buildCategoryChoiceMessage,
+  parseMultiIndexInputRequired,
+  mapIndexesToCategoryIds,
+} from "../utils/categoryFlow.js";
+import {
+  getPhotoFileId,
+  sendHtml,
+  buildTeManMenuKeyboard,
+} from "./telegram.user.shared.js";
 
-const SESSION_KEY_PREFIX = "state:";
+const EDIT_TEXT_FIELDS = {
+  nickname: { field: "nickname", prompt: "Ketik <b>Nickname</b> baru:" },
+  no_whatsapp: { field: "no_whatsapp", prompt: "Ketik <b>No. Whatsapp</b> baru:" },
+  kecamatan: { field: "kecamatan", prompt: "Ketik <b>Kecamatan</b> baru:" },
+  kota: { field: "kota", prompt: "Ketik <b>Kota</b> baru:" },
+  start_price: {
+    field: "start_price",
+    prompt: "Ketik <b>Tarif Minimum</b> dalam angka saja.\n\nContoh: <code>150000</code>",
+  },
+};
+
 const EDIT_MODE = "edit_profile";
 const EDIT_FLOW_ID = "edit_profile";
-
-function sk(userId) {
-  return `${SESSION_KEY_PREFIX}${userId}`;
-}
 
 function buildFlowVersion() {
   return String(Date.now());
@@ -34,9 +49,19 @@ function logEditWarning(tag, meta = {}) {
   console.error(tag, meta);
 }
 
-async function safeLoadEditSession(env, telegramId) {
+function normalizePriceInput(value) {
+  const cleaned = String(value || "").replace(/[^\d]/g, "").trim();
+  if (!cleaned) return null;
+
+  const num = Number(cleaned);
+  if (!Number.isFinite(num) || num <= 0) return null;
+
+  return Math.floor(num);
+}
+
+async function safeLoadEditSession(env, STATE_KEY, telegramId) {
   try {
-    return await loadSession(env, sk(telegramId));
+    return await loadSession(env, STATE_KEY);
   } catch (err) {
     logEditWarning("[selfProfile.edit.load_session_failed]", {
       telegramId,
@@ -46,9 +71,9 @@ async function safeLoadEditSession(env, telegramId) {
   }
 }
 
-async function safeSaveEditSession(env, telegramId, payload) {
+async function safeSaveEditSession(env, STATE_KEY, telegramId, payload) {
   try {
-    await saveSession(env, sk(telegramId), payload);
+    await saveSession(env, STATE_KEY, payload);
     return true;
   } catch (err) {
     logEditWarning("[selfProfile.edit.save_session_failed]", {
@@ -64,9 +89,9 @@ async function safeSaveEditSession(env, telegramId, payload) {
   }
 }
 
-async function safeClearEditSession(env, telegramId, context = {}) {
+async function safeClearEditSession(env, STATE_KEY, telegramId, context = {}) {
   try {
-    await clearSession(env, sk(telegramId));
+    await clearSession(env, STATE_KEY);
     return true;
   } catch (err) {
     logEditWarning("[selfProfile.edit.clear_session_failed]", {
@@ -87,32 +112,47 @@ function buildSessionBase(sourceMessage = null) {
   };
 }
 
-function isLegacyCompatibleSession(session) {
-  if (!session || session?.mode !== EDIT_MODE) return false;
-  return true;
+function isEditSession(session) {
+  return Boolean(session?.mode === EDIT_MODE);
 }
 
-function stopEdit(env, telegramId, context = {}) {
-  return safeClearEditSession(env, telegramId, context);
+async function stopEdit(env, chatId, STATE_KEY, telegramId, msg, context = {}) {
+  await safeClearEditSession(env, STATE_KEY, telegramId, context);
+  await sendHtml(env, chatId, msg, {
+    reply_markup: buildTeManMenuKeyboard(),
+  });
 }
 
-async function askTextInput(env, telegramId, field, label, sourceMessage = null) {
-  await safeSaveEditSession(env, telegramId, {
+async function askTextInput(env, chatId, telegramId, STATE_KEY, field, prompt, sourceMessage = null) {
+  await safeSaveEditSession(env, STATE_KEY, telegramId, {
     ...buildSessionBase(sourceMessage),
     step: "await_text",
     field,
-    label,
   });
 
-  await sendMessage(
+  await sendHtml(env, chatId, prompt, {
+    reply_markup: buildTeManMenuKeyboard(),
+  });
+}
+
+async function askCloseupPhoto(env, chatId, telegramId, STATE_KEY, sourceMessage = null) {
+  await safeSaveEditSession(env, STATE_KEY, telegramId, {
+    ...buildSessionBase(sourceMessage),
+    step: "await_closeup_photo",
+  });
+
+  await sendHtml(
     env,
-    telegramId,
-    `Silakan kirim ${label} baru.\n\nKetik /batal untuk membatalkan.`
+    chatId,
+    "Silakan kirim <b>foto closeup</b> terbaru sebagai <b>photo</b>, bukan file.",
+    {
+      reply_markup: buildTeManMenuKeyboard(),
+    }
   );
 }
 
-async function askKategori(env, telegramId, sourceMessage = null) {
-  const categories = await loadCategoriesForChoice(env).catch((err) => {
+async function askKategori(env, chatId, telegramId, STATE_KEY, sourceMessage = null) {
+  const cats = await loadCategoriesForChoice(env).catch((err) => {
     logEditWarning("[selfProfile.edit.load_categories_failed]", {
       telegramId,
       err: err?.message || String(err || ""),
@@ -120,207 +160,319 @@ async function askKategori(env, telegramId, sourceMessage = null) {
     return [];
   });
 
-  if (!categories.length) {
-    await sendMessage(env, telegramId, "Kategori belum tersedia.");
+  if (!cats.length) {
+    await safeSaveEditSession(env, STATE_KEY, telegramId, {
+      ...buildSessionBase(sourceMessage),
+      step: "await_kategori_select",
+      data: { _category_list: [] },
+    });
+
+    await sendHtml(env, chatId, "⚠️ Belum ada kategori yang tersedia. Hubungi admin ya.", {
+      reply_markup: buildTeManMenuKeyboard(),
+    });
     return;
   }
 
-  const listText = categories.map((c) => `• ${c.kode}`).join("\n");
-
-  await safeSaveEditSession(env, telegramId, {
+  await safeSaveEditSession(env, STATE_KEY, telegramId, {
     ...buildSessionBase(sourceMessage),
-    step: "await_kategori",
-    _category_list: categories,
+    step: "await_kategori_select",
+    data: { _category_list: cats },
   });
 
-  await sendMessage(
-    env,
-    telegramId,
-    `Kirim kode kategori, pisahkan dengan koma.\nContoh: SPG,MODEL\n\nDaftar kategori:\n${listText}`
-  );
+  await sendMessage(env, chatId, buildCategoryChoiceMessage(cats), {
+    parse_mode: "Markdown",
+    reply_markup: buildTeManMenuKeyboard(),
+  });
 }
 
-async function askCloseupPhoto(env, telegramId, sourceMessage = null) {
-  await safeSaveEditSession(env, telegramId, {
-    ...buildSessionBase(sourceMessage),
-    step: "await_closeup",
+export async function handleSelfProfileEditCallback({
+  env,
+  chatId,
+  telegramId,
+  STATE_KEY,
+  data,
+  sourceMessage = null,
+}) {
+  const profile = await getProfileFullByTelegramId(env, telegramId).catch((err) => {
+    logEditWarning("[selfProfile.edit.load_profile_failed]", {
+      telegramId,
+      data,
+      err: err?.message || String(err || ""),
+    });
+    return null;
   });
 
-  await sendMessage(
-    env,
-    telegramId,
-    "Silakan kirim foto closeup baru.\n\nKetik /batal untuk membatalkan."
-  );
+  if (!profile) {
+    await sendHtml(env, chatId, "Data partner tidak ditemukan.", {
+      reply_markup: buildTeManMenuKeyboard(),
+    });
+    return true;
+  }
+
+  if (data === "self:update") {
+    return false;
+  }
+
+  if (!data.startsWith("self:edit:")) return false;
+
+  const key = data.split(":")[2] || "";
+
+  if (EDIT_TEXT_FIELDS[key]) {
+    await askTextInput(
+      env,
+      chatId,
+      telegramId,
+      STATE_KEY,
+      EDIT_TEXT_FIELDS[key].field,
+      EDIT_TEXT_FIELDS[key].prompt,
+      sourceMessage
+    );
+    return true;
+  }
+
+  if (key === "kategori") {
+    await askKategori(env, chatId, telegramId, STATE_KEY, sourceMessage);
+    return true;
+  }
+
+  if (key === "closeup") {
+    await askCloseupPhoto(env, chatId, telegramId, STATE_KEY, sourceMessage);
+    return true;
+  }
+
+  await sendHtml(env, chatId, "Pilihan tidak valid.", {
+    reply_markup: buildTeManMenuKeyboard(),
+  });
+  return true;
 }
 
-export async function handleSelfProfileEditCallback(env, telegramId, action, sourceMessage = null) {
-  if (action === "nama") {
-    await askTextInput(env, telegramId, "nama_lengkap", "nama lengkap", sourceMessage);
+export async function handleUserProfileEditFlow({
+  env,
+  chatId,
+  telegramId,
+  text,
+  session,
+  STATE_KEY,
+  update,
+}) {
+  const effectiveSession =
+    isEditSession(session) ? session : await safeLoadEditSession(env, STATE_KEY, telegramId);
+
+  if (!isEditSession(effectiveSession)) {
+    return false;
+  }
+
+  const profile = await getProfileFullByTelegramId(env, telegramId).catch((err) => {
+    logEditWarning("[selfProfile.edit.load_profile_for_flow_failed]", {
+      telegramId,
+      step: effectiveSession?.step ?? null,
+      err: err?.message || String(err || ""),
+    });
+    return null;
+  });
+
+  if (!profile) {
+    await stopEdit(env, chatId, STATE_KEY, telegramId, "Data partner tidak ditemukan.", {
+      reason: "profile_not_found",
+    });
     return true;
   }
 
-  if (action === "deskripsi") {
-    await askTextInput(env, telegramId, "deskripsi", "deskripsi", sourceMessage);
-    return true;
-  }
+  const photoFileId = getPhotoFileId(update);
 
-  if (action === "kategori") {
-    await askKategori(env, telegramId, sourceMessage);
-    return true;
-  }
+  if (effectiveSession?.step === "await_text") {
+    const field = effectiveSession?.field;
+    const rawValue = String(text || "").trim();
 
-  if (action === "closeup") {
-    await askCloseupPhoto(env, telegramId, sourceMessage);
-    return true;
-  }
-
-  return false;
-}
-
-function normalizeKategoriInput(input) {
-  return String(input || "")
-    .split(",")
-    .map((s) => s.trim().toUpperCase())
-    .filter(Boolean);
-}
-
-export async function handleUserProfileEditFlow(env, msg) {
-  const telegramId = String(msg?.from?.id || "");
-  if (!telegramId) return false;
-
-  const session = await safeLoadEditSession(env, telegramId);
-  if (!isLegacyCompatibleSession(session)) return false;
-
-  const text = String(msg?.text || "").trim();
-
-  if (text === "/batal") {
-    await stopEdit(env, telegramId, { reason: "cancel_command" });
-    await sendMessage(env, telegramId, "Perubahan dibatalkan.");
-    await showSelfProfileMenu(env, telegramId);
-    return true;
-  }
-
-  if (session.step === "await_text") {
-    const value = text;
-    if (!value) {
-      await sendMessage(env, telegramId, `Input tidak boleh kosong. Kirim ${session.label} baru atau /batal.`);
+    if (!rawValue) {
+      await sendHtml(env, chatId, "⚠️ Input kosong. Coba lagi ya.", {
+        reply_markup: buildTeManMenuKeyboard(),
+      });
       return true;
+    }
+
+    if (!["nickname", "no_whatsapp", "kecamatan", "kota", "start_price"].includes(field)) {
+      await stopEdit(env, chatId, STATE_KEY, telegramId, "⚠️ Field tidak valid.", {
+        reason: "invalid_field",
+        field,
+      });
+      return true;
+    }
+
+    let value = rawValue;
+
+    if (field === "start_price") {
+      const normalized = normalizePriceInput(rawValue);
+
+      if (!normalized) {
+        await sendHtml(
+          env,
+          chatId,
+          "⚠️ Tarif Minimum harus berupa angka lebih dari 0.\n\nContoh: <code>150000</code>",
+          {
+            reply_markup: buildTeManMenuKeyboard(),
+          }
+        );
+        return true;
+      }
+
+      value = String(normalized);
     }
 
     try {
-      await updateEditableProfileFields(env, telegramId, {
-        [session.field]: value,
-      });
+      await updateEditableProfileFields(env, telegramId, { [field]: value });
     } catch (err) {
       logEditWarning("[selfProfile.edit.update_text_failed]", {
         telegramId,
-        field: session.field,
-        step: session.step,
+        field,
+        value,
         err: err?.message || String(err || ""),
       });
 
-      await sendMessage(env, telegramId, "Gagal menyimpan perubahan. Coba lagi.");
+      await sendHtml(env, chatId, "⚠️ Gagal update data. Coba lagi ya.", {
+        reply_markup: buildTeManMenuKeyboard(),
+      });
       return true;
     }
 
-    await stopEdit(env, telegramId, {
+    await safeClearEditSession(env, STATE_KEY, telegramId, {
       reason: "text_update_success",
-      field: session.field,
+      field,
     });
 
-    await sendMessage(env, telegramId, `✅ ${session.label} berhasil diperbarui.`);
-    await showSelfProfileMenu(env, telegramId);
+    await sendHtml(env, chatId, "✅ Data berhasil diupdate.", {
+      reply_markup: buildTeManMenuKeyboard(),
+    });
     return true;
   }
 
-  if (session.step === "await_kategori") {
-    const profile = await getProfileFullByTelegramId(env, telegramId).catch((err) => {
-      logEditWarning("[selfProfile.edit.load_profile_for_category_failed]", {
-        telegramId,
-        err: err?.message || String(err || ""),
-      });
-      return null;
-    });
+  if (effectiveSession?.step === "await_kategori_select") {
+    const categories = Array.isArray(effectiveSession?.data?._category_list)
+      ? effectiveSession.data._category_list
+      : [];
 
-    if (!profile?.id) {
-      await stopEdit(env, telegramId, { reason: "profile_missing_on_category_save" });
-      await sendMessage(env, telegramId, "Profil tidak ditemukan.");
-      return true;
-    }
-
-    const picked = normalizeKategoriInput(text);
-    const allowed = Array.isArray(session._category_list) ? session._category_list : [];
-    const allowedMap = new Map(allowed.map((c) => [String(c.kode || "").toUpperCase(), c]));
-
-    const invalid = picked.filter((kode) => !allowedMap.has(kode));
-    if (invalid.length) {
-      await sendMessage(
+    if (!categories.length) {
+      await stopEdit(
         env,
+        chatId,
+        STATE_KEY,
         telegramId,
-        `Kategori tidak valid: ${invalid.join(", ")}\nSilakan kirim ulang atau /batal.`
+        "⚠️ Belum ada kategori yang tersedia. Hubungi admin ya.",
+        { reason: "empty_category_list" }
       );
       return true;
     }
 
-    const selectedCategoryIds = picked
-      .map((kode) => allowedMap.get(kode)?.id)
-      .filter(Boolean);
+    const parsed = parseMultiIndexInputRequired(text, categories.length);
+    if (!parsed.ok) {
+      await sendMessage(
+        env,
+        chatId,
+        "Input tidak valid.\nPilih minimal 1.\nKetik nomor dipisah koma.\nContoh: 1,3",
+        {
+          reply_markup: buildTeManMenuKeyboard(),
+        }
+      );
+      return true;
+    }
+
+    const categoryIds = mapIndexesToCategoryIds(parsed.indexes, categories);
+    if (!categoryIds.length) {
+      await sendMessage(env, chatId, "Pilihan kategori tidak valid. Coba lagi ya.", {
+        reply_markup: buildTeManMenuKeyboard(),
+      });
+      return true;
+    }
 
     try {
-      await setProfileCategoriesByProfileId(env, profile.id, selectedCategoryIds);
+      const res = await setProfileCategoriesByProfileId(env, profile.id, categoryIds);
+      if (res?.ok === false) {
+        logEditWarning("[selfProfile.edit.save_categories_repo_rejected]", {
+          telegramId,
+          profileId: profile.id,
+          categoryIds,
+          result: res,
+        });
+
+        await sendHtml(env, chatId, "⚠️ Gagal update kategori. Coba lagi ya.", {
+          reply_markup: buildTeManMenuKeyboard(),
+        });
+        return true;
+      }
     } catch (err) {
       logEditWarning("[selfProfile.edit.save_categories_failed]", {
         telegramId,
         profileId: profile.id,
-        selectedCategoryIds,
+        categoryIds,
         err: err?.message || String(err || ""),
       });
 
-      await sendMessage(env, telegramId, "Gagal menyimpan kategori. Coba lagi.");
+      await sendHtml(env, chatId, "⚠️ Gagal update kategori. Coba lagi ya.", {
+        reply_markup: buildTeManMenuKeyboard(),
+      });
       return true;
     }
 
-    await stopEdit(env, telegramId, { reason: "category_update_success" });
-    await sendMessage(env, telegramId, "✅ Kategori berhasil diperbarui.");
-    await showSelfProfileMenu(env, telegramId);
+    await safeClearEditSession(env, STATE_KEY, telegramId, {
+      reason: "category_update_success",
+    });
+
+    await sendHtml(env, chatId, "✅ Kategori berhasil diupdate.", {
+      reply_markup: buildTeManMenuKeyboard(),
+    });
     return true;
   }
 
-  if (session.step === "await_closeup") {
-    const photo = Array.isArray(msg?.photo) && msg.photo.length ? msg.photo[msg.photo.length - 1] : null;
-    const fileId = photo?.file_id || null;
-
-    if (!fileId) {
-      await sendMessage(env, telegramId, "Silakan kirim foto closeup baru atau /batal.");
+  if (effectiveSession?.step === "await_closeup_photo") {
+    if (!photoFileId) {
+      await sendHtml(
+        env,
+        chatId,
+        "⚠️ Belum ada foto. Kirim foto closeup ya sebagai photo, bukan file.",
+        {
+          reply_markup: buildTeManMenuKeyboard(),
+        }
+      );
       return true;
     }
 
     try {
-      await updateCloseupPhoto(env, telegramId, fileId);
+      await updateCloseupPhoto(env, telegramId, photoFileId);
     } catch (err) {
       logEditWarning("[selfProfile.edit.update_closeup_failed]", {
         telegramId,
-        fileId,
+        fileId: photoFileId,
         err: err?.message || String(err || ""),
       });
 
-      await sendMessage(env, telegramId, "Gagal menyimpan foto closeup. Coba lagi.");
+      await sendHtml(env, chatId, "⚠️ Gagal update foto closeup. Coba lagi ya.", {
+        reply_markup: buildTeManMenuKeyboard(),
+      });
       return true;
     }
 
-    await stopEdit(env, telegramId, { reason: "closeup_update_success" });
+    await safeClearEditSession(env, STATE_KEY, telegramId, {
+      reason: "closeup_update_success",
+    });
 
-    await sendPhoto(env, telegramId, fileId, "✅ Foto closeup berhasil diperbarui.").catch((err) => {
+    await sendPhoto(env, chatId, photoFileId, "✅ Foto closeup berhasil diupdate.").catch((err) => {
       logEditWarning("[selfProfile.edit.confirmation_photo_failed]", {
         telegramId,
-        fileId,
+        fileId: photoFileId,
         err: err?.message || String(err || ""),
       });
     });
 
-    await showSelfProfileMenu(env, telegramId);
     return true;
   }
 
-  return false;
+  await stopEdit(
+    env,
+    chatId,
+    STATE_KEY,
+    telegramId,
+    "⚠️ Sesi update berakhir. Klik Menu TeMan untuk lanjut.",
+    { reason: "unknown_edit_step", step: effectiveSession?.step ?? null }
+  );
+  return true;
 }
