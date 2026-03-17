@@ -12,6 +12,36 @@ function normalizePathname(pathname) {
   return raw || "/";
 }
 
+function unauthorized() {
+  return json(
+    {
+      ok: false,
+      message: "Unauthorized",
+    },
+    401
+  );
+}
+
+function methodNotAllowed() {
+  return json(
+    {
+      ok: false,
+      message: "Method Not Allowed",
+    },
+    405
+  );
+}
+
+function isAuthorizedCronRequest(request, env) {
+  const providedSecret = request.headers.get("x-cron-secret");
+  const expectedSecret = env.CRON_SECRET;
+
+  if (!expectedSecret) return false;
+  if (!providedSecret) return false;
+
+  return providedSecret === expectedSecret;
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -79,9 +109,30 @@ export default {
       return handleProfile(request, env, url);
     }
 
+    // Manual internal trigger for maintenance cron
+    // Protected by secret header so it cannot be called publicly.
     if (pathname === "/cron/run-maintenance") {
-      const result = await runMaintenanceCron(env);
-      return json(result);
+      if (method !== "POST") {
+        return methodNotAllowed();
+      }
+
+      if (!isAuthorizedCronRequest(request, env)) {
+        return unauthorized();
+      }
+
+      try {
+        const result = await runMaintenanceCron(env);
+        return json(result);
+      } catch (error) {
+        return json(
+          {
+            ok: false,
+            message: "Cron maintenance failed",
+            error: String(error?.message || error),
+          },
+          500
+        );
+      }
     }
 
     return json({
