@@ -38,7 +38,9 @@ function buildInviteErrorText(reason) {
   if (reason === "used") return "⚠️ Invite admin ini sudah digunakan.";
   if (reason === "revoked") return "⚠️ Invite admin ini sudah dicabut.";
   if (reason === "not_active") return "⚠️ Invite admin tidak aktif.";
-  if (reason === "owner_conflict") return "⛔ Akun owner tidak boleh dioverride lewat invite admin.";
+  if (reason === "owner_conflict") {
+    return "⛔ Akun owner tidak boleh dioverride lewat invite admin.";
+  }
   return "⚠️ Invite admin tidak valid.";
 }
 
@@ -76,13 +78,18 @@ function buildAdminInviteActivationNotifyText({
   inviteRow,
   inviterRow,
 }) {
-  const role = String(createdRow?.normRole || createdRow?.role || inviteRow?.role || "admin");
+  const role = String(
+    createdRow?.normRole || createdRow?.role || inviteRow?.role || "admin"
+  );
   const username = String(activatedUsername || createdRow?.username || "")
     .trim()
     .replace(/^@/, "");
   const nama = String(createdRow?.nama || "").trim() || "-";
-  const telegramId = String(createdRow?.telegram_id || activatedByTelegramId || "").trim() || "-";
-  const creatorLabel = inviterRow ? formatAdminLabel(inviterRow) : String(inviteRow?.created_by || "-");
+  const telegramId =
+    String(createdRow?.telegram_id || activatedByTelegramId || "").trim() || "-";
+  const creatorLabel = inviterRow
+    ? formatAdminLabel(inviterRow)
+    : String(inviteRow?.created_by || "-");
   const usedAt = String(inviteRow?.used_at || new Date().toISOString()).trim();
   const token = String(inviteRow?.token || "-").trim();
 
@@ -90,13 +97,19 @@ function buildAdminInviteActivationNotifyText({
     "🚨 <b>Admin Baru Aktif dari Invite</b>",
     "",
     `Nama         : <b>${escapeHtml(nama)}</b>`,
-    `Username     : ${username ? `<code>@${escapeHtml(username)}</code>` : "-"}`,
+    `Username     : ${
+      username ? `<code>@${escapeHtml(username)}</code>` : "-"
+    }`,
     `Telegram ID  : <code>${escapeHtml(telegramId)}</code>`,
     `Role         : <b>${escapeHtml(role)}</b>`,
     `Invited By   : <b>${escapeHtml(creatorLabel)}</b>`,
     `Used At      : <code>${escapeHtml(usedAt)}</code>`,
     `Token        : <code>${escapeHtml(token)}</code>`,
   ].join("\n");
+}
+
+function buildWatcherKeyboard() {
+  return buildOfficerHomeKeyboard("superadmin");
 }
 
 async function notifyInviteActivationWatchers(env, payload = {}) {
@@ -133,6 +146,7 @@ async function notifyInviteActivationWatchers(env, payload = {}) {
       inviterRow,
     });
 
+    const replyMarkup = buildWatcherKeyboard();
     const sentTo = new Set();
 
     for (const watcher of watchers) {
@@ -141,6 +155,7 @@ async function notifyInviteActivationWatchers(env, payload = {}) {
 
       await sendMessage(env, watcherId, text, {
         parse_mode: "HTML",
+        reply_markup: replyMarkup,
       }).catch((err) => {
         logError("[invite.watchers.notify_failed]", {
           watcherId,
@@ -154,6 +169,7 @@ async function notifyInviteActivationWatchers(env, payload = {}) {
     if (creatorId && !sentTo.has(creatorId)) {
       await sendMessage(env, creatorId, text, {
         parse_mode: "HTML",
+        reply_markup: replyMarkup,
       }).catch((err) => {
         logError("[invite.creator.notify_failed]", {
           creatorId,
