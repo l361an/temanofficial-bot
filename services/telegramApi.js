@@ -58,6 +58,19 @@ function pickCaptionEditExtra(extra = {}) {
   });
 }
 
+function logTelegramError(tag, meta = {}) {
+  console.error(tag, meta);
+}
+
+function buildStalePanelNotice(text) {
+  const raw = String(text ?? "").trim();
+  if (!raw) {
+    return "ℹ️ Panel lama mungkin sudah tidak aktif. Gunakan menu terbaru di bawah ini.";
+  }
+
+  return `${raw}\n\nℹ️ Gunakan panel terbaru di pesan paling bawah jika tombol lama tidak merespons.`;
+}
+
 async function post(env, method, payload) {
   const res = await fetch(apiUrl(env, method), {
     method: "POST",
@@ -226,7 +239,15 @@ export async function editCallbackMessage(env, message, text, extra = {}) {
     : await editMessageText(env, chatId, messageId, text, extra);
 
   if (primary?.ok || isNotModifiedResponse(primary)) {
-    return { ok: true, result: primary?.result ?? null };
+    return {
+      ok: true,
+      result: primary?.result ?? null,
+      mode: "edited",
+      strategy: preferCaption ? "edit_caption" : "edit_text",
+      chat_id: chatId,
+      message_id: messageId,
+      response: primary,
+    };
   }
 
   const fallback = preferCaption
@@ -234,22 +255,96 @@ export async function editCallbackMessage(env, message, text, extra = {}) {
     : await editMessageCaption(env, chatId, messageId, text, extra);
 
   if (fallback?.ok || isNotModifiedResponse(fallback)) {
-    return { ok: true, result: fallback?.result ?? null };
+    return {
+      ok: true,
+      result: fallback?.result ?? null,
+      mode: "edited",
+      strategy: preferCaption ? "fallback_edit_text" : "fallback_edit_caption",
+      chat_id: chatId,
+      message_id: messageId,
+      response: fallback,
+    };
   }
 
-  return fallback?.ok ? fallback : primary;
+  return {
+    ok: false,
+    description:
+      fallback?.description || primary?.description || "failed_to_edit_callback_message",
+    mode: "failed",
+    strategy: preferCaption ? "caption_then_text" : "text_then_caption",
+    chat_id: chatId,
+    message_id: messageId,
+    primary_response: primary || null,
+    fallback_response: fallback || null,
+  };
 }
 
 export async function upsertCallbackMessage(env, message, text, extra = {}) {
-  const edited = await editCallbackMessage(env, message, text, extra).catch(() => null);
-  if (edited?.ok) return edited;
+  let edited = null;
 
-  const chatId = message?.chat?.id;
-  if (!chatId) {
-    return { ok: false, description: "chat target not found" };
+  try {
+    edited = await editCallbackMessage(env, message, text, extra);
+  } catch (err) {
+    logTelegramError("[telegram.upsert.edit_exception]", {
+      chatId: message?.chat?.id || null,
+      messageId: message?.message_id || null,
+      err: err?.message || String(err || ""),
+    });
   }
 
-  return sendMessage(env, chatId, text, extra);
+  if (edited?.ok) {
+    return edited;
+  }
+
+  const chatId = message?.chat?.id;
+  const oldMessageId = message?.message_id || null;
+
+  if (!chatId) {
+    return {
+      ok: false,
+      description: "chat target not found",
+      mode: "failed",
+      old_message_id: oldMessageId,
+    };
+  }
+
+  if (edited && !edited.ok) {
+    logTelegramError("[telegram.upsert.edit_failed_fallback_send]", {
+      chatId,
+      oldMessageId,
+      description: edited.description || null,
+      strategy: edited.strategy || null,
+    });
+  }
+
+  const sendExtra = cleanPayload({
+    ...extra,
+  });
+
+  const sendRes = await sendMessage(env, chatId, buildStalePanelNotice(text), sendExtra);
+
+  if (!sendRes?.ok) {
+    return {
+      ok: false,
+      description: sendRes?.description || "failed_to_send_fallback_message",
+      mode: "failed",
+      old_message_id: oldMessageId,
+      edit_response: edited || null,
+      send_response: sendRes || null,
+    };
+  }
+
+  return {
+    ok: true,
+    result: sendRes?.result ?? null,
+    mode: "sent",
+    strategy: "fallback_send_message",
+    chat_id: chatId,
+    message_id: sendRes?.result?.message_id ?? null,
+    old_message_id: oldMessageId,
+    edit_response: edited || null,
+    response: sendRes,
+  };
 }
 
 export async function telegramGetFile(env, fileId) {
