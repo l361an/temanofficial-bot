@@ -13,7 +13,7 @@ import {
 import {
   parseAdminInviteStartParam,
   validateAdminInviteToken,
-  markAdminInviteTokenUsed,
+  consumeAdminInviteToken,
 } from "../repositories/adminInviteTokensRepo.js";
 import { isAdminRole, isSuperadminRole } from "../utils/roles.js";
 import { handleCallback } from "./telegram.callback.js";
@@ -45,6 +45,24 @@ const PM_PREVIEW_PREFIX = "pm_preview:";
 
 function ok() {
   return json({ ok: true });
+}
+
+function logError(tag, meta = {}) {
+  console.error(tag, meta);
+}
+
+async function clearSessionSafely(env, stateKey, meta = {}) {
+  try {
+    await clearSession(env, stateKey);
+    return { ok: true };
+  } catch (err) {
+    logError("[session.clear.failed]", {
+      stateKey,
+      ...meta,
+      err: err?.message || String(err || ""),
+    });
+    return { ok: false, err };
+  }
 }
 
 function isPrivateChat(chat) {
@@ -189,7 +207,13 @@ function escapeHtml(value) {
 
 async function notifyInviteActivationWatchers(env, payload = {}) {
   try {
-    const rows = await listAdmins(env, { activeOnly: true }).catch(() => []);
+    const rows = await listAdmins(env, { activeOnly: true }).catch((err) => {
+      logError("[invite.watchers.list_admins.failed]", {
+        err: err?.message || String(err || ""),
+      });
+      return [];
+    });
+
     const watchers = (rows || []).filter(
       (row) => row?.normRole === "owner" || row?.normRole === "superadmin"
     );
@@ -197,7 +221,16 @@ async function notifyInviteActivationWatchers(env, payload = {}) {
     if (!watchers.length) return;
 
     const creatorId = String(payload?.inviteRow?.created_by || "").trim();
-    const inviterRow = creatorId ? await getAdminByTelegramId(env, creatorId).catch(() => null) : null;
+    const inviterRow = creatorId
+      ? await getAdminByTelegramId(env, creatorId).catch((err) => {
+          logError("[invite.watchers.get_creator.failed]", {
+            creatorId,
+            err: err?.message || String(err || ""),
+          });
+          return null;
+        })
+      : null;
+
     const text = buildAdminInviteActivationNotifyText({
       createdRow: payload.createdRow,
       activatedByTelegramId: payload.activatedByTelegramId,
@@ -215,7 +248,10 @@ async function notifyInviteActivationWatchers(env, payload = {}) {
       await sendMessage(env, watcherId, text, {
         parse_mode: "HTML",
       }).catch((err) => {
-        console.error("INVITE WATCHER NOTIFY ERROR:", watcherId, err);
+        logError("[invite.watchers.notify_failed]", {
+          watcherId,
+          err: err?.message || String(err || ""),
+        });
       });
 
       sentTo.add(watcherId);
@@ -225,11 +261,16 @@ async function notifyInviteActivationWatchers(env, payload = {}) {
       await sendMessage(env, creatorId, text, {
         parse_mode: "HTML",
       }).catch((err) => {
-        console.error("INVITE CREATOR NOTIFY ERROR:", creatorId, err);
+        logError("[invite.creator.notify_failed]", {
+          creatorId,
+          err: err?.message || String(err || ""),
+        });
       });
     }
   } catch (err) {
-    console.error("INVITE ACTIVATION NOTIFY ERROR:", err);
+    logError("[invite.activation.notify_failed]", {
+      err: err?.message || String(err || ""),
+    });
   }
 }
 
@@ -264,6 +305,12 @@ async function handleAdminInviteStart({
     return true;
   }
 
+  const consumed = await consumeAdminInviteToken(env, token, telegramId);
+  if (!consumed?.ok || !consumed?.row) {
+    await sendMessage(env, chatId, buildInviteErrorText(consumed?.reason || "invalid"));
+    return true;
+  }
+
   const nama = buildAdminNamaFromMessage(msg, telegramId, username);
 
   const created = await createAdmin(env, {
@@ -271,18 +318,23 @@ async function handleAdminInviteStart({
     username: username || null,
     nama,
     kota: null,
-    role: validation.row.role || "admin",
+    role: consumed.row.role || validation.row.role || "admin",
     status: "active",
   });
 
   if (!created?.ok) {
-    await sendMessage(env, chatId, "⚠️ Gagal aktivasi admin dari invite.");
-    return true;
-  }
+    logError("[invite.activation.create_admin.failed]", {
+      telegramId,
+      token,
+      role: consumed.row.role || validation.row.role || "admin",
+      reason: created?.reason || "unknown",
+    });
 
-  const used = await markAdminInviteTokenUsed(env, token, telegramId);
-  if (!used?.ok) {
-    await sendMessage(env, chatId, "⚠️ Admin tersimpan, tapi status token invite gagal diupdate.");
+    await sendMessage(
+      env,
+      chatId,
+      "⚠️ Token invite sudah terpakai, tetapi aktivasi admin gagal diproses. Tolong hubungi superadmin."
+    );
     return true;
   }
 
@@ -290,7 +342,7 @@ async function handleAdminInviteStart({
     createdRow: created?.row || null,
     activatedByTelegramId: telegramId,
     activatedUsername: username,
-    inviteRow: used?.row || validation?.row || null,
+    inviteRow: consumed?.row || validation?.row || null,
   });
 
   const nextRole = await getAdminRole(env, telegramId);
@@ -301,7 +353,7 @@ async function handleAdminInviteStart({
     [
       "✅ Aktivasi admin berhasil.",
       "",
-      `Role: ${validation.row.role || "admin"}`,
+      `Role: ${consumed.row.role || validation.row.role || "admin"}`,
       "Selamat datang di Officer Home.",
     ].join("\n"),
     {
@@ -333,7 +385,12 @@ async function handlePartnerCloseupEditInput({
   const targetTelegramId = String(session?.targetTelegramId || "").trim();
 
   if (/^(batal|cancel|keluar)$/i.test(rawText)) {
-    await clearSession(env, STATE_KEY).catch(() => {});
+    await clearSessionSafely(env, STATE_KEY, {
+      mode: SESSION_MODES.PARTNER_EDIT_CLOSEUP,
+      targetTelegramId,
+      action: "cancel",
+    });
+
     await sendMessage(env, chatId, "✅ Edit foto closeup partner dibatalkan.", {
       reply_markup: targetTelegramId
         ? buildPartnerCloseupResultKeyboard(targetTelegramId)
@@ -343,7 +400,11 @@ async function handlePartnerCloseupEditInput({
   }
 
   if (!targetTelegramId) {
-    await clearSession(env, STATE_KEY).catch(() => {});
+    await clearSessionSafely(env, STATE_KEY, {
+      mode: SESSION_MODES.PARTNER_EDIT_CLOSEUP,
+      action: "invalid_target",
+    });
+
     await sendMessage(env, chatId, "⚠️ Session edit foto partner tidak valid.");
     return true;
   }
@@ -367,14 +428,24 @@ async function handlePartnerCloseupEditInput({
 
   const res = await updateCloseupPhoto(env, targetTelegramId, largestPhoto.file_id);
   if (!res?.ok) {
-    await clearSession(env, STATE_KEY).catch(() => {});
+    await clearSessionSafely(env, STATE_KEY, {
+      mode: SESSION_MODES.PARTNER_EDIT_CLOSEUP,
+      targetTelegramId,
+      action: "update_failed",
+    });
+
     await sendMessage(env, chatId, "⚠️ Gagal update foto closeup partner.", {
       reply_markup: buildPartnerCloseupResultKeyboard(targetTelegramId),
     });
     return true;
   }
 
-  await clearSession(env, STATE_KEY).catch(() => {});
+  await clearSessionSafely(env, STATE_KEY, {
+    mode: SESSION_MODES.PARTNER_EDIT_CLOSEUP,
+    targetTelegramId,
+    action: "success",
+  });
+
   await sendMessage(env, chatId, "✅ Foto closeup partner berhasil diupdate !!!", {
     reply_markup: buildPartnerCloseupResultKeyboard(targetTelegramId),
   });
@@ -630,7 +701,15 @@ export async function handleTelegramWebhook(request, env) {
       return ok();
     }
 
-    const scopeAllowed = await isScopeAllowed(env, chat, msg).catch(() => false);
+    const scopeAllowed = await isScopeAllowed(env, chat, msg).catch((err) => {
+      logError("[telegram.scope_check.failed]", {
+        chatId,
+        telegramId,
+        err: err?.message || String(err || ""),
+      });
+      return false;
+    });
+
     if (!scopeAllowed) {
       return ok();
     }
@@ -638,7 +717,13 @@ export async function handleTelegramWebhook(request, env) {
     const STATE_KEY = `state:${telegramId}`;
     const role = await getAdminRole(env, telegramId);
 
-    await syncProfileUsernameFromTelegram(env, telegramId, username).catch(() => {});
+    await syncProfileUsernameFromTelegram(env, telegramId, username).catch((err) => {
+      logError("[profile.sync_username.failed]", {
+        telegramId,
+        username: username || null,
+        err: err?.message || String(err || ""),
+      });
+    });
 
     const handledCommand = await handleTelegramCommand({
       env,
@@ -729,7 +814,9 @@ export async function handleTelegramWebhook(request, env) {
 
     return ok();
   } catch (err) {
-    console.error("ERROR TELEGRAM WEBHOOK:", err);
+    logError("[telegram.webhook.failed]", {
+      err: err?.message || String(err || ""),
+    });
     return ok();
   }
 }
