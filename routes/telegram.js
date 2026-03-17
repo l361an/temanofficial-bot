@@ -62,6 +62,15 @@ function isOwnerRole(role) {
   return normalizeString(role).toLowerCase() === "owner";
 }
 
+function escapeHtml(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 function buildHelp(role) {
   if (isSuperadminRole(role)) {
     return (
@@ -119,15 +128,6 @@ function buildCatalogTargetsListText(items = []) {
     "",
     ...items.map((item, index) => buildCatalogTargetLine(item, index)),
   ].join("\n\n");
-}
-
-function escapeHtml(value) {
-  return String(value || "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
 }
 
 async function handleOwnerCatalogBootstrapCommand({
