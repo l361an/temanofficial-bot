@@ -492,20 +492,18 @@ export async function handleUserProfileEditFlow({
     });
 
     try {
-      await sendPhoto(env, chatId, photoFileId, "✅ Foto closeup berhasil diupdate.", {
-        reply_markup: buildTeManMenuKeyboard(),
-      });
+      await sendPhoto(env, chatId, photoFileId, "✅ Foto closeup berhasil diupdate.");
     } catch (err) {
       logEditWarning("[selfProfile.edit.confirmation_photo_failed]", {
         telegramId,
         fileId: photoFileId,
         err: err?.message || String(err || ""),
       });
-
-      await sendHtml(env, chatId, "✅ Foto closeup berhasil diupdate.", {
-        reply_markup: buildTeManMenuKeyboard(),
-      });
     }
+
+    await sendHtml(env, chatId, "Silakan lanjut lewat tombol di bawah ya.", {
+      reply_markup: buildTeManMenuKeyboard(),
+    });
 
     return true;
   }
