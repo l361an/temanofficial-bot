@@ -571,6 +571,8 @@ async function handleAdminSessionInput({
       await handleSuperadminAdminManagerInput({
         env,
         chatId,
+        telegramId,
+        role,
         text,
         session,
         STATE_KEY,
