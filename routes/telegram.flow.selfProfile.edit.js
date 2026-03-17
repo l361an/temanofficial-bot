@@ -19,6 +19,7 @@ import {
   sendHtml,
   buildTeManMenuKeyboard,
 } from "./telegram.user.shared.js";
+import { sendSelfEditMenu } from "./telegram.flow.selfProfile.menu.js";
 
 const EDIT_TEXT_FIELDS = {
   nickname: { field: "nickname", prompt: "Ketik <b>Nickname</b> baru:" },
@@ -244,7 +245,8 @@ export async function handleSelfProfileEditCallback({
   }
 
   if (data === "self:update") {
-    return false;
+    await sendSelfEditMenu(env, chatId, telegramId, { sourceMessage });
+    return true;
   }
 
   if (!data.startsWith("self:edit:")) return false;
