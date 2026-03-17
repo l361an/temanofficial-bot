@@ -13,99 +13,244 @@ import { isScopeAllowed } from "./telegram.guard.js";
 
 const { EXACT, PREFIX } = createHandlers();
 
+function ok() {
+  return json({ ok: true });
+}
+
 function isPrivateChat(chat) {
   return String(chat?.type || "").trim().toLowerCase() === "private";
 }
 
 function isOwner(role) {
-  return role === "owner";
+  return String(role || "").trim().toLowerCase() === "owner";
+}
+
+function logError(tag, meta = {}) {
+  console.error(tag, meta);
+}
+
+async function answerCallbackSafely(env, callbackQueryId, options = null, meta = {}) {
+  if (!callbackQueryId) return { ok: false, reason: "missing_callback_query_id" };
+
+  try {
+    await answerCallbackQuery(env, callbackQueryId, options || undefined);
+    return { ok: true };
+  } catch (err) {
+    logError("[callback.answer.failed]", {
+      callbackQueryId,
+      ...meta,
+      options: options || null,
+      err: err?.message || String(err || ""),
+    });
+    return { ok: false, err };
+  }
+}
+
+function isVerificationAction(data) {
+  const value = String(data || "");
+  return (
+    value.startsWith(CALLBACK_PREFIX.PICK_VER) ||
+    value.startsWith(CALLBACK_PREFIX.SET_VER) ||
+    value.startsWith(CALLBACK_PREFIX.APPROVE) ||
+    value.startsWith(CALLBACK_PREFIX.REJECT)
+  );
+}
+
+function isOfficerAction(data) {
+  const value = String(data || "");
+  return (
+    value === CALLBACKS.OFFICER_HOME ||
+    value.startsWith("pt:") ||
+    value.startsWith("pm:") ||
+    value.startsWith("mod:")
+  );
+}
+
+function buildUnknownCallbackText() {
+  return "Panel ini sudah tidak aktif atau menu lama. Silakan buka menu terbaru.";
 }
 
 export async function handleCallback(update, env) {
-  const data = update?.callback_query?.data;
-  const adminId = String(update?.callback_query?.from?.id || "");
-  const callbackQueryId = update?.callback_query?.id;
-
-  if (!data || !adminId) return json({ ok: true });
-
-  const msg = update?.callback_query?.message;
+  const callback = update?.callback_query || null;
+  const data = String(callback?.data || "");
+  const adminId = String(callback?.from?.id || "");
+  const callbackQueryId = callback?.id || null;
+  const msg = callback?.message || null;
   const chat = msg?.chat || null;
-
-  const scopeAllowed = await isScopeAllowed(env, chat, msg).catch(() => false);
-  if (!scopeAllowed) return json({ ok: true });
-
-  if (!isPrivateChat(chat)) return json({ ok: true });
-
-  try {
-    const handled = await handleSelfInlineCallback(update, env);
-    if (handled) {
-      await answerCallbackQuery(env, callbackQueryId).catch(() => {});
-      return json({ ok: true });
-    }
-  } catch (e) {
-    console.error("USER CALLBACK ERROR:", e);
-  }
-
   const msgChatId = msg?.chat?.id;
   const msgId = msg?.message_id;
 
-  const role = await getAdminRole(env, adminId);
+  if (!data || !adminId) return ok();
 
-  const isVerificationAction =
-    data.startsWith(CALLBACK_PREFIX.PICK_VER) ||
-    data.startsWith(CALLBACK_PREFIX.SET_VER) ||
-    data.startsWith(CALLBACK_PREFIX.APPROVE) ||
-    data.startsWith(CALLBACK_PREFIX.REJECT);
+  const scopeAllowed = await isScopeAllowed(env, chat, msg).catch((err) => {
+    logError("[callback.scope_check.failed]", {
+      adminId,
+      data,
+      msgChatId: msgChatId || null,
+      msgId: msgId || null,
+      err: err?.message || String(err || ""),
+    });
+    return false;
+  });
 
-  if (isVerificationAction && !isOwner(role)) {
-    await answerCallbackQuery(env, callbackQueryId, {
-      text: "Hanya owner yang boleh melakukan approval partner.",
-      show_alert: true,
-    }).catch(() => {});
-    return json({ ok: true });
-  }
-
-  const isOfficerAction =
-    data === CALLBACKS.OFFICER_HOME ||
-    data.startsWith("pt:") ||
-    data.startsWith("pm:") ||
-    data.startsWith("mod:");
-
-  if (isOfficerAction && !isAdminRole(role)) {
-    await answerCallbackQuery(env, callbackQueryId, {
-      text: "Akses ditolak.",
-      show_alert: true,
-    }).catch(() => {});
-    return json({ ok: true });
-  }
-
-  await answerCallbackQuery(env, callbackQueryId).catch(() => {});
-
-  const ctx = { env, update, data, adminId, role, msg, msgChatId, msgId };
+  if (!scopeAllowed) return ok();
+  if (!isPrivateChat(chat)) return ok();
 
   try {
-    const fn = EXACT[data];
-    if (fn) {
-      await fn(ctx);
-      return json({ ok: true });
+    const handledSelf = await handleSelfInlineCallback(update, env);
+    if (handledSelf) {
+      await answerCallbackSafely(env, callbackQueryId, null, {
+        adminId,
+        data,
+        stage: "self_inline_handled",
+      });
+      return ok();
+    }
+  } catch (err) {
+    logError("[callback.self_inline.failed]", {
+      adminId,
+      data,
+      msgChatId: msgChatId || null,
+      msgId: msgId || null,
+      err: err?.message || String(err || ""),
+    });
+  }
+
+  const role = await getAdminRole(env, adminId).catch((err) => {
+    logError("[callback.get_admin_role.failed]", {
+      adminId,
+      data,
+      err: err?.message || String(err || ""),
+    });
+    return null;
+  });
+
+  if (isVerificationAction(data) && !isOwner(role)) {
+    await answerCallbackSafely(
+      env,
+      callbackQueryId,
+      {
+        text: "Hanya owner yang boleh melakukan approval partner.",
+        show_alert: true,
+      },
+      {
+        adminId,
+        role,
+        data,
+        stage: "permission_verification",
+      }
+    );
+    return ok();
+  }
+
+  if (isOfficerAction(data) && !isAdminRole(role)) {
+    await answerCallbackSafely(
+      env,
+      callbackQueryId,
+      {
+        text: "Akses ditolak.",
+        show_alert: true,
+      },
+      {
+        adminId,
+        role,
+        data,
+        stage: "permission_officer",
+      }
+    );
+    return ok();
+  }
+
+  const ctx = {
+    env,
+    update,
+    data,
+    adminId,
+    role,
+    msg,
+    msgChatId,
+    msgId,
+  };
+
+  try {
+    const exactHandler = EXACT[data];
+    if (exactHandler) {
+      await answerCallbackSafely(env, callbackQueryId, null, {
+        adminId,
+        role,
+        data,
+        stage: "exact_ack",
+      });
+
+      await exactHandler(ctx);
+      return ok();
     }
 
-    for (const h of PREFIX) {
-      if (h.match(data)) {
-        await h.run(ctx);
-        return json({ ok: true });
+    for (const handler of PREFIX) {
+      if (handler.match(data)) {
+        await answerCallbackSafely(env, callbackQueryId, null, {
+          adminId,
+          role,
+          data,
+          stage: "prefix_ack",
+        });
+
+        await handler.run(ctx);
+        return ok();
       }
     }
 
-    return json({ ok: true });
-  } catch (e) {
-    console.error("CALLBACK ERROR:", e);
+    await answerCallbackSafely(
+      env,
+      callbackQueryId,
+      {
+        text: buildUnknownCallbackText(),
+        show_alert: false,
+      },
+      {
+        adminId,
+        role,
+        data,
+        stage: "unknown_callback",
+        msgChatId: msgChatId || null,
+        msgId: msgId || null,
+      }
+    );
 
-    await answerCallbackQuery(env, callbackQueryId, {
-      text: "Terjadi error saat memproses menu.",
-      show_alert: true,
-    }).catch(() => {});
+    logError("[callback.unhandled]", {
+      adminId,
+      role,
+      data,
+      msgChatId: msgChatId || null,
+      msgId: msgId || null,
+    });
+
+    return ok();
+  } catch (err) {
+    logError("[callback.handler.failed]", {
+      adminId,
+      role,
+      data,
+      msgChatId: msgChatId || null,
+      msgId: msgId || null,
+      err: err?.message || String(err || ""),
+    });
+
+    await answerCallbackSafely(
+      env,
+      callbackQueryId,
+      {
+        text: "Terjadi error saat memproses menu.",
+        show_alert: true,
+      },
+      {
+        adminId,
+        role,
+        data,
+        stage: "handler_failed",
+      }
+    );
+
+    return ok();
   }
-
-  return json({ ok: true });
 }
