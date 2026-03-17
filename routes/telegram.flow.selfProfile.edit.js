@@ -123,23 +123,45 @@ async function stopEdit(env, chatId, STATE_KEY, telegramId, msg, context = {}) {
   });
 }
 
+async function sendEditSessionStartFailed(env, chatId) {
+  await sendHtml(
+    env,
+    chatId,
+    "⚠️ Sistem sedang gangguan dan sesi edit belum berhasil dimulai. Silakan coba lagi ya.",
+    {
+      reply_markup: buildTeManMenuKeyboard(),
+    }
+  );
+}
+
 async function askTextInput(env, chatId, telegramId, STATE_KEY, field, prompt, sourceMessage = null) {
-  await safeSaveEditSession(env, STATE_KEY, telegramId, {
+  const saved = await safeSaveEditSession(env, STATE_KEY, telegramId, {
     ...buildSessionBase(sourceMessage),
     step: "await_text",
     field,
   });
 
+  if (!saved) {
+    await sendEditSessionStartFailed(env, chatId);
+    return false;
+  }
+
   await sendHtml(env, chatId, prompt, {
     reply_markup: buildTeManMenuKeyboard(),
   });
+  return true;
 }
 
 async function askCloseupPhoto(env, chatId, telegramId, STATE_KEY, sourceMessage = null) {
-  await safeSaveEditSession(env, STATE_KEY, telegramId, {
+  const saved = await safeSaveEditSession(env, STATE_KEY, telegramId, {
     ...buildSessionBase(sourceMessage),
     step: "await_closeup_photo",
   });
+
+  if (!saved) {
+    await sendEditSessionStartFailed(env, chatId);
+    return false;
+  }
 
   await sendHtml(
     env,
@@ -149,6 +171,7 @@ async function askCloseupPhoto(env, chatId, telegramId, STATE_KEY, sourceMessage
       reply_markup: buildTeManMenuKeyboard(),
     }
   );
+  return true;
 }
 
 async function askKategori(env, chatId, telegramId, STATE_KEY, sourceMessage = null) {
@@ -161,28 +184,39 @@ async function askKategori(env, chatId, telegramId, STATE_KEY, sourceMessage = n
   });
 
   if (!cats.length) {
-    await safeSaveEditSession(env, STATE_KEY, telegramId, {
+    const saved = await safeSaveEditSession(env, STATE_KEY, telegramId, {
       ...buildSessionBase(sourceMessage),
       step: "await_kategori_select",
       data: { _category_list: [] },
     });
 
+    if (!saved) {
+      await sendEditSessionStartFailed(env, chatId);
+      return false;
+    }
+
     await sendHtml(env, chatId, "⚠️ Belum ada kategori yang tersedia. Hubungi admin ya.", {
       reply_markup: buildTeManMenuKeyboard(),
     });
-    return;
+    return true;
   }
 
-  await safeSaveEditSession(env, STATE_KEY, telegramId, {
+  const saved = await safeSaveEditSession(env, STATE_KEY, telegramId, {
     ...buildSessionBase(sourceMessage),
     step: "await_kategori_select",
     data: { _category_list: cats },
   });
 
+  if (!saved) {
+    await sendEditSessionStartFailed(env, chatId);
+    return false;
+  }
+
   await sendMessage(env, chatId, buildCategoryChoiceMessage(cats), {
     parse_mode: "Markdown",
     reply_markup: buildTeManMenuKeyboard(),
   });
+  return true;
 }
 
 export async function handleSelfProfileEditCallback({
@@ -455,13 +489,19 @@ export async function handleUserProfileEditFlow({
       reason: "closeup_update_success",
     });
 
-    await sendPhoto(env, chatId, photoFileId, "✅ Foto closeup berhasil diupdate.").catch((err) => {
+    try {
+      await sendPhoto(env, chatId, photoFileId, "✅ Foto closeup berhasil diupdate.");
+    } catch (err) {
       logEditWarning("[selfProfile.edit.confirmation_photo_failed]", {
         telegramId,
         fileId: photoFileId,
         err: err?.message || String(err || ""),
       });
-    });
+
+      await sendHtml(env, chatId, "✅ Foto closeup berhasil diupdate.", {
+        reply_markup: buildTeManMenuKeyboard(),
+      });
+    }
 
     return true;
   }
