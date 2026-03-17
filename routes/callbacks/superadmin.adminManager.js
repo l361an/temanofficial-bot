@@ -14,7 +14,11 @@ import {
   createAdminInviteToken,
   buildAdminInviteStartParam,
 } from "../../repositories/adminInviteTokensRepo.js";
-import { saveSession, clearSession } from "../../utils/session.js";
+import {
+  saveSession,
+  clearSession,
+  withFreshSessionFlow,
+} from "../../utils/session.js";
 
 import {
   buildAdminManagerKeyboard,
@@ -31,6 +35,14 @@ import { backAndHomeRow } from "./keyboards.shared.js";
 function fmtValue(value) {
   const v = value === null || value === undefined || value === "" ? "-" : String(value);
   return escapeHtml(v);
+}
+
+function logError(tag, meta = {}) {
+  console.error(tag, meta);
+}
+
+function getStateKey(adminId) {
+  return `state:${adminId}`;
 }
 
 function getBotUsername(env) {
@@ -169,6 +181,88 @@ function buildAdminWaitingKeyboard(targetTelegramId) {
   };
 }
 
+function buildEditUsernameText(row) {
+  return [
+    "✏️ <b>Edit Username Admin</b>",
+    "",
+    `Target: <b>${escapeHtml(row.label || "-")}</b>`,
+    `Saat ini: <b>${escapeHtml(row.username ? `@${String(row.username).replace(/^@/, "")}` : "-")}</b>`,
+    "",
+    "Kirim username baru tanpa @ atau dengan @.",
+    "Ketik <b>-</b> untuk kosongkan username.",
+    "",
+    "Ketik <b>batal</b> untuk keluar.",
+  ].join("\n");
+}
+
+function buildEditNamaText(row) {
+  return [
+    "✏️ <b>Edit Nama Admin</b>",
+    "",
+    `Target: <b>${escapeHtml(row.label || "-")}</b>`,
+    `Saat ini: <b>${fmtValue(row.nama)}</b>`,
+    "",
+    "Kirim nama baru.",
+    "",
+    "Ketik <b>batal</b> untuk keluar.",
+  ].join("\n");
+}
+
+function buildEditKotaText(row) {
+  return [
+    "✏️ <b>Edit Kota Admin</b>",
+    "",
+    `Target: <b>${escapeHtml(row.label || "-")}</b>`,
+    `Saat ini: <b>${fmtValue(row.kota)}</b>`,
+    "",
+    "Kirim kota baru.",
+    "Ketik <b>-</b> untuk kosongkan kota.",
+    "",
+    "Ketik <b>batal</b> untuk keluar.",
+  ].join("\n");
+}
+
+async function clearSessionSafely(env, adminId, meta = {}) {
+  const stateKey = getStateKey(adminId);
+
+  try {
+    await clearSession(env, stateKey);
+    return { ok: true };
+  } catch (err) {
+    logError("[sa.admin_manager.clear_session.failed]", {
+      adminId,
+      stateKey,
+      ...meta,
+      err: err?.message || String(err || ""),
+    });
+    return { ok: false, err };
+  }
+}
+
+async function saveAdminManagerSession(env, adminId, sessionPatch, meta = {}) {
+  const stateKey = getStateKey(adminId);
+
+  try {
+    const session = withFreshSessionFlow(
+      {
+        mode: SESSION_MODES.SA_ADMIN_MANAGER,
+      },
+      sessionPatch
+    );
+
+    return await saveSession(env, stateKey, session);
+  } catch (err) {
+    logError("[sa.admin_manager.save_session.failed]", {
+      adminId,
+      stateKey,
+      sessionPatch,
+      ...meta,
+      err: err?.message || String(err || ""),
+    });
+    throw err;
+  }
+}
+
 async function getActor(env, adminId) {
   return await getAdminByTelegramId(env, adminId);
 }
@@ -179,22 +273,49 @@ async function isOwnerActor(env, adminId) {
 }
 
 async function denyOwnerOnly(ctx) {
-  const { env, adminId } = ctx;
-  await clearSession(env, `state:${adminId}`).catch(() => {});
+  const { env, adminId, data } = ctx;
+
+  await clearSessionSafely(env, adminId, {
+    action: "deny_owner_only",
+    data,
+  });
+
   await sendMessage(env, adminId, buildOwnerOnlyText(), {
     parse_mode: "HTML",
     reply_markup: buildAdminManagerKeyboard(),
   });
+
   return true;
 }
 
 async function renderMenuMessage(ctx, text, extra) {
-  const { env, adminId, msg } = ctx;
+  const { env, adminId, msg, data } = ctx;
 
   if (msg) {
-    await upsertCallbackMessage(env, msg, text, extra).catch(async () => {
+    const res = await upsertCallbackMessage(env, msg, text, extra);
+
+    if (!res?.ok) {
+      logError("[sa.admin_manager.render_menu.failed]", {
+        adminId,
+        data: data || null,
+        description: res?.description || null,
+        mode: res?.mode || null,
+        messageId: msg?.message_id || null,
+      });
+
       await sendMessage(env, adminId, text, extra);
-    });
+      return true;
+    }
+
+    if (res?.mode === "sent") {
+      logError("[sa.admin_manager.render_menu.stale_panel_fallback]", {
+        adminId,
+        data: data || null,
+        oldMessageId: res?.old_message_id || null,
+        newMessageId: res?.message_id || null,
+      });
+    }
+
     return true;
   }
 
@@ -229,6 +350,59 @@ async function renderAdminDetail(ctx, targetTelegramId) {
   });
 }
 
+async function startAdminEditFlow(ctx, row, action, promptText) {
+  const { env, adminId, data } = ctx;
+
+  await saveAdminManagerSession(
+    env,
+    adminId,
+    {
+      mode: SESSION_MODES.SA_ADMIN_MANAGER,
+      action,
+      target_telegram_id: row.telegram_id,
+      target_label: row.label || null,
+      source_callback_data: data || null,
+      source_message_id: ctx?.msg?.message_id || null,
+      step: "await_text",
+    },
+    {
+      action,
+      targetTelegramId: row.telegram_id,
+    }
+  );
+
+  await sendMessage(env, adminId, promptText, {
+    parse_mode: "HTML",
+    reply_markup: buildAdminWaitingKeyboard(row.telegram_id),
+  });
+
+  return true;
+}
+
+async function requireTargetAdmin(env, adminId, targetTelegramId) {
+  const row = await getAdminByTelegramId(env, targetTelegramId);
+
+  if (!row) {
+    await sendMessage(env, adminId, "⚠️ Data admin tidak ditemukan.", {
+      reply_markup: buildAdminManagerKeyboard(),
+    });
+    return null;
+  }
+
+  return row;
+}
+
+function buildAdminMutationErrorMessage(reason, fallbackMessage) {
+  const value = String(reason || "");
+  if (value === "last_superadmin") {
+    return "⛔ Superadmin aktif terakhir tidak boleh diturunkan / dinonaktifkan.";
+  }
+  if (value === "not_found") {
+    return "⚠️ Data admin tidak ditemukan.";
+  }
+  return fallbackMessage;
+}
+
 export function buildSuperadminAdminManagerHandlers() {
   const EXACT = {};
   const PREFIX = [];
@@ -236,7 +410,9 @@ export function buildSuperadminAdminManagerHandlers() {
   EXACT[CALLBACKS.SUPERADMIN_ADMIN_MENU] = async (ctx) => {
     const { env, adminId } = ctx;
 
-    await clearSession(env, `state:${adminId}`).catch(() => {});
+    await clearSessionSafely(env, adminId, {
+      action: "open_admin_menu",
+    });
 
     return renderMenuMessage(ctx, buildAdminManagerText(), {
       parse_mode: "HTML",
@@ -247,14 +423,19 @@ export function buildSuperadminAdminManagerHandlers() {
   EXACT[CALLBACKS.SUPERADMIN_ADMIN_LIST] = async (ctx) => {
     const { env, adminId } = ctx;
 
-    await clearSession(env, `state:${adminId}`).catch(() => {});
+    await clearSessionSafely(env, adminId, {
+      action: "open_admin_list",
+    });
+
     return renderAdminList(ctx);
   };
 
   EXACT[CALLBACKS.SUPERADMIN_ADMIN_ADD] = async (ctx) => {
     const { env, adminId } = ctx;
 
-    await clearSession(env, `state:${adminId}`).catch(() => {});
+    await clearSessionSafely(env, adminId, {
+      action: "open_admin_add",
+    });
 
     if (!(await isOwnerActor(env, adminId))) {
       return denyOwnerOnly(ctx);
@@ -287,7 +468,11 @@ export function buildSuperadminAdminManagerHandlers() {
 
   EXACT[CALLBACKS.SUPERADMIN_ADMIN_BACK] = async (ctx) => {
     const { env, adminId } = ctx;
-    await clearSession(env, `state:${adminId}`).catch(() => {});
+
+    await clearSessionSafely(env, adminId, {
+      action: "admin_back",
+    });
+
     return renderMenuMessage(ctx, buildAdminManagerText(), {
       parse_mode: "HTML",
       reply_markup: buildAdminManagerKeyboard(),
@@ -314,7 +499,15 @@ export function buildSuperadminAdminManagerHandlers() {
       const actorRole = actor?.normRole || "admin";
 
       if (data.startsWith(CALLBACK_PREFIX.SA_ADMIN_OPEN)) {
-        const targetTelegramId = String(data.slice(CALLBACK_PREFIX.SA_ADMIN_OPEN.length) || "").trim();
+        const targetTelegramId = String(
+          data.slice(CALLBACK_PREFIX.SA_ADMIN_OPEN.length) || ""
+        ).trim();
+
+        await clearSessionSafely(env, adminId, {
+          action: "admin_open",
+          targetTelegramId,
+        });
+
         return renderAdminDetail(ctx, targetTelegramId);
       }
 
@@ -323,44 +516,14 @@ export function buildSuperadminAdminManagerHandlers() {
           return denyOwnerOnly(ctx);
         }
 
-        const targetTelegramId = String(data.slice(CALLBACK_PREFIX.SA_ADMIN_EDIT_USERNAME.length) || "").trim();
-        const row = await getAdminByTelegramId(env, targetTelegramId);
+        const targetTelegramId = String(
+          data.slice(CALLBACK_PREFIX.SA_ADMIN_EDIT_USERNAME.length) || ""
+        ).trim();
 
-        if (!row) {
-          await sendMessage(env, adminId, "⚠️ Data admin tidak ditemukan.", {
-            reply_markup: buildAdminManagerKeyboard(),
-          });
-          return true;
-        }
+        const row = await requireTargetAdmin(env, adminId, targetTelegramId);
+        if (!row) return true;
 
-        await saveSession(env, `state:${adminId}`, {
-          mode: SESSION_MODES.SA_ADMIN_MANAGER,
-          action: "edit_username",
-          target_telegram_id: row.telegram_id,
-          step: "await_text",
-        });
-
-        await sendMessage(
-          env,
-          adminId,
-          [
-            "✏️ <b>Edit Username Admin</b>",
-            "",
-            `Target: <b>${escapeHtml(row.label || "-")}</b>`,
-            `Saat ini: <b>${escapeHtml(row.username ? `@${String(row.username).replace(/^@/, "")}` : "-")}</b>`,
-            "",
-            "Kirim username baru tanpa @ atau dengan @.",
-            "Ketik <b>-</b> untuk kosongkan username.",
-            "",
-            "Ketik <b>batal</b> untuk keluar.",
-          ].join("\n"),
-          {
-            parse_mode: "HTML",
-            reply_markup: buildAdminWaitingKeyboard(row.telegram_id),
-          }
-        );
-
-        return true;
+        return startAdminEditFlow(ctx, row, "edit_username", buildEditUsernameText(row));
       }
 
       if (data.startsWith(CALLBACK_PREFIX.SA_ADMIN_EDIT_NAMA)) {
@@ -368,43 +531,14 @@ export function buildSuperadminAdminManagerHandlers() {
           return denyOwnerOnly(ctx);
         }
 
-        const targetTelegramId = String(data.slice(CALLBACK_PREFIX.SA_ADMIN_EDIT_NAMA.length) || "").trim();
-        const row = await getAdminByTelegramId(env, targetTelegramId);
+        const targetTelegramId = String(
+          data.slice(CALLBACK_PREFIX.SA_ADMIN_EDIT_NAMA.length) || ""
+        ).trim();
 
-        if (!row) {
-          await sendMessage(env, adminId, "⚠️ Data admin tidak ditemukan.", {
-            reply_markup: buildAdminManagerKeyboard(),
-          });
-          return true;
-        }
+        const row = await requireTargetAdmin(env, adminId, targetTelegramId);
+        if (!row) return true;
 
-        await saveSession(env, `state:${adminId}`, {
-          mode: SESSION_MODES.SA_ADMIN_MANAGER,
-          action: "edit_nama",
-          target_telegram_id: row.telegram_id,
-          step: "await_text",
-        });
-
-        await sendMessage(
-          env,
-          adminId,
-          [
-            "✏️ <b>Edit Nama Admin</b>",
-            "",
-            `Target: <b>${escapeHtml(row.label || "-")}</b>`,
-            `Saat ini: <b>${fmtValue(row.nama)}</b>`,
-            "",
-            "Kirim nama baru.",
-            "",
-            "Ketik <b>batal</b> untuk keluar.",
-          ].join("\n"),
-          {
-            parse_mode: "HTML",
-            reply_markup: buildAdminWaitingKeyboard(row.telegram_id),
-          }
-        );
-
-        return true;
+        return startAdminEditFlow(ctx, row, "edit_nama", buildEditNamaText(row));
       }
 
       if (data.startsWith(CALLBACK_PREFIX.SA_ADMIN_EDIT_KOTA)) {
@@ -412,44 +546,14 @@ export function buildSuperadminAdminManagerHandlers() {
           return denyOwnerOnly(ctx);
         }
 
-        const targetTelegramId = String(data.slice(CALLBACK_PREFIX.SA_ADMIN_EDIT_KOTA.length) || "").trim();
-        const row = await getAdminByTelegramId(env, targetTelegramId);
+        const targetTelegramId = String(
+          data.slice(CALLBACK_PREFIX.SA_ADMIN_EDIT_KOTA.length) || ""
+        ).trim();
 
-        if (!row) {
-          await sendMessage(env, adminId, "⚠️ Data admin tidak ditemukan.", {
-            reply_markup: buildAdminManagerKeyboard(),
-          });
-          return true;
-        }
+        const row = await requireTargetAdmin(env, adminId, targetTelegramId);
+        if (!row) return true;
 
-        await saveSession(env, `state:${adminId}`, {
-          mode: SESSION_MODES.SA_ADMIN_MANAGER,
-          action: "edit_kota",
-          target_telegram_id: row.telegram_id,
-          step: "await_text",
-        });
-
-        await sendMessage(
-          env,
-          adminId,
-          [
-            "✏️ <b>Edit Kota Admin</b>",
-            "",
-            `Target: <b>${escapeHtml(row.label || "-")}</b>`,
-            `Saat ini: <b>${fmtValue(row.kota)}</b>`,
-            "",
-            "Kirim kota baru.",
-            "Ketik <b>-</b> untuk kosongkan kota.",
-            "",
-            "Ketik <b>batal</b> untuk keluar.",
-          ].join("\n"),
-          {
-            parse_mode: "HTML",
-            reply_markup: buildAdminWaitingKeyboard(row.telegram_id),
-          }
-        );
-
-        return true;
+        return startAdminEditFlow(ctx, row, "edit_kota", buildEditKotaText(row));
       }
 
       if (data.startsWith(CALLBACK_PREFIX.SA_ADMIN_EDIT_ROLE)) {
@@ -457,15 +561,17 @@ export function buildSuperadminAdminManagerHandlers() {
           return denyOwnerOnly(ctx);
         }
 
-        const targetTelegramId = String(data.slice(CALLBACK_PREFIX.SA_ADMIN_EDIT_ROLE.length) || "").trim();
-        const row = await getAdminByTelegramId(env, targetTelegramId);
+        const targetTelegramId = String(
+          data.slice(CALLBACK_PREFIX.SA_ADMIN_EDIT_ROLE.length) || ""
+        ).trim();
 
-        if (!row) {
-          await sendMessage(env, adminId, "⚠️ Data admin tidak ditemukan.", {
-            reply_markup: buildAdminManagerKeyboard(),
-          });
-          return true;
-        }
+        const row = await requireTargetAdmin(env, adminId, targetTelegramId);
+        if (!row) return true;
+
+        await clearSessionSafely(env, adminId, {
+          action: "edit_role_picker",
+          targetTelegramId,
+        });
 
         return renderMenuMessage(ctx, buildAdminDetailText(row), {
           parse_mode: "HTML",
@@ -478,15 +584,17 @@ export function buildSuperadminAdminManagerHandlers() {
           return denyOwnerOnly(ctx);
         }
 
-        const targetTelegramId = String(data.slice(CALLBACK_PREFIX.SA_ADMIN_EDIT_STATUS.length) || "").trim();
-        const row = await getAdminByTelegramId(env, targetTelegramId);
+        const targetTelegramId = String(
+          data.slice(CALLBACK_PREFIX.SA_ADMIN_EDIT_STATUS.length) || ""
+        ).trim();
 
-        if (!row) {
-          await sendMessage(env, adminId, "⚠️ Data admin tidak ditemukan.", {
-            reply_markup: buildAdminManagerKeyboard(),
-          });
-          return true;
-        }
+        const row = await requireTargetAdmin(env, adminId, targetTelegramId);
+        if (!row) return true;
+
+        await clearSessionSafely(env, adminId, {
+          action: "edit_status_picker",
+          targetTelegramId,
+        });
 
         return renderMenuMessage(ctx, buildAdminDetailText(row), {
           parse_mode: "HTML",
@@ -499,21 +607,24 @@ export function buildSuperadminAdminManagerHandlers() {
           return denyOwnerOnly(ctx);
         }
 
+        await clearSessionSafely(env, adminId, {
+          action: "role_set",
+          data,
+        });
+
         const raw = String(data.slice(CALLBACK_PREFIX.SA_ADMIN_ROLE_SET.length) || "").trim();
         const [targetTelegramId, nextRole = ""] = raw.split(":");
 
         const res = await updateAdminRole(env, targetTelegramId, nextRole);
         if (!res?.ok) {
-          const reason = String(res?.reason || "");
-          const msg =
-            reason === "last_superadmin"
-              ? "⛔ Superadmin aktif terakhir tidak boleh diturunkan / dinonaktifkan."
-              : reason === "not_found"
-                ? "⚠️ Data admin tidak ditemukan."
-                : "⚠️ Gagal update role admin.";
-          await sendMessage(env, adminId, msg, {
-            reply_markup: buildAdminManagerKeyboard(),
-          });
+          await sendMessage(
+            env,
+            adminId,
+            buildAdminMutationErrorMessage(res?.reason, "⚠️ Gagal update role admin."),
+            {
+              reply_markup: buildAdminManagerKeyboard(),
+            }
+          );
           return true;
         }
 
@@ -524,6 +635,11 @@ export function buildSuperadminAdminManagerHandlers() {
         if (actorRole !== "owner") {
           return denyOwnerOnly(ctx);
         }
+
+        await clearSessionSafely(env, adminId, {
+          action: "status_set",
+          data,
+        });
 
         const raw = String(data.slice(CALLBACK_PREFIX.SA_ADMIN_STATUS_SET.length) || "").trim();
         const [targetTelegramId, nextStatus = ""] = raw.split(":");
@@ -537,6 +653,7 @@ export function buildSuperadminAdminManagerHandlers() {
               : reason === "not_found"
                 ? "⚠️ Data admin tidak ditemukan."
                 : "⚠️ Gagal update status admin.";
+
           await sendMessage(env, adminId, msg, {
             reply_markup: buildAdminManagerKeyboard(),
           });
@@ -551,7 +668,14 @@ export function buildSuperadminAdminManagerHandlers() {
           return denyOwnerOnly(ctx);
         }
 
-        const targetTelegramId = String(data.slice(CALLBACK_PREFIX.SA_ADMIN_DEACTIVATE.length) || "").trim();
+        await clearSessionSafely(env, adminId, {
+          action: "deactivate",
+          data,
+        });
+
+        const targetTelegramId = String(
+          data.slice(CALLBACK_PREFIX.SA_ADMIN_DEACTIVATE.length) || ""
+        ).trim();
 
         const res = await deactivateAdminByTelegramId(env, targetTelegramId);
         if (!res?.ok) {
@@ -562,6 +686,7 @@ export function buildSuperadminAdminManagerHandlers() {
               : reason === "not_found"
                 ? "⚠️ Data admin tidak ditemukan."
                 : "⚠️ Gagal menonaktifkan admin.";
+
           await sendMessage(env, adminId, msg, {
             reply_markup: buildAdminManagerKeyboard(),
           });
@@ -576,7 +701,14 @@ export function buildSuperadminAdminManagerHandlers() {
           return denyOwnerOnly(ctx);
         }
 
-        const targetTelegramId = String(data.slice(CALLBACK_PREFIX.SA_ADMIN_ACTIVATE.length) || "").trim();
+        await clearSessionSafely(env, adminId, {
+          action: "activate",
+          data,
+        });
+
+        const targetTelegramId = String(
+          data.slice(CALLBACK_PREFIX.SA_ADMIN_ACTIVATE.length) || ""
+        ).trim();
 
         const res = await activateAdminByTelegramId(env, targetTelegramId);
         if (!res?.ok) {
@@ -585,6 +717,7 @@ export function buildSuperadminAdminManagerHandlers() {
             reason === "not_found"
               ? "⚠️ Data admin tidak ditemukan."
               : "⚠️ Gagal mengaktifkan admin.";
+
           await sendMessage(env, adminId, msg, {
             reply_markup: buildAdminManagerKeyboard(),
           });
@@ -599,15 +732,17 @@ export function buildSuperadminAdminManagerHandlers() {
           return denyOwnerOnly(ctx);
         }
 
-        const targetTelegramId = String(data.slice(CALLBACK_PREFIX.SA_ADMIN_DELETE.length) || "").trim();
-        const row = await getAdminByTelegramId(env, targetTelegramId);
+        await clearSessionSafely(env, adminId, {
+          action: "delete",
+          data,
+        });
 
-        if (!row) {
-          await sendMessage(env, adminId, "⚠️ Data admin tidak ditemukan.", {
-            reply_markup: buildAdminManagerKeyboard(),
-          });
-          return true;
-        }
+        const targetTelegramId = String(
+          data.slice(CALLBACK_PREFIX.SA_ADMIN_DELETE.length) || ""
+        ).trim();
+
+        const row = await requireTargetAdmin(env, adminId, targetTelegramId);
+        if (!row) return true;
 
         if (row.normRole === "owner") {
           await sendMessage(env, adminId, "⛔ Owner tidak bisa dihapus.", {
@@ -625,6 +760,7 @@ export function buildSuperadminAdminManagerHandlers() {
               : reason === "not_found"
                 ? "⚠️ Data admin tidak ditemukan."
                 : "⚠️ Gagal menghapus admin.";
+
           await sendMessage(env, adminId, msg, {
             reply_markup: buildAdminManagerKeyboard(),
           });
