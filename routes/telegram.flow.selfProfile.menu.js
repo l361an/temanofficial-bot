@@ -1,9 +1,14 @@
 // routes/telegram.flow.selfProfile.menu.js
 
 import { sendMessage, upsertCallbackMessage } from "../services/telegramApi.js";
-import { getProfileFullByTelegramId } from "../repositories/profilesRepo.js";
+import {
+  getProfileFullByTelegramId,
+  setCatalogVisibilityByTelegramId,
+} from "../repositories/profilesRepo.js";
+import { getSubscriptionInfoByTelegramId } from "../repositories/partnerSubscriptionsRepo.js";
 import { CALLBACKS } from "./telegram.constants.js";
 import { sendHtml, buildTeManMenuKeyboard, escapeHtml } from "./telegram.user.shared.js";
+import { hasPremiumAccess } from "./telegram.flow.selfProfile.view.js";
 
 function fmtPartnerStatusLabel(status) {
   const raw = String(status || "").trim().toLowerCase();
@@ -15,7 +20,9 @@ function fmtPartnerStatusLabel(status) {
   return raw ? raw.replaceAll("_", " ") : "-";
 }
 
-function buildCatalogToggleLabel(profile) {
+function buildCatalogToggleLabel(profile, premiumActive = false) {
+  if (!premiumActive) return "📢 Katalog: OFF";
+
   const isVisible = Number(profile?.is_catalog_visible || 0) === 1;
   return isVisible ? "📢 Katalog: ON" : "📢 Katalog: OFF";
 }
@@ -47,12 +54,19 @@ export function buildSelfEditMenuKeyboard() {
   };
 }
 
-export function buildSelfMenuKeyboard(profile = null) {
+export function buildSelfMenuKeyboard(profile = null, options = {}) {
+  const { premiumActive = false } = options;
+
   return {
     inline_keyboard: [
       [{ text: "👤 Lihat Profile", callback_data: "self:view" }],
       [{ text: "📝 Update Profile", callback_data: "self:update" }],
-      [{ text: buildCatalogToggleLabel(profile), callback_data: CALLBACKS.SELF_CATALOG_TOGGLE }],
+      [
+        {
+          text: buildCatalogToggleLabel(profile, premiumActive),
+          callback_data: CALLBACKS.SELF_CATALOG_TOGGLE,
+        },
+      ],
       [{ text: "💎 Premium Partner", callback_data: "self:payment" }],
     ],
   };
@@ -91,7 +105,7 @@ export function buildSelfEditMenuMessage(profile) {
 export async function sendSelfMenu(env, chatId, telegramId, options = {}) {
   const { sourceMessage = null } = options;
 
-  const profile = await getProfileFullByTelegramId(env, telegramId);
+  let profile = await getProfileFullByTelegramId(env, telegramId);
 
   if (!profile) {
     await sendHtml(env, chatId, "Data partner tidak ditemukan.", {
@@ -100,10 +114,23 @@ export async function sendSelfMenu(env, chatId, telegramId, options = {}) {
     return;
   }
 
+  const subInfo = await getSubscriptionInfoByTelegramId(env, telegramId);
+  const premiumActive = hasPremiumAccess(profile, subInfo);
+
+  if (!premiumActive && Number(profile?.is_catalog_visible || 0) === 1) {
+    await setCatalogVisibilityByTelegramId(env, telegramId, 0).catch(() => {});
+
+    profile =
+      (await getProfileFullByTelegramId(env, telegramId).catch(() => null)) || {
+        ...profile,
+        is_catalog_visible: 0,
+      };
+  }
+
   const text = buildSelfMenuMessage(profile);
   const extra = {
     parse_mode: "HTML",
-    reply_markup: buildSelfMenuKeyboard(profile),
+    reply_markup: buildSelfMenuKeyboard(profile, { premiumActive }),
     disable_web_page_preview: true,
   };
 
