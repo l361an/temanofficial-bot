@@ -17,6 +17,7 @@ import {
 import {
   handleSelfPaymentInlineCallback,
 } from "./telegram.flow.selfPayment.js";
+import { CALLBACKS } from "./telegram.constants.js";
 
 /**
  * HARD RULE:
@@ -117,6 +118,7 @@ export async function handleSelfInlineCallback(update, env) {
     data === "teman:menu" ||
     data === "self:view" ||
     data === "self:update" ||
+    data === CALLBACKS.SELF_CATALOG_TOGGLE ||
     data.startsWith("self:edit:")
   ) {
     return handleSelfProfileInlineCallback(update, env);
