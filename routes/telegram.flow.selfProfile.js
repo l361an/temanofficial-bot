@@ -29,15 +29,27 @@ export {
 };
 
 async function denyCatalogToggle(env, chatId, profile, sourceMessage = null) {
+  let safeProfile = profile;
+
+  if (Number(profile?.is_catalog_visible || 0) === 1) {
+    await setCatalogVisibilityByTelegramId(env, profile.telegram_id, 0).catch(() => {});
+
+    safeProfile =
+      (await getProfileFullByTelegramId(env, profile.telegram_id).catch(() => null)) || {
+        ...profile,
+        is_catalog_visible: 0,
+      };
+  }
+
   const text = [
-    "⚠️ <b>Toggle katalog ditolak.</b>",
+    "⚠️ <b>Premium Partner belum aktif.</b>",
     "",
-    "Fitur ini hanya bisa dipakai kalau premium partner sedang aktif.",
+    "Status katalog tetap: <b>OFF</b>",
   ].join("\n");
 
   const extra = {
     parse_mode: "HTML",
-    reply_markup: buildSelfMenuKeyboard(profile),
+    reply_markup: buildSelfMenuKeyboard(safeProfile, { premiumActive: false }),
     disable_web_page_preview: true,
   };
 
@@ -60,7 +72,7 @@ async function confirmCatalogToggle(env, chatId, profile, sourceMessage = null) 
 
   const extra = {
     parse_mode: "HTML",
-    reply_markup: buildSelfMenuKeyboard(profile),
+    reply_markup: buildSelfMenuKeyboard(profile, { premiumActive: true }),
     disable_web_page_preview: true,
   };
 
