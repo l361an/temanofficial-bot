@@ -30,6 +30,10 @@ import {
   deactivateCatalogTarget,
   getCatalogTargets,
 } from "../repositories/catalogTargetsRepo.js";
+import {
+  publishCatalogToTarget,
+  cleanupPublishedCatalogForTarget,
+} from "../services/catalogPublisher.js";
 
 import {
   getProfileFullByTelegramId,
@@ -306,13 +310,35 @@ async function handleOwnerCatalogBootstrapCommand({
       chatId,
       [
         isCreated
-          ? "✅ Target katalog berhasil ditambahkan."
-          : "✅ Target katalog berhasil diaktifkan.",
+          ? "✅ Target katalog berhasil ditambahkan. Sedang memunculkan katalog..."
+          : "✅ Target katalog berhasil diaktifkan. Sedang memunculkan katalog...",
         "",
         ...buildCatalogTargetSummaryLines(targetPayload),
       ].join("\n"),
       replyExtra
     );
+
+    const publishResult = await publishCatalogToTarget(env, targetPayload, {
+      limit: 500,
+    }).catch((err) => {
+      logError("[catalog.publish.on.failed]", {
+        telegramId,
+        chatId,
+        threadId: msg?.message_thread_id ?? null,
+        err: err?.message || String(err || ""),
+      });
+      return { ok: false, reason: "exception" };
+    });
+
+    if (!publishResult?.ok) {
+      await sendMessage(
+        env,
+        chatId,
+        "⚠️ Target berhasil aktif, tapi katalog gagal dipublish.",
+        replyExtra
+      );
+    }
+
     return true;
   }
 
@@ -337,6 +363,18 @@ async function handleOwnerCatalogBootstrapCommand({
       return true;
     }
 
+    const cleanupResult = await cleanupPublishedCatalogForTarget(env, targetPayload).catch((err) => {
+      logError("[catalog.cleanup.off.failed]", {
+        telegramId,
+        chatId,
+        threadId: msg?.message_thread_id ?? null,
+        err: err?.message || String(err || ""),
+      });
+      return { ok: false, removed_count: 0, failed_message_ids: [] };
+    });
+
+    const removedCount = Number(cleanupResult?.removed_count || 0);
+
     await sendMessage(
       env,
       chatId,
@@ -344,6 +382,8 @@ async function handleOwnerCatalogBootstrapCommand({
         "✅ Target katalog berhasil dinonaktifkan.",
         "",
         ...buildCatalogTargetSummaryLines(targetPayload),
+        "",
+        `Pesan katalog yang dibersihkan: ${removedCount}`,
       ].join("\n"),
       replyExtra
     );
@@ -351,20 +391,27 @@ async function handleOwnerCatalogBootstrapCommand({
   }
 
   if (action === "refresh") {
-    await sendMessage(
-      env,
-      chatId,
-      [
-        "⌛ <b>/katalog refresh</b> belum aktif.",
-        "Lanjut aktif setelah publisher katalog selesai dikerjakan.",
-        "",
-        ...buildCatalogTargetSummaryLines(targetPayload),
-      ].join("\n"),
-      {
-        ...replyExtra,
-        parse_mode: "HTML",
-      }
-    );
+    const publishResult = await publishCatalogToTarget(env, targetPayload, {
+      limit: 500,
+    }).catch((err) => {
+      logError("[catalog.publish.refresh.failed]", {
+        telegramId,
+        chatId,
+        threadId: msg?.message_thread_id ?? null,
+        err: err?.message || String(err || ""),
+      });
+      return { ok: false, reason: "exception" };
+    });
+
+    if (!publishResult?.ok) {
+      await sendMessage(
+        env,
+        chatId,
+        "⚠️ Gagal refresh katalog di target ini.",
+        replyExtra
+      );
+    }
+
     return true;
   }
 
