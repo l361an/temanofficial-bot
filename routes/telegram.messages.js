@@ -2,6 +2,14 @@
 
 import { isAdminRole, isSuperadminRole } from "../utils/roles.js";
 
+function normalizeString(value) {
+  return String(value || "").trim();
+}
+
+function isOwnerRole(role) {
+  return normalizeString(role).toLowerCase() === "owner";
+}
+
 export function buildOfficerHomeText() {
   return (
     "👮 <b>Officer Home</b>\n\n" +
@@ -15,6 +23,25 @@ export function buildOfficerIdleText() {
 }
 
 export function buildHelpText(role) {
+  if (isOwnerRole(role)) {
+    return (
+      "📌 <b>Owner Panel</b>\n\n" +
+      "Perintah utama:\n" +
+      "• <code>/start</code> — buka Officer Home\n" +
+      "• <code>/help</code> / <code>/cmd</code> — lihat bantuan\n" +
+      "• <code>/ceksub @username|telegram_id</code> — cek subscription partner\n\n" +
+      "Owner only:\n" +
+      "• <code>/katalog list</code> — lihat daftar target katalog\n" +
+      "• <code>/katalog on</code> — aktifkan target katalog di grup/topic ini\n" +
+      "• <code>/katalog off</code> — nonaktifkan target katalog di grup/topic ini\n" +
+      "• <code>/katalog refresh</code> — refresh katalog di target ini\n\n" +
+      "Menu utama:\n" +
+      "• <b>Admin Management</b> — list admin, add admin, update role/status admin\n" +
+      "• <b>Partner Management</b> — Partner Database & Partner Moderation\n" +
+      "• <b>System Settings</b> — Welcome Message, Link Aturan, Category, Finance"
+    );
+  }
+
   if (isSuperadminRole(role)) {
     return (
       "📌 <b>Officer Panel</b>\n\n" +
