@@ -239,6 +239,13 @@ export async function sendPhoto(env, chatId, fileId, caption, extra = {}) {
   });
 }
 
+export async function deleteMessage(env, chatId, messageId) {
+  return post(env, "deleteMessage", {
+    chat_id: chatId,
+    message_id: messageId,
+  });
+}
+
 export async function sendLongMessage(env, chatId, text, extra = {}) {
   const raw = String(text ?? "");
   const limit = 3900;
