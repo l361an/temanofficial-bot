@@ -1,5 +1,7 @@
 // repositories/catalogRepo.js
 
+import { nowJakartaSql } from "../utils/time.js";
+
 function normalizeString(value) {
   return String(value || "").trim();
 }
@@ -29,22 +31,27 @@ function buildActiveSubscriptionWhere(alias = "ps") {
     `${alias}.status = 'active'`,
     `${alias}.start_at IS NOT NULL`,
     `${alias}.end_at IS NOT NULL`,
-    `datetime(${alias}.start_at) <= datetime('now')`,
-    `datetime(${alias}.end_at) > datetime('now')`,
+    `datetime(${alias}.start_at) <= datetime(?)`,
+    `datetime(${alias}.end_at) > datetime(?)`,
   ].join(" AND ");
 }
 
-function buildBaseWhere() {
-  return [
-    `p.status = 'approved'`,
-    `IFNULL(p.is_manual_suspended, 0) != 1`,
-    `p.is_catalog_visible = 1`,
-    `p.start_price IS NOT NULL`,
-    `p.start_price > 0`,
-    `p.telegram_id IN (SELECT ps.partner_id FROM partner_subscriptions ps WHERE ${buildActiveSubscriptionWhere(
-      "ps"
-    )})`,
-  ].join("\n  AND ");
+function buildBaseFilter() {
+  const nowSql = nowJakartaSql();
+
+  return {
+    whereSql: [
+      `p.status = 'approved'`,
+      `IFNULL(p.is_manual_suspended, 0) != 1`,
+      `p.is_catalog_visible = 1`,
+      `p.start_price IS NOT NULL`,
+      `p.start_price > 0`,
+      `p.telegram_id IN (SELECT ps.partner_id FROM partner_subscriptions ps WHERE ${buildActiveSubscriptionWhere(
+        "ps"
+      )})`,
+    ].join("\n  AND "),
+    binds: [nowSql, nowSql],
+  };
 }
 
 function buildCategoryExistsClause() {
@@ -59,8 +66,9 @@ function buildCategoryExistsClause() {
 }
 
 function buildListFilters(options = {}) {
-  const clauses = [buildBaseWhere()];
-  const binds = [];
+  const base = buildBaseFilter();
+  const clauses = [base.whereSql];
+  const binds = [...base.binds];
 
   const telegramId = normalizeString(options.telegramId);
   if (telegramId) {
@@ -201,6 +209,7 @@ async function loadActiveSubscriptionMap(env, partnerIds = []) {
 
   if (!ids.length) return new Map();
 
+  const nowSql = nowJakartaSql();
   const placeholders = ids.map(() => "?").join(",");
   const sql = `
     SELECT
@@ -220,9 +229,11 @@ async function loadActiveSubscriptionMap(env, partnerIds = []) {
       datetime(ps.created_at) DESC
   `;
 
-  const { results } = await env.DB.prepare(sql).bind(...ids).all();
-  const rows = Array.isArray(results) ? results : [];
+  const { results } = await env.DB.prepare(sql)
+    .bind(...ids, nowSql, nowSql)
+    .all();
 
+  const rows = Array.isArray(results) ? results : [];
   const map = new Map();
 
   for (const row of rows) {
@@ -320,6 +331,7 @@ export async function getCatalogPartnerByTelegramId(env, telegramId) {
 }
 
 export async function listCatalogCategorySummary(env) {
+  const base = buildBaseFilter();
   const sql = `
     SELECT
       c.kode AS kode,
@@ -327,12 +339,12 @@ export async function listCatalogCategorySummary(env) {
     FROM profiles p
     JOIN profile_categories pc ON pc.profile_id = p.id
     JOIN categories c ON c.id = pc.category_id
-    WHERE ${buildBaseWhere()}
+    WHERE ${base.whereSql}
     GROUP BY c.kode
     ORDER BY c.kode ASC
   `;
 
-  const { results } = await env.DB.prepare(sql).all();
+  const { results } = await env.DB.prepare(sql).bind(...base.binds).all();
 
   return (results || []).map((row) => ({
     kode: normalizeString(row?.kode),
