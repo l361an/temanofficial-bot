@@ -1,6 +1,10 @@
 // repositories/partnerSubscriptions.readRepo.js
 
+import { nowJakartaSql } from "../utils/time.js";
+
 export async function listActiveSubscriptionsByTelegramId(env, telegramId) {
+  const nowSql = nowJakartaSql();
+
   const { results } = await env.DB.prepare(
     `
     SELECT *
@@ -9,17 +13,19 @@ export async function listActiveSubscriptionsByTelegramId(env, telegramId) {
       AND status = 'active'
       AND start_at IS NOT NULL
       AND end_at IS NOT NULL
-      AND datetime(end_at) > datetime('now')
+      AND datetime(end_at) > datetime(?)
     ORDER BY datetime(start_at) ASC, datetime(end_at) DESC, datetime(created_at) DESC
   `
   )
-    .bind(String(telegramId))
+    .bind(String(telegramId), nowSql)
     .all();
 
   return Array.isArray(results) ? results : [];
 }
 
 export async function getActiveSubscriptionByTelegramId(env, telegramId) {
+  const nowSql = nowJakartaSql();
+
   const row = await env.DB.prepare(
     `
     SELECT *
@@ -28,13 +34,13 @@ export async function getActiveSubscriptionByTelegramId(env, telegramId) {
       AND status = 'active'
       AND start_at IS NOT NULL
       AND end_at IS NOT NULL
-      AND datetime(start_at) <= datetime('now')
-      AND datetime(end_at) > datetime('now')
+      AND datetime(start_at) <= datetime(?)
+      AND datetime(end_at) > datetime(?)
     ORDER BY datetime(end_at) DESC, datetime(start_at) ASC, datetime(created_at) DESC
     LIMIT 1
   `
   )
-    .bind(String(telegramId))
+    .bind(String(telegramId), nowSql, nowSql)
     .first();
 
   return row ?? null;
