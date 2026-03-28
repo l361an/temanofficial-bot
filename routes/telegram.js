@@ -307,7 +307,7 @@ async function handleOwnerCatalogBootstrapCommand({
       [
         isCreated
           ? "✅ Target katalog berhasil ditambahkan."
-          : "✅ Target katalog berhasil diaktifkan kembali.",
+          : "✅ Target katalog berhasil diaktifkan.",
         "",
         ...buildCatalogTargetSummaryLines(targetPayload),
       ].join("\n"),
