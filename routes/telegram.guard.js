@@ -1,6 +1,7 @@
 // routes/telegram.guard.js
 
 import { getSetting } from "../repositories/settingsRepo.js";
+import { getCatalogTargets } from "../repositories/catalogTargetsRepo.js";
 
 const SCOPE_MODE_PRIVATE_ONLY = "private_only";
 const SCOPE_MODE_SELECTED = "selected_scopes";
@@ -94,13 +95,43 @@ async function loadScopeConfig(env) {
 
   const allowedGroupChatIds = parseListSetting(allowedGroupChatIdsRaw);
   const allowedGroupTopicKeys = parseListSetting(allowedGroupTopicKeysRaw);
-  const allowedBotUsernames = parseListSetting(allowedBotUsernamesRaw).map(normalizeUsername);
+  const allowedBotUsernames = parseListSetting(allowedBotUsernamesRaw).map(
+    normalizeUsername
+  );
 
   return {
     featureScopeMode,
     allowedGroupChatIds,
     allowedGroupTopicKeys,
     allowedBotUsernames,
+  };
+}
+
+async function loadCatalogScopeConfig(env) {
+  const targets = await getCatalogTargets(env).catch(() => []);
+
+  const activeGroupChatIds = new Set();
+  const activeGroupTopicKeys = new Set();
+
+  for (const item of Array.isArray(targets) ? targets : []) {
+    if (!item?.is_active) continue;
+
+    const chatId = normalizeString(item?.chat_id);
+    const topicId = normalizeString(item?.topic_id);
+
+    if (!chatId) continue;
+
+    if (topicId) {
+      activeGroupTopicKeys.add(buildTopicKey(chatId, topicId));
+      continue;
+    }
+
+    activeGroupChatIds.add(chatId);
+  }
+
+  return {
+    activeGroupChatIds,
+    activeGroupTopicKeys,
   };
 }
 
@@ -141,35 +172,76 @@ function isSelectedScopeAllowed(config, chat, message) {
   return false;
 }
 
-export async function isScopeAllowed(env, chat, message) {
-  if (isPrivateChat(chat)) {
+function isCatalogScopeAllowed(catalogScope, chat, message) {
+  const chatId = toChatIdString(chat);
+  const threadId = toThreadIdString(message);
+  const topicKey = buildTopicKey(chatId, threadId);
+
+  if (
+    chatId &&
+    catalogScope?.activeGroupChatIds instanceof Set &&
+    catalogScope.activeGroupChatIds.has(chatId)
+  ) {
     return true;
   }
 
-  const config = await loadScopeConfig(env);
+  if (
+    topicKey &&
+    catalogScope?.activeGroupTopicKeys instanceof Set &&
+    catalogScope.activeGroupTopicKeys.has(topicKey)
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+async function resolveScopeAllowance(env, chat, message) {
+  if (isPrivateChat(chat)) {
+    return { allowed: true, matchedBy: "private_chat" };
+  }
+
+  const [config, catalogScope] = await Promise.all([
+    loadScopeConfig(env),
+    loadCatalogScopeConfig(env),
+  ]);
 
   if (!isBotUsernameAllowed(config, env)) {
-    return false;
+    return { allowed: false, matchedBy: "bot_username_blocked" };
+  }
+
+  if (isCatalogScopeAllowed(catalogScope, chat, message)) {
+    return { allowed: true, matchedBy: "catalog_target" };
   }
 
   if (config.featureScopeMode === SCOPE_MODE_PRIVATE_ONLY) {
-    return false;
+    return { allowed: false, matchedBy: "private_only_mode" };
   }
 
   if (config.featureScopeMode !== SCOPE_MODE_SELECTED) {
-    return false;
+    return { allowed: false, matchedBy: "unsupported_scope_mode" };
   }
 
-  return isSelectedScopeAllowed(config, chat, message);
+  if (isSelectedScopeAllowed(config, chat, message)) {
+    return { allowed: true, matchedBy: "scope_setting" };
+  }
+
+  return { allowed: false, matchedBy: "not_in_scope" };
+}
+
+export async function isScopeAllowed(env, chat, message) {
+  const result = await resolveScopeAllowance(env, chat, message);
+  return result.allowed;
 }
 
 export async function getScopeGuardContext(env, chat, message) {
-  const allowed = await isScopeAllowed(env, chat, message);
+  const result = await resolveScopeAllowance(env, chat, message);
   const chatId = toChatIdString(chat);
   const threadId = toThreadIdString(message);
 
   return {
-    allowed,
+    allowed: result.allowed,
+    matchedBy: result.matchedBy,
     isPrivate: isPrivateChat(chat),
     chatId,
     threadId,
