@@ -52,14 +52,22 @@ function normalizeString(value) {
   return String(value || "").trim();
 }
 
+function normalizeLower(value) {
+  return normalizeString(value).toLowerCase();
+}
+
 function normalizeCommandToken(value) {
   const raw = normalizeString(value);
   if (!raw.startsWith("/")) return "";
   return raw.split(/\s+/)[0].split("@")[0].toLowerCase();
 }
 
+function splitCommandParts(value) {
+  return normalizeString(value).split(/\s+/).filter(Boolean);
+}
+
 function isOwnerRole(role) {
-  return normalizeString(role).toLowerCase() === "owner";
+  return normalizeLower(role) === "owner";
 }
 
 function escapeHtml(value) {
@@ -72,35 +80,55 @@ function escapeHtml(value) {
 }
 
 function buildHelp(role) {
+  if (isOwnerRole(role)) {
+    return (
+      "📘 <b>Daftar Command (Owner Panel)</b>\n\n" +
+      "Admin + Superadmin + Owner:\n" +
+      "• <code>/list pending|approved|rejected|suspended</code>\n" +
+      "• <code>/suspend @username|telegram_id</code>\n" +
+      "• <code>/activate @username|telegram_id</code>\n" +
+      "• <code>/ceksub @username|telegram_id</code>\n\n" +
+      "Superadmin only:\n" +
+      "• <code>/setlink aturan &lt;url&gt;</code>\n" +
+      "• <code>/setwelcome &lt;text&gt;</code>\n" +
+      "• <code>/delpartner @username|telegram_id</code>\n\n" +
+      "Owner only:\n" +
+      "• <code>/katalog list</code>\n" +
+      "• <code>/katalog on</code>\n" +
+      "• <code>/katalog off</code>\n" +
+      "• <code>/katalog refresh</code>"
+    );
+  }
+
   if (isSuperadminRole(role)) {
     return (
-      "📘 Daftar Command (Admin Panel)\n\n" +
+      "📘 <b>Daftar Command (Admin Panel)</b>\n\n" +
       "Admin + Superadmin:\n" +
-      "• `/list pending|approved|rejected|suspended`\n" +
-      "• `/suspend @username|telegram_id`\n" +
-      "• `/activate @username|telegram_id`\n" +
-      "• `/ceksub @username|telegram_id`\n\n" +
+      "• <code>/list pending|approved|rejected|suspended</code>\n" +
+      "• <code>/suspend @username|telegram_id</code>\n" +
+      "• <code>/activate @username|telegram_id</code>\n" +
+      "• <code>/ceksub @username|telegram_id</code>\n\n" +
       "Superadmin only:\n" +
-      "• `/setlink aturan <url>`\n" +
-      "• `/setwelcome <text>`\n" +
-      "• `/delpartner @username|telegram_id`"
+      "• <code>/setlink aturan &lt;url&gt;</code>\n" +
+      "• <code>/setwelcome &lt;text&gt;</code>\n" +
+      "• <code>/delpartner @username|telegram_id</code>"
     );
   }
 
   if (isAdminRole(role)) {
     return (
-      "📘 Daftar Command (Admin Panel)\n\n" +
-      "• `/list pending|approved|rejected|suspended`\n" +
-      "• `/suspend @username|telegram_id`\n" +
-      "• `/activate @username|telegram_id`\n" +
-      "• `/ceksub @username|telegram_id`"
+      "📘 <b>Daftar Command (Admin Panel)</b>\n\n" +
+      "• <code>/list pending|approved|rejected|suspended</code>\n" +
+      "• <code>/suspend @username|telegram_id</code>\n" +
+      "• <code>/activate @username|telegram_id</code>\n" +
+      "• <code>/ceksub @username|telegram_id</code>"
     );
   }
 
   return (
-    "ℹ️ Bantuan\n\n" +
-    "• `/start` — Menu TeMan\n" +
-    "• `/me` — Cek role"
+    "ℹ️ <b>Bantuan</b>\n\n" +
+    "• <code>/start</code> — Menu TeMan\n" +
+    "• <code>/me</code> — Cek role"
   );
 }
 
@@ -130,6 +158,41 @@ function buildCatalogTargetsListText(items = []) {
   ].join("\n\n");
 }
 
+function buildCatalogCommandUsageText() {
+  return [
+    "📚 <b>Command Katalog</b>",
+    "",
+    "• <code>/katalog list</code> — lihat daftar target katalog",
+    "• <code>/katalog on</code> — aktifkan target katalog di grup/topic ini",
+    "• <code>/katalog off</code> — nonaktifkan target katalog di grup/topic ini",
+    "• <code>/katalog refresh</code> — refresh katalog di target ini",
+  ].join("\n");
+}
+
+function buildCatalogTargetSummaryLines(targetPayload) {
+  return [
+    `Group : ${targetPayload.chat_title}`,
+    `Chat ID : ${normalizeString(targetPayload.chat_id)}`,
+    `Topic ID : ${
+      normalizeString(targetPayload.topic_id)
+        ? normalizeString(targetPayload.topic_id)
+        : "-"
+    }`,
+  ];
+}
+
+function buildCatalogReplyExtra(chat, msg, extra = {}) {
+  const threadId = msg?.message_thread_id;
+  if (isPrivateChat(chat) || threadId === undefined || threadId === null) {
+    return { ...extra };
+  }
+
+  return {
+    ...extra,
+    message_thread_id: threadId,
+  };
+}
+
 async function handleOwnerCatalogBootstrapCommand({
   env,
   chat,
@@ -140,22 +203,39 @@ async function handleOwnerCatalogBootstrapCommand({
   text,
 }) {
   const cmd = normalizeCommandToken(text);
-  const ownerOnlyCommands = new Set([
-    "/aktifkankatalog",
-    "/nonaktifkankatalog",
-    "/listkataloggroup",
-  ]);
-
-  if (!ownerOnlyCommands.has(cmd)) {
+  if (cmd !== "/katalog") {
     return false;
   }
 
+  const replyExtra = buildCatalogReplyExtra(chat, msg);
+
   if (!isOwnerRole(role)) {
+    await sendMessage(env, chatId, "⚠️ Command katalog khusus owner.", replyExtra);
     return true;
   }
 
-  if (cmd === "/listkataloggroup") {
+  const parts = splitCommandParts(text);
+  const action = normalizeLower(parts[1]);
+
+  if (!action) {
+    await sendMessage(env, chatId, buildCatalogCommandUsageText(), {
+      ...replyExtra,
+      parse_mode: "HTML",
+    });
+    return true;
+  }
+
+  if (action === "list") {
     if (!isPrivateChat(chat)) {
+      await sendMessage(
+        env,
+        chatId,
+        "⚠️ <code>/katalog list</code> hanya bisa dijalankan dari private chat.",
+        {
+          ...replyExtra,
+          parse_mode: "HTML",
+        }
+      );
       return true;
     }
 
@@ -168,6 +248,15 @@ async function handleOwnerCatalogBootstrapCommand({
     });
 
     await sendMessage(env, chatId, buildCatalogTargetsListText(items), {
+      parse_mode: "HTML",
+    });
+    return true;
+  }
+
+  const allowedActions = new Set(["on", "off", "refresh"]);
+  if (!allowedActions.has(action)) {
+    await sendMessage(env, chatId, buildCatalogCommandUsageText(), {
+      ...replyExtra,
       parse_mode: "HTML",
     });
     return true;
@@ -189,7 +278,7 @@ async function handleOwnerCatalogBootstrapCommand({
     added_by: telegramId,
   };
 
-  if (cmd === "/aktifkankatalog") {
+  if (action === "on") {
     const result = await addOrUpdateCatalogTarget(env, targetPayload).catch((err) => {
       logError("[catalog.targets.activate.failed]", {
         telegramId,
@@ -201,7 +290,12 @@ async function handleOwnerCatalogBootstrapCommand({
     });
 
     if (!result?.ok) {
-      await sendMessage(env, chatId, "⚠️ Gagal mengaktifkan target katalog ini.");
+      await sendMessage(
+        env,
+        chatId,
+        "⚠️ Gagal mengaktifkan target katalog ini.",
+        replyExtra
+      );
       return true;
     }
 
@@ -212,22 +306,17 @@ async function handleOwnerCatalogBootstrapCommand({
       chatId,
       [
         isCreated
-          ? "✅ Grup ini berhasil ditambahkan sebagai target katalog."
-          : "✅ Target katalog ini berhasil diaktifkan kembali.",
+          ? "✅ Target katalog berhasil ditambahkan."
+          : "✅ Target katalog berhasil diaktifkan kembali.",
         "",
-        `Group : ${targetPayload.chat_title}`,
-        `Chat ID : ${normalizeString(targetPayload.chat_id)}`,
-        `Topic ID : ${
-          normalizeString(targetPayload.topic_id)
-            ? normalizeString(targetPayload.topic_id)
-            : "-"
-        }`,
-      ].join("\n")
+        ...buildCatalogTargetSummaryLines(targetPayload),
+      ].join("\n"),
+      replyExtra
     );
     return true;
   }
 
-  if (cmd === "/nonaktifkankatalog") {
+  if (action === "off") {
     const result = await deactivateCatalogTarget(env, targetPayload).catch((err) => {
       logError("[catalog.targets.deactivate.failed]", {
         telegramId,
@@ -242,7 +331,8 @@ async function handleOwnerCatalogBootstrapCommand({
       await sendMessage(
         env,
         chatId,
-        "⚠️ Target katalog ini belum ditemukan atau gagal dinonaktifkan."
+        "⚠️ Target katalog ini belum ditemukan atau gagal dinonaktifkan.",
+        replyExtra
       );
       return true;
     }
@@ -251,16 +341,29 @@ async function handleOwnerCatalogBootstrapCommand({
       env,
       chatId,
       [
-        "✅ Target katalog ini berhasil dinonaktifkan.",
+        "✅ Target katalog berhasil dinonaktifkan.",
         "",
-        `Group : ${targetPayload.chat_title}`,
-        `Chat ID : ${normalizeString(targetPayload.chat_id)}`,
-        `Topic ID : ${
-          normalizeString(targetPayload.topic_id)
-            ? normalizeString(targetPayload.topic_id)
-            : "-"
-        }`,
-      ].join("\n")
+        ...buildCatalogTargetSummaryLines(targetPayload),
+      ].join("\n"),
+      replyExtra
+    );
+    return true;
+  }
+
+  if (action === "refresh") {
+    await sendMessage(
+      env,
+      chatId,
+      [
+        "⌛ <b>/katalog refresh</b> belum aktif.",
+        "Lanjut aktif setelah publisher katalog selesai dikerjakan.",
+        "",
+        ...buildCatalogTargetSummaryLines(targetPayload),
+      ].join("\n"),
+      {
+        ...replyExtra,
+        parse_mode: "HTML",
+      }
     );
     return true;
   }
