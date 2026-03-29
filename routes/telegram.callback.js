@@ -83,19 +83,21 @@ export async function handleCallback(update, env) {
 
   if (!data || !adminId) return ok();
 
-  const scopeAllowed = await isScopeAllowed(env, chat, msg).catch((err) => {
-    logError("[callback.scope_check.failed]", {
-      adminId,
-      data,
-      msgChatId: msgChatId || null,
-      msgId: msgId || null,
-      err: err?.message || String(err || ""),
+  if (!catalogAction) {
+    const scopeAllowed = await isScopeAllowed(env, chat, msg).catch((err) => {
+      logError("[callback.scope_check.failed]", {
+        adminId,
+        data,
+        msgChatId: msgChatId || null,
+        msgId: msgId || null,
+        err: err?.message || String(err || ""),
+      });
+      return false;
     });
-    return false;
-  });
 
-  if (!scopeAllowed) return ok();
-  if (!catalogAction && !isPrivateChat(chat)) return ok();
+    if (!scopeAllowed) return ok();
+    if (!isPrivateChat(chat)) return ok();
+  }
 
   if (!catalogAction) {
     try {
@@ -119,16 +121,18 @@ export async function handleCallback(update, env) {
     }
   }
 
-  const role = await getAdminRole(env, adminId).catch((err) => {
-    logError("[callback.get_admin_role.failed]", {
-      adminId,
-      data,
-      err: err?.message || String(err || ""),
-    });
-    return null;
-  });
+  const role = catalogAction
+    ? null
+    : await getAdminRole(env, adminId).catch((err) => {
+        logError("[callback.get_admin_role.failed]", {
+          adminId,
+          data,
+          err: err?.message || String(err || ""),
+        });
+        return null;
+      });
 
-  if (isVerificationAction(data) && !isOwner(role)) {
+  if (!catalogAction && isVerificationAction(data) && !isOwner(role)) {
     await answerCallbackSafely(
       env,
       callbackQueryId,
@@ -146,7 +150,7 @@ export async function handleCallback(update, env) {
     return ok();
   }
 
-  if (isOfficerAction(data) && !isAdminRole(role)) {
+  if (!catalogAction && isOfficerAction(data) && !isAdminRole(role)) {
     await answerCallbackSafely(
       env,
       callbackQueryId,
