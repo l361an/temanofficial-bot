@@ -18,10 +18,6 @@ function normalizeString(value) {
   return String(value || "").trim();
 }
 
-function normalizeLower(value) {
-  return normalizeString(value).toLowerCase();
-}
-
 function normalizeChatId(value) {
   return normalizeString(value);
 }
@@ -32,7 +28,12 @@ function normalizeTopicId(value) {
 }
 
 function normalizeCategoryCode(value) {
-  const raw = normalizeLower(value);
+  const raw = normalizeString(value);
+  return raw || null;
+}
+
+function normalizeKota(value) {
+  const raw = normalizeString(value);
   return raw || null;
 }
 
@@ -242,6 +243,7 @@ function computeNextCursor(total, offset, deliveredCount) {
 
 async function loadPartnerBatchForTarget(env, target = {}, pageSize = DEFAULT_PAGE_SIZE) {
   const categoryCode = normalizeCategoryCode(target?.category_code);
+  const kota = normalizeKota(target?.kota);
   const safePageSize = Math.max(1, Math.min(normalizePositiveInteger(pageSize, DEFAULT_PAGE_SIZE), 10));
 
   if (!categoryCode) {
@@ -253,7 +255,7 @@ async function loadPartnerBatchForTarget(env, target = {}, pageSize = DEFAULT_PA
     };
   }
 
-  const total = await countCatalogPartners(env, { categoryCode }).catch(() => 0);
+  const total = await countCatalogPartners(env, { categoryCode, kota }).catch(() => 0);
 
   if (total <= 0) {
     return {
@@ -268,6 +270,7 @@ async function loadPartnerBatchForTarget(env, target = {}, pageSize = DEFAULT_PA
     chat_id: target?.chat_id,
     topic_id: target?.topic_id,
     category_code: categoryCode,
+    kota,
   }).catch(() => null);
 
   let offset = normalizeNonNegativeInteger(previousState?.rotation_cursor, 0);
@@ -275,6 +278,7 @@ async function loadPartnerBatchForTarget(env, target = {}, pageSize = DEFAULT_PA
 
   let rows = await listCatalogPartners(env, {
     categoryCode,
+    kota,
     limit: safePageSize,
     offset,
   }).catch(() => []);
@@ -287,6 +291,7 @@ async function loadPartnerBatchForTarget(env, target = {}, pageSize = DEFAULT_PA
     if (remaining > 0) {
       const wrapRows = await listCatalogPartners(env, {
         categoryCode,
+        kota,
         limit: remaining,
         offset: 0,
       }).catch(() => []);
@@ -357,7 +362,7 @@ export async function publishOnDemandCatalog(env, target = {}, options = {}) {
     1,
     Math.min(normalizePositiveInteger(options?.pageSize || DEFAULT_PAGE_SIZE, DEFAULT_PAGE_SIZE), 10)
   );
-  const kota = normalizeString(options?.kota || target?.kota);
+  const kota = normalizeKota(options?.kota || target?.kota);
   const kecamatan = normalizeString(options?.kecamatan || target?.kecamatan);
 
   if (!chatId) {
@@ -388,6 +393,7 @@ export async function publishOnDemandCatalog(env, target = {}, options = {}) {
     return {
       ok: Boolean(emptyRes?.ok),
       category_code: categoryCode,
+      kota,
       visible_count: 0,
       response: emptyRes || null,
     };
@@ -396,18 +402,14 @@ export async function publishOnDemandCatalog(env, target = {}, options = {}) {
   const messageIds = [];
 
   for (const row of rows) {
-    const res = await sendCatalogPartnerCard(
-      env,
-      chatId,
-      { topic_id: topicId },
-      row
-    );
+    const res = await sendCatalogPartnerCard(env, chatId, { topic_id: topicId }, row);
 
     if (!res?.ok || !res?.result?.message_id) {
       return {
         ok: false,
         reason: "telegram_send_failed",
         category_code: categoryCode,
+        kota,
         visible_count: messageIds.length,
         message_ids: messageIds,
         response: res || null,
@@ -420,6 +422,7 @@ export async function publishOnDemandCatalog(env, target = {}, options = {}) {
   return {
     ok: true,
     category_code: categoryCode,
+    kota,
     visible_count: rows.length,
     message_ids: messageIds,
   };
@@ -429,6 +432,7 @@ export async function cleanupPublishedCatalogForTarget(env, target = {}) {
   const chatId = normalizeChatId(target?.chat_id);
   const topicId = normalizeTopicId(target?.topic_id);
   const categoryCode = normalizeCategoryCode(target?.category_code);
+  const kota = normalizeKota(target?.kota);
 
   if (!chatId) {
     return { ok: false, reason: "missing_chat_id", removed_count: 0, failed_message_ids: [] };
@@ -438,6 +442,7 @@ export async function cleanupPublishedCatalogForTarget(env, target = {}) {
     chat_id: chatId,
     topic_id: topicId,
     category_code: categoryCode,
+    kota,
   });
 
   if (!state) {
@@ -461,6 +466,7 @@ export async function cleanupPublishedCatalogForTarget(env, target = {}) {
     chat_id: chatId,
     topic_id: topicId,
     category_code: categoryCode,
+    kota,
   });
 
   return {
@@ -474,6 +480,7 @@ export async function publishCatalogToTarget(env, target = {}, options = {}) {
   const chatId = normalizeChatId(target?.chat_id);
   const topicId = normalizeTopicId(target?.topic_id);
   const categoryCode = normalizeCategoryCode(target?.category_code);
+  const kota = normalizeKota(target?.kota);
   const pageSize = Math.max(
     1,
     Math.min(normalizePositiveInteger(options?.pageSize || DEFAULT_PAGE_SIZE, DEFAULT_PAGE_SIZE), 10)
@@ -491,6 +498,7 @@ export async function publishCatalogToTarget(env, target = {}, options = {}) {
     chat_id: chatId,
     topic_id: topicId,
     category_code: categoryCode,
+    kota,
   });
 
   const batch = await loadPartnerBatchForTarget(
@@ -499,6 +507,7 @@ export async function publishCatalogToTarget(env, target = {}, options = {}) {
       chat_id: chatId,
       topic_id: topicId,
       category_code: categoryCode,
+      kota,
     },
     pageSize
   );
@@ -510,7 +519,8 @@ export async function publishCatalogToTarget(env, target = {}, options = {}) {
       env,
       chatId,
       { topic_id: topicId },
-      categoryCode
+      categoryCode,
+      { kota }
     );
 
     if (!emptyRes?.ok || !emptyRes?.result?.message_id) {
@@ -520,6 +530,7 @@ export async function publishCatalogToTarget(env, target = {}, options = {}) {
         response: emptyRes || null,
         cleanup,
         category_code: categoryCode,
+        kota,
         partner_count: 0,
         visible_count: 0,
         page_count: 0,
@@ -534,6 +545,7 @@ export async function publishCatalogToTarget(env, target = {}, options = {}) {
       chat_id: chatId,
       topic_id: topicId,
       category_code: categoryCode,
+      kota,
       message_ids: sentMessageIds,
       partner_count: 0,
       page_count: sentMessageIds.length,
@@ -544,6 +556,7 @@ export async function publishCatalogToTarget(env, target = {}, options = {}) {
       ok: true,
       cleanup,
       category_code: categoryCode,
+      kota,
       partner_count: 0,
       visible_count: 0,
       page_count: sentMessageIds.length,
@@ -553,12 +566,7 @@ export async function publishCatalogToTarget(env, target = {}, options = {}) {
   }
 
   for (const row of batch.rows) {
-    const res = await sendCatalogPartnerCard(
-      env,
-      chatId,
-      { topic_id: topicId },
-      row
-    );
+    const res = await sendCatalogPartnerCard(env, chatId, { topic_id: topicId }, row);
 
     if (!res?.ok || !res?.result?.message_id) {
       if (sentMessageIds.length) {
@@ -566,6 +574,7 @@ export async function publishCatalogToTarget(env, target = {}, options = {}) {
           chat_id: chatId,
           topic_id: topicId,
           category_code: categoryCode,
+          kota,
           message_ids: sentMessageIds,
           partner_count: batch.total,
           page_count: sentMessageIds.length,
@@ -579,6 +588,7 @@ export async function publishCatalogToTarget(env, target = {}, options = {}) {
         response: res || null,
         cleanup,
         category_code: categoryCode,
+        kota,
         partner_count: batch.total,
         visible_count: sentMessageIds.length,
         page_count: sentMessageIds.length,
@@ -594,6 +604,7 @@ export async function publishCatalogToTarget(env, target = {}, options = {}) {
     chat_id: chatId,
     topic_id: topicId,
     category_code: categoryCode,
+    kota,
     message_ids: sentMessageIds,
     partner_count: batch.total,
     page_count: sentMessageIds.length,
@@ -604,6 +615,7 @@ export async function publishCatalogToTarget(env, target = {}, options = {}) {
     ok: true,
     cleanup,
     category_code: categoryCode,
+    kota,
     partner_count: batch.total,
     visible_count: batch.rows.length,
     page_count: sentMessageIds.length,
@@ -627,6 +639,7 @@ export async function publishCatalogToActiveTargets(env, options = {}) {
         chat_id: item.chat_id,
         topic_id: item.topic_id,
         category_code: item.category_code,
+        kota: item.kota,
       },
       {
         pageSize: options?.pageSize || DEFAULT_PAGE_SIZE,
@@ -637,6 +650,7 @@ export async function publishCatalogToActiveTargets(env, options = {}) {
       chat_id: item.chat_id,
       topic_id: item.topic_id ?? null,
       category_code: item.category_code,
+      kota: item.kota || null,
       ok: Boolean(result?.ok),
       result,
     });
