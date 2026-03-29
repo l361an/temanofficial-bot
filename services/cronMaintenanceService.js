@@ -1,245 +1,52 @@
 // services/cronMaintenanceService.js
 
-import { sendMessage } from "../services/telegramApi.js";
-import { buildTeManMenuKeyboard, formatDateTime } from "../routes/telegram.user.shared.js";
-import { expireDuePaymentTickets } from "../repositories/paymentTicketsRepo.js";
-import {
-  expireDueSubscriptions,
-  listSubscriptionsDueForReminder,
-  markSubscriptionReminderSent,
-  listActiveSubscriptionsByTelegramId,
-} from "../repositories/partnerSubscriptionsRepo.js";
-import { markSubscriptionExpired } from "./partnerStatusService.js";
-import { syncPartnerGroupRole } from "./partnerGroupRoleService.js";
+import { runSubscriptionReminderCycle } from "./subscriptionReminderService.js";
 
-function parseSqlDateTime(value) {
-  if (!value) return null;
-
-  const raw = String(value).trim();
-  const normalized = raw.includes("T") ? raw : raw.replace(" ", "T");
-  const d = new Date(normalized);
-
-  if (Number.isNaN(d.getTime())) return null;
-  return d;
-}
-
-function hasWindowCoverage(row, nowDate) {
-  const startAt = parseSqlDateTime(row?.start_at);
-  const endAt = parseSqlDateTime(row?.end_at);
-
-  if (!endAt) return false;
-  if (startAt && startAt.getTime() > nowDate.getTime()) return false;
-
-  return endAt.getTime() > nowDate.getTime();
-}
-
-async function hasActiveCoverageNow(env, partnerId) {
-  const rows = await listActiveSubscriptionsByTelegramId(env, partnerId).catch(() => []);
-  if (!Array.isArray(rows) || !rows.length) return false;
-
-  const nowDate = new Date();
-  return rows.some((row) => hasWindowCoverage(row, nowDate));
-}
-
-function buildReminderMessage(reminderKey, row) {
-  const endAtText = formatDateTime(row?.end_at);
-
-  if (String(reminderKey || "").trim().toLowerCase() === "h3h") {
-    return [
-      "⏰ <b>Masa aktif Premium TeMan kamu akan berakhir dalam 3 jam lagi pada:</b>",
-      `<b>${endAtText}</b>`,
-      "",
-      "Silakan lakukan <b>Pembayaran / Renewal</b> di <b>Menu Premium Partner</b> agar <b>Akses Premium</b> tetap aktif dan tetap dapat menggunakan <b>Fitur Premium TeMan</b>.",
-    ].join("\n");
-  }
-
-  return [
-    "⏰ <b>Masa aktif Premium TeMan kamu akan berakhir pada:</b>",
-    `<b>${endAtText}</b>`,
-    "",
-    "Silakan lakukan <b>Pembayaran / Renewal</b> di <b>Menu Premium Partner</b> agar <b>Akses Premium</b> tetap aktif dan tetap dapat menggunakan <b>Fitur Premium TeMan</b>.",
-  ].join("\n");
-}
-
-async function runExpirePaymentTickets(env) {
-  const expired = await expireDuePaymentTickets(env).catch((error) => {
-    console.error("[cron] expireDuePaymentTickets error:", error);
-    return { ok: false, rows: [] };
-  });
-
-  return {
-    ok: Boolean(expired?.ok),
-    count: Array.isArray(expired?.rows) ? expired.rows.length : 0,
-    rows: Array.isArray(expired?.rows) ? expired.rows : [],
-  };
-}
-
-async function runExpireSubscriptions(env) {
-  const expired = await expireDueSubscriptions(env).catch((error) => {
-    console.error("[cron] expireDueSubscriptions error:", error);
-    return { ok: false, partnerIds: [] };
-  });
-
-  const partnerIds = Array.isArray(expired?.partnerIds) ? expired.partnerIds : [];
-  let statusUpdatedCount = 0;
-  let skippedHasActiveCoverage = 0;
-  const notifiedPartnerIds = [];
-  const skippedPartnerIds = [];
-  const groupRoleSyncResults = [];
-
-  for (const partnerId of partnerIds) {
-    try {
-      const stillHasCoverage = await hasActiveCoverageNow(env, partnerId);
-
-      if (stillHasCoverage) {
-        skippedHasActiveCoverage += 1;
-        skippedPartnerIds.push(String(partnerId));
-        groupRoleSyncResults.push({
-          partner_id: String(partnerId),
-          result: {
-            ok: true,
-            skipped: true,
-            reason: "active_coverage_still_exists",
-          },
-        });
-        continue;
-      }
-
-      await markSubscriptionExpired(env, partnerId, null);
-      statusUpdatedCount += 1;
-
-      const groupRoleSync = await syncPartnerGroupRole(env, partnerId).catch((error) => ({
-        ok: false,
-        reason: error?.message || String(error),
-      }));
-
-      groupRoleSyncResults.push({
-        partner_id: String(partnerId),
-        result: groupRoleSync,
-      });
-
-      await sendMessage(
-        env,
-        partnerId,
-        [
-          "⛔ <b>Masa aktif Premium TeMan kamu sudah berakhir.</b>",
-          "",
-          "Status admin partner kamu di grup telah dinonaktifkan dan akun kamu telah di-mute otomatis.",
-          "",
-          "Silakan lakukan <b>Pembayaran / Renewal</b> di <b>Menu Premium Partner</b> agar <b>Akses Premium</b> aktif kembali dan kamu tetap dapat menggunakan <b>Fitur Premium TeMan</b>.",
-        ].join("\n"),
-        {
-          parse_mode: "HTML",
-          disable_web_page_preview: true,
-          reply_markup: buildTeManMenuKeyboard(),
-        }
-      ).catch(() => {});
-
-      notifiedPartnerIds.push(String(partnerId));
-    } catch (error) {
-      console.error("[cron] markSubscriptionExpired error:", {
-        partnerId,
-        error: error?.message || String(error),
-      });
-    }
-  }
-
-  return {
-    ok: Boolean(expired?.ok),
-    count: partnerIds.length,
-    statusUpdatedCount,
-    skippedHasActiveCoverage,
-    partnerIds,
-    notifiedPartnerIds,
-    skippedPartnerIds,
-    groupRoleSyncResults,
-  };
-}
-
-async function runReminderBatch(env, reminderKey) {
-  const rows = await listSubscriptionsDueForReminder(env, reminderKey, {
-    limit: 200,
-  }).catch((error) => {
-    console.error("[cron] listSubscriptionsDueForReminder error:", {
-      reminderKey,
-      error: error?.message || String(error),
-    });
-    return [];
-  });
-
-  let sentCount = 0;
-  let failedCount = 0;
-
-  for (const row of rows) {
-    const partnerId = String(row?.partner_id || "").trim();
-    const subscriptionId = row?.id;
-
-    if (!partnerId || !subscriptionId) {
-      failedCount += 1;
-      continue;
-    }
-
-    try {
-      await sendMessage(env, partnerId, buildReminderMessage(reminderKey, row), {
-        parse_mode: "HTML",
-        disable_web_page_preview: true,
-        reply_markup: buildTeManMenuKeyboard(),
-      });
-
-      await markSubscriptionReminderSent(env, subscriptionId, reminderKey);
-      sentCount += 1;
-    } catch (error) {
-      failedCount += 1;
-      console.error("[cron] reminder send error:", {
-        reminderKey,
-        partnerId,
-        subscriptionId,
-        error: error?.message || String(error),
-      });
-    }
-  }
-
-  return {
-    ok: true,
-    reminderKey,
-    candidateCount: rows.length,
-    sentCount,
-    failedCount,
-  };
-}
-
-async function runSubscriptionReminders(env) {
-  const reminderKeys = ["h3d", "h2d", "h1d", "h3h"];
-  const batches = [];
-
-  for (const reminderKey of reminderKeys) {
-    const result = await runReminderBatch(env, reminderKey);
-    batches.push(result);
-  }
-
-  return {
-    ok: true,
-    batches,
-    totalCandidates: batches.reduce((sum, item) => sum + Number(item?.candidateCount || 0), 0),
-    totalSent: batches.reduce((sum, item) => sum + Number(item?.sentCount || 0), 0),
-    totalFailed: batches.reduce((sum, item) => sum + Number(item?.failedCount || 0), 0),
-  };
+function sumReminderField(reminders, fieldName) {
+  return (Array.isArray(reminders) ? reminders : []).reduce(
+    (sum, item) => sum + Number(item?.[fieldName] || 0),
+    0
+  );
 }
 
 export async function runMaintenanceCron(env) {
   const startedAt = new Date().toISOString();
 
-  const expiredPayments = await runExpirePaymentTickets(env);
-  const expiredSubscriptions = await runExpireSubscriptions(env);
-  const reminders = await runSubscriptionReminders(env);
+  const cycle = await runSubscriptionReminderCycle(env, {
+    target: "all",
+    limit: 200,
+    dryRun: false,
+  });
+
+  const reminders = Array.isArray(cycle?.reminders) ? cycle.reminders : [];
 
   const summary = {
-    ok: true,
+    ok: Boolean(cycle?.ok),
     started_at: startedAt,
     finished_at: new Date().toISOString(),
-    expired_payments: expiredPayments,
-    expired_subscriptions: expiredSubscriptions,
-    reminders,
+    expired_payments: cycle?.expired_tickets || {
+      count: 0,
+      notified: 0,
+      failed: 0,
+    },
+    expired_subscriptions: cycle?.expired_subscriptions || {
+      expired_count: 0,
+      notified: 0,
+      failed: 0,
+      skipped_has_active_coverage: 0,
+      partner_ids: [],
+      notified_partner_ids: [],
+      skipped_partner_ids: [],
+      group_role_sync_results: [],
+    },
+    reminders: {
+      ok: true,
+      batches: reminders,
+      totalCandidates: sumReminderField(reminders, "candidates"),
+      totalSent: sumReminderField(reminders, "sent"),
+      totalFailed: sumReminderField(reminders, "failed"),
+    },
+    raw_cycle: cycle || null,
   };
 
   console.log("[cron] maintenance summary:", JSON.stringify(summary, null, 2));
