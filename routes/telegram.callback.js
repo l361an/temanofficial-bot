@@ -8,7 +8,7 @@ import { isAdminRole } from "../utils/roles.js";
 
 import { handleSelfInlineCallback } from "./telegram.commands.user.js";
 import { createHandlers } from "./callbacks/registry.js";
-import { CALLBACKS, CALLBACK_PREFIX } from "./telegram.constants.js";
+import { CALLBACKS, CALLBACK_PREFIX, isCatalogCallbackData } from "./telegram.constants.js";
 import { isScopeAllowed } from "./telegram.guard.js";
 
 const { EXACT, PREFIX } = createHandlers();
@@ -79,6 +79,7 @@ export async function handleCallback(update, env) {
   const chat = msg?.chat || null;
   const msgChatId = msg?.chat?.id;
   const msgId = msg?.message_id;
+  const catalogAction = isCatalogCallbackData(data);
 
   if (!data || !adminId) return ok();
 
@@ -94,26 +95,28 @@ export async function handleCallback(update, env) {
   });
 
   if (!scopeAllowed) return ok();
-  if (!isPrivateChat(chat)) return ok();
+  if (!catalogAction && !isPrivateChat(chat)) return ok();
 
-  try {
-    const handledSelf = await handleSelfInlineCallback(update, env);
-    if (handledSelf) {
-      await answerCallbackSafely(env, callbackQueryId, null, {
+  if (!catalogAction) {
+    try {
+      const handledSelf = await handleSelfInlineCallback(update, env);
+      if (handledSelf) {
+        await answerCallbackSafely(env, callbackQueryId, null, {
+          adminId,
+          data,
+          stage: "self_inline_handled",
+        });
+        return ok();
+      }
+    } catch (err) {
+      logError("[callback.self_inline.failed]", {
         adminId,
         data,
-        stage: "self_inline_handled",
+        msgChatId: msgChatId || null,
+        msgId: msgId || null,
+        err: err?.message || String(err || ""),
       });
-      return ok();
     }
-  } catch (err) {
-    logError("[callback.self_inline.failed]", {
-      adminId,
-      data,
-      msgChatId: msgChatId || null,
-      msgId: msgId || null,
-      err: err?.message || String(err || ""),
-    });
   }
 
   const role = await getAdminRole(env, adminId).catch((err) => {
@@ -164,23 +167,29 @@ export async function handleCallback(update, env) {
   const ctx = {
     env,
     update,
+    callback,
+    callbackQueryId,
     data,
     adminId,
     role,
     msg,
+    chat,
     msgChatId,
     msgId,
+    isCatalogAction: catalogAction,
   };
 
   try {
     const exactHandler = EXACT[data];
     if (exactHandler) {
-      await answerCallbackSafely(env, callbackQueryId, null, {
-        adminId,
-        role,
-        data,
-        stage: "exact_ack",
-      });
+      if (!catalogAction) {
+        await answerCallbackSafely(env, callbackQueryId, null, {
+          adminId,
+          role,
+          data,
+          stage: "exact_ack",
+        });
+      }
 
       await exactHandler(ctx);
       return ok();
@@ -188,12 +197,14 @@ export async function handleCallback(update, env) {
 
     for (const handler of PREFIX) {
       if (handler.match(data)) {
-        await answerCallbackSafely(env, callbackQueryId, null, {
-          adminId,
-          role,
-          data,
-          stage: "prefix_ack",
-        });
+        if (!catalogAction) {
+          await answerCallbackSafely(env, callbackQueryId, null, {
+            adminId,
+            role,
+            data,
+            stage: "prefix_ack",
+          });
+        }
 
         await handler.run(ctx);
         return ok();
