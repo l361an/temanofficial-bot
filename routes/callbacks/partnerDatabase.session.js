@@ -3,6 +3,16 @@
 import { saveSession } from "../../utils/session.js";
 import { SESSION_MODES } from "../telegram.constants.js";
 
+function hasOwn(obj, key) {
+  return Boolean(obj) && Object.prototype.hasOwnProperty.call(obj, key);
+}
+
+function pickPatchedValue(patchData, currentData, key, fallback = null) {
+  if (hasOwn(patchData, key)) return patchData[key];
+  if (hasOwn(currentData, key)) return currentData[key];
+  return fallback;
+}
+
 /**
  * Resolve anchor message for UI editing
  * Ensures bot always edits the same message instead of sending new ones
@@ -52,41 +62,49 @@ export async function persistPartnerViewSession(
   patch = {},
   fallbackMessage = null
 ) {
+  const patchData = patch?.data || {};
+  const currentData = currentSession?.data || {};
+
   const sourceChatId =
-    patch?.data?.source_chat_id ??
-    currentSession?.data?.source_chat_id ??
-    fallbackMessage?.chat?.id ??
-    adminId;
+    hasOwn(patchData, "source_chat_id")
+      ? patchData.source_chat_id
+      : hasOwn(currentData, "source_chat_id")
+      ? currentData.source_chat_id
+      : fallbackMessage?.chat?.id ?? adminId;
 
   const sourceMessageId =
-    patch?.data?.source_message_id ??
-    currentSession?.data?.source_message_id ??
-    fallbackMessage?.message_id ??
-    null;
+    hasOwn(patchData, "source_message_id")
+      ? patchData.source_message_id
+      : hasOwn(currentData, "source_message_id")
+      ? currentData.source_message_id
+      : fallbackMessage?.message_id ?? null;
 
   const baseData = {
     source_chat_id: sourceChatId,
     source_message_id: sourceMessageId,
 
-    selected_partner_id:
-      patch?.data?.selected_partner_id ??
-      currentSession?.data?.selected_partner_id ??
-      null,
+    selected_partner_id: pickPatchedValue(patchData, currentData, "selected_partner_id", null),
+    selected_input: pickPatchedValue(patchData, currentData, "selected_input", null),
 
-    selected_input:
-      patch?.data?.selected_input ??
-      currentSession?.data?.selected_input ??
-      null,
+    details_anchor_chat_id: pickPatchedValue(
+      patchData,
+      currentData,
+      "details_anchor_chat_id",
+      null
+    ),
+    details_anchor_message_id: pickPatchedValue(
+      patchData,
+      currentData,
+      "details_anchor_message_id",
+      null
+    ),
 
-    details_anchor_chat_id:
-      patch?.data?.details_anchor_chat_id ??
-      currentSession?.data?.details_anchor_chat_id ??
-      null,
-
-    details_anchor_message_id:
-      patch?.data?.details_anchor_message_id ??
-      currentSession?.data?.details_anchor_message_id ??
-      null,
+    subscription_adjust_action: pickPatchedValue(
+      patchData,
+      currentData,
+      "subscription_adjust_action",
+      null
+    ),
   };
 
   await saveSession(env, `state:${adminId}`, {
