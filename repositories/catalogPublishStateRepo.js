@@ -8,12 +8,21 @@ function normalizeString(value) {
   return String(value || "").trim();
 }
 
+function normalizeLower(value) {
+  return normalizeString(value).toLowerCase();
+}
+
 function normalizeChatId(value) {
   return normalizeString(value);
 }
 
 function normalizeTopicId(value) {
   const raw = normalizeString(value);
+  return raw || null;
+}
+
+function normalizeCategoryCode(value) {
+  const raw = normalizeLower(value);
   return raw || null;
 }
 
@@ -26,14 +35,25 @@ function normalizeMessageIds(values) {
     .map((value) => Math.floor(value));
 }
 
+function normalizeNonNegativeInteger(value, fallback = 0) {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num < 0) return fallback;
+  return Math.floor(num);
+}
+
 function nowIso() {
   return new Date().toISOString();
 }
 
-function buildStateKey(chatId, topicId) {
+function buildStateKey(chatId, topicId, categoryCode) {
   const normalizedChatId = normalizeChatId(chatId);
   const normalizedTopicId = normalizeTopicId(topicId);
-  return `${normalizedChatId}::${normalizedTopicId || "-"}`;
+  const normalizedCategoryCode = normalizeCategoryCode(categoryCode);
+  return `${normalizedChatId}::${normalizedTopicId || "-"}::${normalizedCategoryCode || "-"}`;
+}
+
+function buildLegacyStateKey(chatId, topicId) {
+  return buildStateKey(chatId, topicId, null);
 }
 
 function parseStates(rawValue) {
@@ -52,9 +72,11 @@ function parseStates(rawValue) {
         return {
           chat_id: chatId,
           topic_id: normalizeTopicId(item?.topic_id),
+          category_code: normalizeCategoryCode(item?.category_code),
           message_ids: normalizeMessageIds(item?.message_ids),
-          partner_count: Number(item?.partner_count || 0),
-          page_count: Number(item?.page_count || 0),
+          partner_count: normalizeNonNegativeInteger(item?.partner_count, 0),
+          page_count: normalizeNonNegativeInteger(item?.page_count, 0),
+          rotation_cursor: normalizeNonNegativeInteger(item?.rotation_cursor, 0),
           updated_at: normalizeString(item?.updated_at) || nowIso(),
         };
       })
@@ -80,53 +102,75 @@ export async function saveCatalogPublishStates(env, states) {
 export async function getCatalogPublishState(env, target = {}) {
   const chatId = normalizeChatId(target?.chat_id);
   const topicId = normalizeTopicId(target?.topic_id);
+  const categoryCode = normalizeCategoryCode(target?.category_code);
 
   if (!chatId) return null;
 
   const states = await getCatalogPublishStates(env);
-  const stateKey = buildStateKey(chatId, topicId);
+  const exactKey = buildStateKey(chatId, topicId, categoryCode);
+
+  const exact =
+    states.find(
+      (item) =>
+        buildStateKey(item.chat_id, item.topic_id, item.category_code) === exactKey
+    ) || null;
+
+  if (exact) return exact;
+
+  if (!categoryCode) return null;
 
   return (
-    states.find((item) => buildStateKey(item.chat_id, item.topic_id) === stateKey) || null
+    states.find(
+      (item) =>
+        buildStateKey(item.chat_id, item.topic_id, item.category_code) ===
+        buildLegacyStateKey(chatId, topicId)
+    ) || null
   );
 }
 
 export async function upsertCatalogPublishState(env, payload = {}) {
   const chatId = normalizeChatId(payload?.chat_id);
   const topicId = normalizeTopicId(payload?.topic_id);
+  const categoryCode = normalizeCategoryCode(payload?.category_code);
 
   if (!chatId) {
     return { ok: false, reason: "missing_chat_id" };
   }
 
+  if (!categoryCode) {
+    return { ok: false, reason: "missing_category_code" };
+  }
+
   const states = await getCatalogPublishStates(env);
-  const stateKey = buildStateKey(chatId, topicId);
+  const stateKey = buildStateKey(chatId, topicId, categoryCode);
+  const legacyStateKey = buildLegacyStateKey(chatId, topicId);
+
   const nextItem = {
     chat_id: chatId,
     topic_id: topicId,
+    category_code: categoryCode,
     message_ids: normalizeMessageIds(payload?.message_ids),
-    partner_count: Number(payload?.partner_count || 0),
-    page_count: Number(payload?.page_count || 0),
+    partner_count: normalizeNonNegativeInteger(payload?.partner_count, 0),
+    page_count: normalizeNonNegativeInteger(payload?.page_count, 0),
+    rotation_cursor: normalizeNonNegativeInteger(payload?.rotation_cursor, 0),
     updated_at: nowIso(),
   };
 
   let found = false;
 
-  const nextStates = states.map((item) => {
-    if (buildStateKey(item.chat_id, item.topic_id) !== stateKey) {
-      return item;
+  const nextStates = states.filter((item) => {
+    const itemKey = buildStateKey(item.chat_id, item.topic_id, item.category_code);
+    const shouldReplace = itemKey === stateKey || itemKey === legacyStateKey;
+
+    if (shouldReplace) {
+      found = true;
+      return false;
     }
 
-    found = true;
-    return {
-      ...item,
-      ...nextItem,
-    };
+    return true;
   });
 
-  if (!found) {
-    nextStates.push(nextItem);
-  }
+  nextStates.push(nextItem);
 
   await saveCatalogPublishStates(env, nextStates);
 
@@ -141,26 +185,32 @@ export async function upsertCatalogPublishState(env, payload = {}) {
 export async function removeCatalogPublishState(env, target = {}) {
   const chatId = normalizeChatId(target?.chat_id);
   const topicId = normalizeTopicId(target?.topic_id);
+  const categoryCode = normalizeCategoryCode(target?.category_code);
 
   if (!chatId) {
     return { ok: false, reason: "missing_chat_id" };
   }
 
   const states = await getCatalogPublishStates(env);
-  const stateKey = buildStateKey(chatId, topicId);
+  const stateKey = buildStateKey(chatId, topicId, categoryCode);
+  const legacyStateKey = categoryCode ? buildLegacyStateKey(chatId, topicId) : null;
 
-  const removedItem =
-    states.find((item) => buildStateKey(item.chat_id, item.topic_id) === stateKey) || null;
+  const removedItems = states.filter((item) => {
+    const itemKey = buildStateKey(item.chat_id, item.topic_id, item.category_code);
+    return itemKey === stateKey || (legacyStateKey && itemKey === legacyStateKey);
+  });
 
-  const nextStates = states.filter(
-    (item) => buildStateKey(item.chat_id, item.topic_id) !== stateKey
-  );
+  const nextStates = states.filter((item) => {
+    const itemKey = buildStateKey(item.chat_id, item.topic_id, item.category_code);
+    return itemKey !== stateKey && (!legacyStateKey || itemKey !== legacyStateKey);
+  });
 
   await saveCatalogPublishStates(env, nextStates);
 
   return {
     ok: true,
-    removed: removedItem,
+    removed: removedItems[0] || null,
+    removed_items: removedItems,
     items: nextStates,
   };
 }
