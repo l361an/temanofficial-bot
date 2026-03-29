@@ -130,6 +130,10 @@ export const CALLBACK_PREFIX = {
   SETCATALOGGROUP_CANCEL: "setcataloggroup_cancel:",
   SETCATALOGTOPIC_CONFIRM: "setcatalogtopic_confirm:",
   SETCATALOGTOPIC_CANCEL: "setcatalogtopic_cancel:",
+
+  CATALOG_DETAILS_OPEN: "catalog:details:",
+  CATALOG_DETAILS_CLOSE: "catalog:close:",
+  CATALOG_BOOK: "catalog:book:",
 };
 
 export const OBSOLETE_ADMIN_COMMANDS = new Set([
@@ -192,4 +196,17 @@ export const cb = {
   setCatalogGroupCancel: (adminId) => `${CALLBACK_PREFIX.SETCATALOGGROUP_CANCEL}${adminId}`,
   setCatalogTopicConfirm: (adminId) => `${CALLBACK_PREFIX.SETCATALOGTOPIC_CONFIRM}${adminId}`,
   setCatalogTopicCancel: (adminId) => `${CALLBACK_PREFIX.SETCATALOGTOPIC_CANCEL}${adminId}`,
+
+  catalogDetailsOpen: (telegramId) => `${CALLBACK_PREFIX.CATALOG_DETAILS_OPEN}${telegramId}`,
+  catalogDetailsClose: (telegramId) => `${CALLBACK_PREFIX.CATALOG_DETAILS_CLOSE}${telegramId}`,
+  catalogBook: (telegramId) => `${CALLBACK_PREFIX.CATALOG_BOOK}${telegramId}`,
 };
+
+export function isCatalogCallbackData(data) {
+  const value = String(data || "");
+  return (
+    value.startsWith(CALLBACK_PREFIX.CATALOG_DETAILS_OPEN) ||
+    value.startsWith(CALLBACK_PREFIX.CATALOG_DETAILS_CLOSE) ||
+    value.startsWith(CALLBACK_PREFIX.CATALOG_BOOK)
+  );
+}
