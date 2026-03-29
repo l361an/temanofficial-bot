@@ -1,18 +1,23 @@
 // services/catalogPublisher.js
 
-import { sendMessage, deleteMessage } from "./telegramApi.js";
-import { listCatalogPartners } from "../repositories/catalogRepo.js";
+import { sendMessage, sendPhoto, deleteMessage } from "./telegramApi.js";
+import { listCatalogPartners, countCatalogPartners } from "../repositories/catalogRepo.js";
 import { getCatalogTargets } from "../repositories/catalogTargetsRepo.js";
 import {
   getCatalogPublishState,
   upsertCatalogPublishState,
   removeCatalogPublishState,
 } from "../repositories/catalogPublishStateRepo.js";
+import { cb } from "../routes/telegram.constants.js";
 
-const TELEGRAM_TEXT_LIMIT = 3900;
+const DEFAULT_PAGE_SIZE = 3;
 
 function normalizeString(value) {
   return String(value || "").trim();
+}
+
+function normalizeLower(value) {
+  return normalizeString(value).toLowerCase();
 }
 
 function normalizeChatId(value) {
@@ -24,9 +29,26 @@ function normalizeTopicId(value) {
   return raw || null;
 }
 
+function normalizeCategoryCode(value) {
+  const raw = normalizeLower(value);
+  return raw || null;
+}
+
 function normalizeThreadId(value) {
   const num = Number(value);
   if (!Number.isFinite(num) || num <= 0) return null;
+  return Math.floor(num);
+}
+
+function normalizePositiveInteger(value, fallback) {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num <= 0) return fallback;
+  return Math.floor(num);
+}
+
+function normalizeNonNegativeInteger(value, fallback = 0) {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num < 0) return fallback;
   return Math.floor(num);
 }
 
@@ -50,16 +72,10 @@ function formatMoney(value) {
   }
 }
 
-function formatJakartaDateTime(value = new Date()) {
-  try {
-    return new Intl.DateTimeFormat("id-ID", {
-      dateStyle: "medium",
-      timeStyle: "short",
-      timeZone: "Asia/Jakarta",
-    }).format(value);
-  } catch {
-    return new Date(value).toISOString();
-  }
+function formatMoneyLabel(value) {
+  const num = Number(value || 0);
+  if (!Number.isFinite(num) || num <= 0) return "-";
+  return `Rp ${formatMoney(num)}`;
 }
 
 function titleCase(value) {
@@ -79,111 +95,230 @@ function buildTargetSendExtra(target = {}) {
   return { message_thread_id: threadId };
 }
 
-function buildCatalogHeader(total, pageNumber) {
-  const lines = [
-    "📚 <b>Katalog Partner TeMan</b>",
-    `🕒 Update: <b>${escapeHtml(formatJakartaDateTime(new Date()))}</b>`,
-    `👥 Total partner tampil: <b>${total}</b>`,
-  ];
-
-  if (Number(pageNumber || 1) > 1) {
-    lines.push(`📄 Bagian: <b>${pageNumber}</b>`);
-  }
-
-  return lines.join("\n");
-}
-
 function buildLocationText(row) {
-  const parts = [normalizeString(row?.kecamatan), normalizeString(row?.kota)].filter(Boolean);
-  return parts.length ? parts.join(", ") : "-";
+  const kecamatan = normalizeString(row?.kecamatan);
+  const kota = normalizeString(row?.kota);
+
+  if (kecamatan && kota) return `${kecamatan} - ${kota}`;
+  if (kecamatan) return kecamatan;
+  if (kota) return kota;
+  return "-";
 }
 
-function buildPartnerName(row, index) {
+function buildCategoryLabel(categoryCode) {
+  return titleCase(categoryCode);
+}
+
+export function buildCatalogPartnerDisplayName(row) {
   const nickname = normalizeString(row?.nickname);
   const namaLengkap = normalizeString(row?.nama_lengkap);
 
-  if (nickname && namaLengkap && normalizeString(nickname) !== normalizeString(namaLengkap)) {
+  if (nickname && namaLengkap && nickname !== namaLengkap) {
     return `${nickname} (${namaLengkap})`;
   }
 
   if (nickname) return nickname;
   if (namaLengkap) return namaLengkap;
-  return `Partner ${index}`;
+  return "Partner";
 }
 
-function buildPartnerEntry(row, index) {
-  const name = escapeHtml(buildPartnerName(row, index));
-  const classId = escapeHtml(titleCase(row?.class_id || row?.active_subscription_class_id));
-  const categories = Array.isArray(row?.category_codes) && row.category_codes.length
-    ? row.category_codes.map((item) => escapeHtml(item)).join(", ")
-    : "-";
-  const location = escapeHtml(buildLocationText(row));
-  const startPrice = escapeHtml(
-    Number(row?.start_price || 0) > 0 ? `Rp ${formatMoney(row.start_price)}` : "-"
-  );
-  const username = normalizeString(row?.username);
-  const usernameText = username ? `@${escapeHtml(username)}` : "-";
+function buildReviewLine(stats = {}) {
+  const completedOrderCount = Number(stats?.completed_order_count || 0);
+  if (!Number.isFinite(completedOrderCount) || completedOrderCount <= 0) {
+    return "";
+  }
 
+  const averageRating = Number(stats?.average_rating || 0);
+  const ratingLabel = Number.isFinite(averageRating) ? averageRating.toFixed(1) : "0.0";
+
+  return `⭐ Review: <b>${escapeHtml(ratingLabel)}</b> • <b>${completedOrderCount}</b> terima order via bot`;
+}
+
+export function buildCatalogPartnerSummaryText(row) {
+  return `<b>${escapeHtml(buildCatalogPartnerDisplayName(row))}</b>`;
+}
+
+export function buildCatalogPartnerDetailsText(row, stats = {}) {
+  const username = normalizeString(row?.username);
+  const reviewLine = buildReviewLine(stats);
+
+  const lines = [
+    `<b>${escapeHtml(buildCatalogPartnerDisplayName(row))}</b>`,
+    `Nama: <b>${escapeHtml(buildCatalogPartnerDisplayName(row))}</b>`,
+    `Username: ${username ? `@${escapeHtml(username)}` : "-"}`,
+    `Lokasi: ${escapeHtml(buildLocationText(row))}`,
+    `Tarif Minimum: <b>${escapeHtml(formatMoneyLabel(row?.start_price))}</b>`,
+  ];
+
+  if (reviewLine) {
+    lines.push(reviewLine);
+  }
+
+  return lines.join("\n");
+}
+
+export function buildCatalogPartnerReplyMarkup(mode, telegramId) {
+  const normalizedTelegramId = normalizeString(telegramId);
+  if (!normalizedTelegramId) return undefined;
+
+  const detailButton =
+    mode === "details"
+      ? {
+          text: "Tutup Details",
+          callback_data: cb.catalogDetailsClose(normalizedTelegramId),
+        }
+      : {
+          text: "Details",
+          callback_data: cb.catalogDetailsOpen(normalizedTelegramId),
+        };
+
+  return {
+    inline_keyboard: [
+      [
+        detailButton,
+        {
+          text: "Safety Booking",
+          callback_data: cb.catalogBook(normalizedTelegramId),
+        },
+      ],
+    ],
+  };
+}
+
+function pickCatalogPhotoFileId(row) {
+  const closeup = normalizeString(row?.foto_closeup_file_id);
+  const fullbody = normalizeString(row?.foto_fullbody_file_id);
+
+  if (closeup) return closeup;
+  if (fullbody) return fullbody;
+  return null;
+}
+
+function buildEmptyCatalogText(categoryCode) {
   return [
-    `${index}. <b>${name}</b>`,
-    `   Class    : <b>${classId}</b>`,
-    `   Kategori : ${categories}`,
-    `   Lokasi   : ${location}`,
-    `   Mulai    : <b>${startPrice}</b>`,
-    `   Telegram : ${usernameText}`,
+    `📚 <b>Katalog ${escapeHtml(buildCategoryLabel(categoryCode))}</b>`,
+    "",
+    "Belum ada partner yang siap tampil saat ini.",
   ].join("\n");
 }
 
-function buildCatalogMessages(rows = []) {
-  const total = Array.isArray(rows) ? rows.length : 0;
+function computeNextCursor(total, offset, deliveredCount) {
+  const safeTotal = normalizeNonNegativeInteger(total, 0);
+  const safeOffset = normalizeNonNegativeInteger(offset, 0);
+  const safeDeliveredCount = normalizeNonNegativeInteger(deliveredCount, 0);
 
-  if (!total) {
-    return [
-      [
-        buildCatalogHeader(0, 1),
-        "",
-        "Belum ada partner yang siap tampil di katalog saat ini.",
-      ].join("\n"),
-    ];
+  if (safeTotal <= 0) return 0;
+  if (safeDeliveredCount <= 0) return safeOffset >= safeTotal ? 0 : safeOffset;
+  if (safeDeliveredCount >= safeTotal) return 0;
+
+  return (safeOffset + safeDeliveredCount) % safeTotal;
+}
+
+async function loadPartnerBatchForTarget(env, target = {}, pageSize = DEFAULT_PAGE_SIZE) {
+  const categoryCode = normalizeCategoryCode(target?.category_code);
+  const safePageSize = Math.max(1, Math.min(normalizePositiveInteger(pageSize, DEFAULT_PAGE_SIZE), 10));
+
+  if (!categoryCode) {
+    return {
+      total: 0,
+      rows: [],
+      offset: 0,
+      nextCursor: 0,
+    };
   }
 
-  const pages = [];
-  let pageNumber = 1;
-  let current = buildCatalogHeader(total, pageNumber);
+  const total = await countCatalogPartners(env, { categoryCode }).catch(() => 0);
 
-  for (let i = 0; i < rows.length; i += 1) {
-    const entry = buildPartnerEntry(rows[i], i + 1);
-    const candidate = `${current}\n\n${entry}`;
+  if (total <= 0) {
+    return {
+      total: 0,
+      rows: [],
+      offset: 0,
+      nextCursor: 0,
+    };
+  }
 
-    if (candidate.length > TELEGRAM_TEXT_LIMIT && current !== buildCatalogHeader(total, pageNumber)) {
-      pages.push(current);
-      pageNumber += 1;
-      current = `${buildCatalogHeader(total, pageNumber)}\n\n${entry}`;
-      continue;
+  const previousState = await getCatalogPublishState(env, {
+    chat_id: target?.chat_id,
+    topic_id: target?.topic_id,
+    category_code: categoryCode,
+  }).catch(() => null);
+
+  let offset = normalizeNonNegativeInteger(previousState?.rotation_cursor, 0);
+  if (offset >= total) offset = 0;
+
+  let rows = await listCatalogPartners(env, {
+    categoryCode,
+    limit: safePageSize,
+    offset,
+  }).catch(() => []);
+
+  const expectedVisibleCount = Math.min(total, safePageSize);
+
+  if (rows.length < expectedVisibleCount && total > rows.length && offset > 0) {
+    const remaining = expectedVisibleCount - rows.length;
+
+    if (remaining > 0) {
+      const wrapRows = await listCatalogPartners(env, {
+        categoryCode,
+        limit: remaining,
+        offset: 0,
+      }).catch(() => []);
+
+      const seen = new Set(rows.map((item) => normalizeString(item?.telegram_id)));
+
+      for (const row of wrapRows) {
+        const telegramId = normalizeString(row?.telegram_id);
+        if (!telegramId || seen.has(telegramId)) continue;
+        seen.add(telegramId);
+        rows.push(row);
+      }
     }
-
-    if (candidate.length > TELEGRAM_TEXT_LIMIT) {
-      const nextHeader = buildCatalogHeader(total, pageNumber);
-      const budget = Math.max(500, TELEGRAM_TEXT_LIMIT - nextHeader.length - 5);
-      const trimmedEntry =
-        entry.length > budget ? `${entry.slice(0, budget - 1)}…` : entry;
-      current = `${nextHeader}\n\n${trimmedEntry}`;
-      continue;
-    }
-
-    current = candidate;
   }
 
-  if (current) {
-    pages.push(current);
+  rows = rows.slice(0, safePageSize);
+
+  return {
+    total,
+    rows,
+    offset,
+    nextCursor: computeNextCursor(total, offset, rows.length),
+  };
+}
+
+async function sendCatalogPartnerCard(env, chatId, target, row) {
+  const summaryText = buildCatalogPartnerSummaryText(row);
+  const replyMarkup = buildCatalogPartnerReplyMarkup("summary", row?.telegram_id);
+  const photoFileId = pickCatalogPhotoFileId(row);
+
+  if (photoFileId) {
+    return sendPhoto(env, chatId, photoFileId, summaryText, {
+      parse_mode: "HTML",
+      reply_markup: replyMarkup,
+      ...buildTargetSendExtra(target),
+    });
   }
 
-  return pages;
+  return sendMessage(env, chatId, summaryText, {
+    parse_mode: "HTML",
+    reply_markup: replyMarkup,
+    disable_web_page_preview: true,
+    ...buildTargetSendExtra(target),
+  });
+}
+
+async function sendEmptyCatalogCard(env, chatId, target, categoryCode) {
+  return sendMessage(env, chatId, buildEmptyCatalogText(categoryCode), {
+    parse_mode: "HTML",
+    disable_web_page_preview: true,
+    ...buildTargetSendExtra(target),
+  });
 }
 
 export async function cleanupPublishedCatalogForTarget(env, target = {}) {
   const chatId = normalizeChatId(target?.chat_id);
   const topicId = normalizeTopicId(target?.topic_id);
+  const categoryCode = normalizeCategoryCode(target?.category_code);
 
   if (!chatId) {
     return { ok: false, reason: "missing_chat_id", removed_count: 0, failed_message_ids: [] };
@@ -192,6 +327,7 @@ export async function cleanupPublishedCatalogForTarget(env, target = {}) {
   const state = await getCatalogPublishState(env, {
     chat_id: chatId,
     topic_id: topicId,
+    category_code: categoryCode,
   });
 
   if (!state) {
@@ -214,6 +350,7 @@ export async function cleanupPublishedCatalogForTarget(env, target = {}) {
   await removeCatalogPublishState(env, {
     chat_id: chatId,
     topic_id: topicId,
+    category_code: categoryCode,
   });
 
   return {
@@ -226,41 +363,105 @@ export async function cleanupPublishedCatalogForTarget(env, target = {}) {
 export async function publishCatalogToTarget(env, target = {}, options = {}) {
   const chatId = normalizeChatId(target?.chat_id);
   const topicId = normalizeTopicId(target?.topic_id);
+  const categoryCode = normalizeCategoryCode(target?.category_code);
+  const pageSize = Math.max(
+    1,
+    Math.min(normalizePositiveInteger(options?.pageSize || DEFAULT_PAGE_SIZE, DEFAULT_PAGE_SIZE), 10)
+  );
 
   if (!chatId) {
     return { ok: false, reason: "missing_chat_id" };
   }
 
+  if (!categoryCode) {
+    return { ok: false, reason: "missing_category_code" };
+  }
+
   const cleanup = await cleanupPublishedCatalogForTarget(env, {
     chat_id: chatId,
     topic_id: topicId,
+    category_code: categoryCode,
   });
 
-  const partners = await listCatalogPartners(env, {
-    limit: Number(options?.limit || 500),
-    offset: 0,
-  });
-
-  const messages = buildCatalogMessages(partners);
-  const sendExtra = {
-    parse_mode: "HTML",
-    disable_web_page_preview: true,
-    ...buildTargetSendExtra({ topic_id: topicId }),
-  };
+  const batch = await loadPartnerBatchForTarget(
+    env,
+    {
+      chat_id: chatId,
+      topic_id: topicId,
+      category_code: categoryCode,
+    },
+    pageSize
+  );
 
   const sentMessageIds = [];
 
-  for (const text of messages) {
-    const res = await sendMessage(env, chatId, text, sendExtra);
+  if (!batch.total || !batch.rows.length) {
+    const emptyRes = await sendEmptyCatalogCard(
+      env,
+      chatId,
+      { topic_id: topicId },
+      categoryCode
+    );
+
+    if (!emptyRes?.ok || !emptyRes?.result?.message_id) {
+      return {
+        ok: false,
+        reason: "telegram_send_failed",
+        response: emptyRes || null,
+        cleanup,
+        category_code: categoryCode,
+        partner_count: 0,
+        visible_count: 0,
+        page_count: 0,
+        message_ids: [],
+        rotation_cursor: 0,
+      };
+    }
+
+    sentMessageIds.push(Number(emptyRes.result.message_id));
+
+    await upsertCatalogPublishState(env, {
+      chat_id: chatId,
+      topic_id: topicId,
+      category_code: categoryCode,
+      message_ids: sentMessageIds,
+      partner_count: 0,
+      page_count: sentMessageIds.length,
+      rotation_cursor: 0,
+    });
+
+    return {
+      ok: true,
+      cleanup,
+      category_code: categoryCode,
+      partner_count: 0,
+      visible_count: 0,
+      page_count: sentMessageIds.length,
+      message_ids: sentMessageIds,
+      rotation_cursor: 0,
+    };
+  }
+
+  for (const row of batch.rows) {
+    const res = await sendCatalogPartnerCard(
+      env,
+      chatId,
+      {
+        topic_id: topicId,
+      },
+      row
+    );
 
     if (!res?.ok || !res?.result?.message_id) {
       if (sentMessageIds.length) {
         await upsertCatalogPublishState(env, {
           chat_id: chatId,
           topic_id: topicId,
+          category_code: categoryCode,
           message_ids: sentMessageIds,
-          partner_count: partners.length,
+          partner_count: batch.total,
           page_count: sentMessageIds.length,
+          rotation_cursor: batch.nextCursor,
         });
       }
 
@@ -269,9 +470,12 @@ export async function publishCatalogToTarget(env, target = {}, options = {}) {
         reason: "telegram_send_failed",
         response: res || null,
         cleanup,
-        partner_count: partners.length,
+        category_code: categoryCode,
+        partner_count: batch.total,
+        visible_count: sentMessageIds.length,
         page_count: sentMessageIds.length,
         message_ids: sentMessageIds,
+        rotation_cursor: batch.nextCursor,
       };
     }
 
@@ -281,23 +485,30 @@ export async function publishCatalogToTarget(env, target = {}, options = {}) {
   await upsertCatalogPublishState(env, {
     chat_id: chatId,
     topic_id: topicId,
+    category_code: categoryCode,
     message_ids: sentMessageIds,
-    partner_count: partners.length,
+    partner_count: batch.total,
     page_count: sentMessageIds.length,
+    rotation_cursor: batch.nextCursor,
   });
 
   return {
     ok: true,
     cleanup,
-    partner_count: partners.length,
+    category_code: categoryCode,
+    partner_count: batch.total,
+    visible_count: batch.rows.length,
     page_count: sentMessageIds.length,
     message_ids: sentMessageIds,
+    rotation_cursor: batch.nextCursor,
   };
 }
 
 export async function publishCatalogToActiveTargets(env, options = {}) {
   const targets = await getCatalogTargets(env).catch(() => []);
-  const activeTargets = (targets || []).filter((item) => item?.is_active);
+  const activeTargets = (targets || []).filter(
+    (item) => item?.is_active && normalizeCategoryCode(item?.category_code)
+  );
 
   const results = [];
 
@@ -307,13 +518,17 @@ export async function publishCatalogToActiveTargets(env, options = {}) {
       {
         chat_id: item.chat_id,
         topic_id: item.topic_id,
+        category_code: item.category_code,
       },
-      options
+      {
+        pageSize: options?.pageSize || DEFAULT_PAGE_SIZE,
+      }
     );
 
     results.push({
       chat_id: item.chat_id,
       topic_id: item.topic_id ?? null,
+      category_code: item.category_code,
       ok: Boolean(result?.ok),
       result,
     });
