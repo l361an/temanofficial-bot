@@ -242,7 +242,7 @@ async function deactivateOtherCatalogTargetsInScope(env, chat, msg, keepCategory
 
 async function handleTemankuCommand({ env, chat, msg, chatId, telegramId, role }) {
   const isPrivate = isPrivateChat(chat);
-  const text = buildTemankuHubText(role, { isPrivate });
+  const text = buildTemankuHubText(role);
 
   if (isAdminRole(role) && isPrivate) {
     await sendMessage(env, chatId, text, {
@@ -701,6 +701,7 @@ async function handleAdminSessionInput({
         env,
         chatId,
         text,
+        role,
         session,
         STATE_KEY,
       })
@@ -715,7 +716,7 @@ async function handleAdminIdleMessage({ env, chat, chatId, role }) {
     return true;
   }
 
-  await sendMessage(env, chatId, buildTemankuHubText(role, { isPrivate: true }), {
+  await sendMessage(env, chatId, buildTemankuHubText(role), {
     parse_mode: "HTML",
     reply_markup: buildOfficerHomeKeyboard(role),
     disable_web_page_preview: true,
