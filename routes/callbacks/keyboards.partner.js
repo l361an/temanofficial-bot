@@ -1,7 +1,16 @@
 // routes/callbacks/keyboards.partner.js
-import { isSuperadminRole } from "../../utils/roles.js";
+
 import { CALLBACKS, cb } from "../telegram.constants.js";
 import { officerHomeButton, backAndHomeRow } from "./keyboards.shared.js";
+
+function normalizeRole(role) {
+  return String(role || "").trim().toLowerCase();
+}
+
+function canManagePartnerDetails(role) {
+  const currentRole = normalizeRole(role);
+  return currentRole === "owner" || currentRole === "superadmin";
+}
 
 function buildPartnerDatabaseBackRow() {
   return backAndHomeRow(CALLBACKS.PARTNER_DATABASE_MENU);
@@ -60,7 +69,7 @@ export function buildPartnerControlPanelKeyboard(telegramId) {
 export function buildPartnerDetailsKeyboard(telegramId, role) {
   const rows = [];
 
-  if (isSuperadminRole(role)) {
+  if (canManagePartnerDetails(role)) {
     rows.push([
       { text: "👤 Nama Lengkap", callback_data: cb.pmEditStart(telegramId, "nama_lengkap") },
       { text: "📝 Nickname", callback_data: cb.pmEditStart(telegramId, "nickname") },
@@ -156,7 +165,7 @@ export function buildPartnerModerationKeyboard(role) {
     ],
   ];
 
-  if (isSuperadminRole(role)) {
+  if (canManagePartnerDetails(role)) {
     rows.push([{ text: "❌ Delete", callback_data: CALLBACKS.PARTNER_MOD_DELETE }]);
   }
 
