@@ -5,7 +5,7 @@ import { parseMessage } from "../utils/parseTelegram.js";
 import { loadSession } from "../utils/session.js";
 import { sendMessage } from "../services/telegramApi.js";
 import { getAdminRole } from "../repositories/adminsRepo.js";
-import { isAdminRole, isSuperadminRole } from "../utils/roles.js";
+import { isAdminRole } from "../utils/roles.js";
 import { handleCallback } from "./telegram.callback.js";
 import { handleAdminCommand } from "./telegram.commands.admin.js";
 import { handleUserCommand, handleUserEditFlow } from "./telegram.commands.user.js";
@@ -20,8 +20,9 @@ import { handlePaymentProofUpload } from "./telegram.flow.paymentProof.js";
 import { handlePartnerModerationInput } from "./telegram.flow.partnerModeration.js";
 import { handlePartnerTextEditInput } from "./telegram.flow.partnerTextEdit.js";
 import { handlePartnerViewSearchInput } from "./callbacks/partnerDatabase.js";
-import { buildOfficerHomeText } from "./telegram.messages.js";
-import { SESSION_MODES } from "./telegram.constants.js";
+import { buildOfficerHomeKeyboard } from "./callbacks/keyboards.officer.js";
+import { buildTemankuHubText } from "./telegram.messages.js";
+import { OBSOLETE_ADMIN_COMMANDS, SESSION_MODES } from "./telegram.constants.js";
 import { isScopeAllowed } from "./telegram.guard.js";
 import { handlePartnerCloseupEditInput } from "./telegram.flow.partnerCloseupEdit.js";
 import { handleAdminInviteStart } from "./telegram.flow.adminInviteActivation.js";
@@ -30,9 +31,11 @@ import {
   deactivateCatalogTarget,
   getCatalogTargets,
 } from "../repositories/catalogTargetsRepo.js";
+import { listCategories } from "../repositories/categoriesRepo.js";
 import {
   publishCatalogToTarget,
   cleanupPublishedCatalogForTarget,
+  publishOnDemandCatalog,
 } from "../services/catalogPublisher.js";
 
 import {
@@ -70,10 +73,6 @@ function splitCommandParts(value) {
   return normalizeString(value).split(/\s+/).filter(Boolean);
 }
 
-function isOwnerRole(role) {
-  return normalizeLower(role) === "owner";
-}
-
 function escapeHtml(value) {
   return String(value || "")
     .replaceAll("&", "&amp;")
@@ -81,122 +80,6 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
-}
-
-function titleCase(value) {
-  const raw = normalizeString(value).toLowerCase();
-  if (!raw) return "-";
-
-  return raw
-    .split(/[\s_-]+/g)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-function buildHelp(role) {
-  if (isOwnerRole(role)) {
-    return (
-      "📘 <b>Daftar Command (Owner Panel)</b>\n\n" +
-      "Admin + Superadmin + Owner:\n" +
-      "• <code>/list pending|approved|rejected|suspended</code>\n" +
-      "• <code>/suspend @username|telegram_id</code>\n" +
-      "• <code>/activate @username|telegram_id</code>\n" +
-      "• <code>/ceksub @username|telegram_id</code>\n\n" +
-      "Superadmin only:\n" +
-      "• <code>/setlink aturan &lt;url&gt;</code>\n" +
-      "• <code>/setwelcome &lt;text&gt;</code>\n" +
-      "• <code>/delpartner @username|telegram_id</code>\n\n" +
-      "Owner only:\n" +
-      "• <code>/katalog list</code>\n" +
-      "• <code>/katalog temantera on</code>\n" +
-      "• <code>/katalog temantera off</code>\n" +
-      "• <code>/katalog temantera refresh</code>"
-    );
-  }
-
-  if (isSuperadminRole(role)) {
-    return (
-      "📘 <b>Daftar Command (Admin Panel)</b>\n\n" +
-      "Admin + Superadmin:\n" +
-      "• <code>/list pending|approved|rejected|suspended</code>\n" +
-      "• <code>/suspend @username|telegram_id</code>\n" +
-      "• <code>/activate @username|telegram_id</code>\n" +
-      "• <code>/ceksub @username|telegram_id</code>\n\n" +
-      "Superadmin only:\n" +
-      "• <code>/setlink aturan &lt;url&gt;</code>\n" +
-      "• <code>/setwelcome &lt;text&gt;</code>\n" +
-      "• <code>/delpartner @username|telegram_id</code>"
-    );
-  }
-
-  if (isAdminRole(role)) {
-    return (
-      "📘 <b>Daftar Command (Admin Panel)</b>\n\n" +
-      "• <code>/list pending|approved|rejected|suspended</code>\n" +
-      "• <code>/suspend @username|telegram_id</code>\n" +
-      "• <code>/activate @username|telegram_id</code>\n" +
-      "• <code>/ceksub @username|telegram_id</code>"
-    );
-  }
-
-  return (
-    "ℹ️ <b>Bantuan</b>\n\n" +
-    "• <code>/start</code> — Menu TeMan\n" +
-    "• <code>/me</code> — Cek role"
-  );
-}
-
-function buildCatalogTargetLine(item, index) {
-  const chatTitle = normalizeString(item?.chat_title) || "(Tanpa Nama)";
-  const chatId = normalizeString(item?.chat_id) || "-";
-  const topicId = normalizeString(item?.topic_id);
-  const categoryCode = normalizeString(item?.category_code) || "-";
-  const status = item?.is_active ? "AKTIF" : "NONAKTIF";
-
-  return [
-    `${index + 1}. <b>${escapeHtml(chatTitle)}</b>`,
-    `   Kategori : <code>${escapeHtml(categoryCode)}</code>`,
-    `   Chat ID  : <code>${escapeHtml(chatId)}</code>`,
-    `   Topic    : ${topicId ? `<code>${escapeHtml(topicId)}</code>` : "-"}`,
-    `   Status   : <b>${status}</b>`,
-  ].join("\n");
-}
-
-function buildCatalogTargetsListText(items = []) {
-  if (!Array.isArray(items) || !items.length) {
-    return "📭 Belum ada target katalog yang tersimpan.";
-  }
-
-  return [
-    "📚 <b>Daftar Target Katalog</b>",
-    "",
-    ...items.map((item, index) => buildCatalogTargetLine(item, index)),
-  ].join("\n\n");
-}
-
-function buildCatalogCommandUsageText() {
-  return [
-    "📚 <b>Command Katalog</b>",
-    "",
-    "• <code>/katalog list</code> — lihat daftar target katalog",
-    "• <code>/katalog temantera on</code> — aktifkan katalog kategori ini di topic sekarang",
-    "• <code>/katalog temantera off</code> — nonaktifkan katalog kategori ini di topic sekarang",
-    "• <code>/katalog temantera refresh</code> — refresh katalog kategori ini di topic sekarang",
-  ].join("\n");
-}
-
-function buildCatalogTargetSummaryLines(targetPayload) {
-  return [
-    `Kategori : ${normalizeString(targetPayload.category_code) || "-"}`,
-    `Group : ${targetPayload.chat_title}`,
-    `Chat ID : ${normalizeString(targetPayload.chat_id)}`,
-    `Topic ID : ${
-      normalizeString(targetPayload.topic_id)
-        ? normalizeString(targetPayload.topic_id)
-        : "-"
-    }`,
-  ];
 }
 
 function buildCatalogReplyExtra(chat, msg, extra = {}) {
@@ -211,7 +94,201 @@ function buildCatalogReplyExtra(chat, msg, extra = {}) {
   };
 }
 
-async function handleOwnerCatalogBootstrapCommand({
+function buildCatalogTargetLine(item, index) {
+  const chatTitle = normalizeString(item?.chat_title) || "(Tanpa Nama)";
+  const chatId = normalizeString(item?.chat_id) || "-";
+  const topicId = normalizeString(item?.topic_id);
+  const categoryCode = normalizeString(item?.category_code) || "-";
+  const status = item?.is_active ? "AKTIF" : "NONAKTIF";
+
+  return [
+    `${index + 1}. <b>${escapeHtml(chatTitle)}</b>`,
+    `   Kategori : <code>${escapeHtml(categoryCode)}</code>`,
+    `   Chat ID  : <code>${escapeHtml(chatId)}</code>`,
+    `   Topic ID : ${topicId ? `<code>${escapeHtml(topicId)}</code>` : "-"}`,
+    `   Status   : <b>${status}</b>`,
+  ].join("\n");
+}
+
+function buildCatalogTargetsListText(items = []) {
+  if (!Array.isArray(items) || !items.length) {
+    return "📭 Belum ada target feed katalog.";
+  }
+
+  return [
+    "📚 <b>Daftar Target Feed Katalog</b>",
+    "",
+    ...items.map((item, index) => buildCatalogTargetLine(item, index)),
+  ].join("\n\n");
+}
+
+function buildCatalogCommandUsageText() {
+  return [
+    "📚 <b>Command Feed Katalog</b>",
+    "",
+    "• <code>/katalog {kategori} on</code>",
+    "• <code>/katalog {kategori} off</code>",
+    "• <code>/katalog list</code>",
+  ].join("\n");
+}
+
+function buildCatalogTargetSummaryLines(targetPayload) {
+  return [
+    `Kategori : ${normalizeString(targetPayload.category_code) || "-"}`,
+    `Group : ${normalizeString(targetPayload.chat_title) || "-"}`,
+    `Chat ID : ${normalizeString(targetPayload.chat_id) || "-"}`,
+    `Topic ID : ${normalizeString(targetPayload.topic_id) || "-"}`,
+  ];
+}
+
+function parseCatalogLocationArgument(rawValue) {
+  const raw = normalizeString(rawValue);
+  if (!raw) {
+    return { kota: "", kecamatan: "" };
+  }
+
+  const separatorIndex = raw.indexOf("-");
+  if (separatorIndex < 0) {
+    return {
+      kota: raw,
+      kecamatan: "",
+    };
+  }
+
+  const kecamatan = normalizeString(raw.slice(0, separatorIndex));
+  const kota = normalizeString(raw.slice(separatorIndex + 1));
+
+  if (kecamatan && kota) {
+    return { kota, kecamatan };
+  }
+
+  return {
+    kota: raw,
+    kecamatan: "",
+  };
+}
+
+async function findCategoryCodeFromCommand(env, text) {
+  const commandToken = normalizeCommandToken(text);
+  if (!commandToken || !commandToken.startsWith("/")) {
+    return null;
+  }
+
+  const requestedCode = commandToken.slice(1);
+  if (!requestedCode) {
+    return null;
+  }
+
+  const categories = await listCategories(env).catch(() => []);
+
+  const found = (Array.isArray(categories) ? categories : []).find(
+    (item) => normalizeLower(item?.kode) === normalizeLower(requestedCode)
+  );
+
+  if (!found?.kode) {
+    return null;
+  }
+
+  return normalizeLower(found.kode);
+}
+
+async function resolveCategoryCode(env, rawCategoryCode) {
+  const clean = normalizeLower(rawCategoryCode);
+  if (!clean) return "";
+
+  const categories = await listCategories(env).catch(() => []);
+  const found = (Array.isArray(categories) ? categories : []).find(
+    (item) => normalizeLower(item?.kode) === clean
+  );
+
+  return found?.kode ? normalizeLower(found.kode) : "";
+}
+
+function matchTargetScope(item, chat, msg) {
+  const chatId = normalizeString(chat?.id);
+  const topicId = normalizeString(msg?.message_thread_id);
+
+  return (
+    normalizeString(item?.chat_id) === chatId &&
+    normalizeString(item?.topic_id) === topicId
+  );
+}
+
+async function deactivateOtherCatalogTargetsInScope(env, chat, msg, keepCategoryCode) {
+  const items = await getCatalogTargets(env).catch(() => []);
+  const sameScopeTargets = (Array.isArray(items) ? items : []).filter(
+    (item) =>
+      item?.is_active &&
+      matchTargetScope(item, chat, msg) &&
+      normalizeLower(item?.category_code) !== normalizeLower(keepCategoryCode)
+  );
+
+  for (const item of sameScopeTargets) {
+    await deactivateCatalogTarget(env, {
+      chat_id: item.chat_id,
+      topic_id: item.topic_id,
+      category_code: item.category_code,
+    }).catch(() => null);
+
+    await cleanupPublishedCatalogForTarget(env, {
+      chat_id: item.chat_id,
+      topic_id: item.topic_id,
+      category_code: item.category_code,
+    }).catch(() => null);
+  }
+
+  return sameScopeTargets.length;
+}
+
+async function handleTemankuCommand({ env, chat, msg, chatId, telegramId, role }) {
+  const isPrivate = isPrivateChat(chat);
+  const text = buildTemankuHubText(role, { isPrivate });
+
+  if (isAdminRole(role) && isPrivate) {
+    await sendMessage(env, chatId, text, {
+      parse_mode: "HTML",
+      reply_markup: buildOfficerHomeKeyboard(role),
+      disable_web_page_preview: true,
+    });
+    return true;
+  }
+
+  if (isPrivate) {
+    const profile = await getProfileFullByTelegramId(env, telegramId).catch(() => null);
+
+    if (profile) {
+      await sendMessage(env, chatId, `${text}\n\n${buildSelfMenuMessage(profile)}`, {
+        parse_mode: "HTML",
+        reply_markup: buildSelfMenuKeyboard(),
+        disable_web_page_preview: true,
+      });
+      return true;
+    }
+
+    await sendMessage(env, chatId, text, {
+      parse_mode: "HTML",
+      reply_markup: buildTeManMenuKeyboard(),
+      disable_web_page_preview: true,
+    });
+    return true;
+  }
+
+  await sendMessage(env, chatId, text, {
+    parse_mode: "HTML",
+    disable_web_page_preview: true,
+    ...buildCatalogReplyExtra(chat, msg),
+  });
+  return true;
+}
+
+async function handleDisabledLegacyCommand({ env, chat, msg, chatId }) {
+  await sendMessage(env, chatId, "Command text lama sudah dimatikan. Pakai /temanku.", {
+    ...buildCatalogReplyExtra(chat, msg),
+  });
+  return true;
+}
+
+async function handleCatalogFeedCommand({
   env,
   chat,
   msg,
@@ -227,8 +304,8 @@ async function handleOwnerCatalogBootstrapCommand({
 
   const replyExtra = buildCatalogReplyExtra(chat, msg);
 
-  if (!isOwnerRole(role)) {
-    await sendMessage(env, chatId, "⚠️ Command katalog khusus owner.", replyExtra);
+  if (!isAdminRole(role)) {
+    await sendMessage(env, chatId, "⚠️ Command feed katalog khusus admin/officer.", replyExtra);
     return true;
   }
 
@@ -244,20 +321,7 @@ async function handleOwnerCatalogBootstrapCommand({
   }
 
   if (secondToken === "list") {
-    if (!isPrivateChat(chat)) {
-      await sendMessage(
-        env,
-        chatId,
-        "⚠️ <code>/katalog list</code> hanya bisa dijalankan dari private chat.",
-        {
-          ...replyExtra,
-          parse_mode: "HTML",
-        }
-      );
-      return true;
-    }
-
-    const items = await getCatalogTargets(env).catch((err) => {
+    const allItems = await getCatalogTargets(env).catch((err) => {
       logError("[catalog.targets.list.failed]", {
         telegramId,
         err: err?.message || String(err || ""),
@@ -265,16 +329,21 @@ async function handleOwnerCatalogBootstrapCommand({
       return [];
     });
 
-    await sendMessage(env, chatId, buildCatalogTargetsListText(items), {
+    const filteredItems = isPrivateChat(chat)
+      ? allItems
+      : (Array.isArray(allItems) ? allItems : []).filter((item) => matchTargetScope(item, chat, msg));
+
+    await sendMessage(env, chatId, buildCatalogTargetsListText(filteredItems), {
       parse_mode: "HTML",
       disable_web_page_preview: true,
+      ...replyExtra,
     });
     return true;
   }
 
-  const categoryCode = secondToken;
+  const categoryCode = await resolveCategoryCode(env, secondToken);
   const action = normalizeLower(parts[2]);
-  const allowedActions = new Set(["on", "off", "refresh"]);
+  const allowedActions = new Set(["on", "off"]);
 
   if (!categoryCode || !action || !allowedActions.has(action)) {
     await sendMessage(env, chatId, buildCatalogCommandUsageText(), {
@@ -288,7 +357,8 @@ async function handleOwnerCatalogBootstrapCommand({
     await sendMessage(
       env,
       chatId,
-      "⚠️ Command ini harus dijalankan langsung di grup / topic target katalog."
+      "⚠️ /katalog on/off harus dijalankan langsung di grup atau topic target.",
+      replyExtra
     );
     return true;
   }
@@ -302,6 +372,13 @@ async function handleOwnerCatalogBootstrapCommand({
   };
 
   if (action === "on") {
+    const replacedCount = await deactivateOtherCatalogTargetsInScope(
+      env,
+      chat,
+      msg,
+      categoryCode
+    ).catch(() => 0);
+
     const result = await addOrUpdateCatalogTarget(env, targetPayload).catch((err) => {
       logError("[catalog.targets.activate.failed]", {
         telegramId,
@@ -314,29 +391,21 @@ async function handleOwnerCatalogBootstrapCommand({
     });
 
     if (!result?.ok) {
-      await sendMessage(
-        env,
-        chatId,
-        "⚠️ Gagal mengaktifkan target katalog kategori ini.",
-        replyExtra
-      );
+      await sendMessage(env, chatId, "⚠️ Gagal mengaktifkan feed katalog.", replyExtra);
       return true;
     }
 
-    const isCreated = Boolean("created" in result ? result.created : false);
+    const noticeLines = [
+      "✅ Feed katalog aktif.",
+      "",
+      ...buildCatalogTargetSummaryLines(targetPayload),
+    ];
 
-    await sendMessage(
-      env,
-      chatId,
-      [
-        isCreated
-          ? "✅ Target katalog kategori ini berhasil ditambahkan. Sedang memunculkan katalog..."
-          : "✅ Target katalog kategori ini berhasil diaktifkan. Sedang memunculkan katalog...",
-        "",
-        ...buildCatalogTargetSummaryLines(targetPayload),
-      ].join("\n"),
-      replyExtra
-    );
+    if (replacedCount > 0) {
+      noticeLines.push("", `Kategori lama di scope ini dimatikan: ${replacedCount}`);
+    }
+
+    await sendMessage(env, chatId, noticeLines.join("\n"), replyExtra);
 
     const publishResult = await publishCatalogToTarget(env, targetPayload, {
       pageSize: 3,
@@ -352,94 +421,97 @@ async function handleOwnerCatalogBootstrapCommand({
     });
 
     if (!publishResult?.ok) {
-      await sendMessage(
-        env,
-        chatId,
-        "⚠️ Target berhasil aktif, tapi katalog gagal dipublish.",
-        replyExtra
-      );
+      await sendMessage(env, chatId, "⚠️ Feed aktif, tapi publish awal gagal.", replyExtra);
     }
 
     return true;
   }
 
-  if (action === "off") {
-    const result = await deactivateCatalogTarget(env, targetPayload).catch((err) => {
-      logError("[catalog.targets.deactivate.failed]", {
-        telegramId,
-        chatId,
-        threadId: msg?.message_thread_id ?? null,
-        categoryCode,
-        err: err?.message || String(err || ""),
-      });
-      return { ok: false, reason: "exception" };
-    });
-
-    if (!result?.ok) {
-      await sendMessage(
-        env,
-        chatId,
-        "⚠️ Target katalog kategori ini belum ditemukan atau gagal dinonaktifkan.",
-        replyExtra
-      );
-      return true;
-    }
-
-    const cleanupResult = await cleanupPublishedCatalogForTarget(env, targetPayload).catch((err) => {
-      logError("[catalog.cleanup.off.failed]", {
-        telegramId,
-        chatId,
-        threadId: msg?.message_thread_id ?? null,
-        categoryCode,
-        err: err?.message || String(err || ""),
-      });
-      return { ok: false, removed_count: 0, failed_message_ids: [] };
-    });
-
-    const removedCount = Number(cleanupResult?.removed_count || 0);
-
-    await sendMessage(
-      env,
+  const result = await deactivateCatalogTarget(env, targetPayload).catch((err) => {
+    logError("[catalog.targets.deactivate.failed]", {
+      telegramId,
       chatId,
-      [
-        "✅ Target katalog kategori ini berhasil dinonaktifkan.",
-        "",
-        ...buildCatalogTargetSummaryLines(targetPayload),
-        "",
-        `Pesan katalog yang dibersihkan: ${removedCount}`,
-      ].join("\n"),
-      replyExtra
-    );
-    return true;
-  }
-
-  if (action === "refresh") {
-    const publishResult = await publishCatalogToTarget(env, targetPayload, {
-      pageSize: 3,
-    }).catch((err) => {
-      logError("[catalog.publish.refresh.failed]", {
-        telegramId,
-        chatId,
-        threadId: msg?.message_thread_id ?? null,
-        categoryCode,
-        err: err?.message || String(err || ""),
-      });
-      return { ok: false, reason: "exception" };
+      threadId: msg?.message_thread_id ?? null,
+      categoryCode,
+      err: err?.message || String(err || ""),
     });
+    return { ok: false, reason: "exception" };
+  });
 
-    if (!publishResult?.ok) {
-      await sendMessage(
-        env,
-        chatId,
-        "⚠️ Gagal refresh katalog kategori ini di target sekarang.",
-        replyExtra
-      );
-    }
-
+  if (!result?.ok) {
+    await sendMessage(env, chatId, "⚠️ Feed katalog tidak ditemukan di scope ini.", replyExtra);
     return true;
   }
 
-  return false;
+  const cleanupResult = await cleanupPublishedCatalogForTarget(env, targetPayload).catch((err) => {
+    logError("[catalog.cleanup.off.failed]", {
+      telegramId,
+      chatId,
+      threadId: msg?.message_thread_id ?? null,
+      categoryCode,
+      err: err?.message || String(err || ""),
+    });
+    return { ok: false, removed_count: 0, failed_message_ids: [] };
+  });
+
+  const removedCount = Number(cleanupResult?.removed_count || 0);
+
+  await sendMessage(
+    env,
+    chatId,
+    [
+      "✅ Feed katalog nonaktif.",
+      "",
+      ...buildCatalogTargetSummaryLines(targetPayload),
+      "",
+      `Pesan katalog dibersihkan: ${removedCount}`,
+    ].join("\n"),
+    replyExtra
+  );
+  return true;
+}
+
+async function handleDynamicCatalogCommand({ env, chat, msg, chatId, text }) {
+  const categoryCode = await findCategoryCodeFromCommand(env, text);
+  if (!categoryCode) {
+    return false;
+  }
+
+  const raw = normalizeString(text);
+  const firstSpaceIndex = raw.indexOf(" ");
+  const locationArg = firstSpaceIndex >= 0 ? raw.slice(firstSpaceIndex + 1) : "";
+  const { kota, kecamatan } = parseCatalogLocationArgument(locationArg);
+
+  const result = await publishOnDemandCatalog(
+    env,
+    {
+      chat_id: chatId,
+      topic_id: msg?.message_thread_id ?? null,
+      category_code: categoryCode,
+      kota,
+      kecamatan,
+    },
+    {
+      pageSize: 3,
+    }
+  ).catch((err) => {
+    logError("[catalog.on_demand.failed]", {
+      chatId,
+      threadId: msg?.message_thread_id ?? null,
+      categoryCode,
+      kota,
+      kecamatan,
+      err: err?.message || String(err || ""),
+    });
+    return { ok: false, reason: "exception" };
+  });
+
+  if (!result?.ok) {
+    await sendMessage(env, chatId, "⚠️ Gagal memuat katalog.", buildCatalogReplyExtra(chat, msg));
+    return true;
+  }
+
+  return true;
 }
 
 async function handleTelegramCommand({
@@ -456,16 +528,7 @@ async function handleTelegramCommand({
 
   const raw = String(text || "").trim();
   const cmdToken = raw.split(/\s+/)[0];
-  const baseCmd = cmdToken.split("@")[0];
-
-  if (baseCmd === "/help") {
-    if (!isPrivateChat(chat)) {
-      return true;
-    }
-
-    await sendMessage(env, chatId, buildHelp(role), { parse_mode: "HTML" });
-    return true;
-  }
+  const baseCmd = cmdToken.split("@")[0].toLowerCase();
 
   if (baseCmd === "/start") {
     const handledInviteStart = await handleAdminInviteStart({
@@ -479,6 +542,14 @@ async function handleTelegramCommand({
     });
 
     if (handledInviteStart) return true;
+  }
+
+  if (baseCmd === "/temanku") {
+    return handleTemankuCommand({ env, chat, msg, chatId, telegramId, role });
+  }
+
+  if (OBSOLETE_ADMIN_COMMANDS.has(baseCmd)) {
+    return handleDisabledLegacyCommand({ env, chat, msg, chatId });
   }
 
   if (isAdminRole(role)) {
@@ -639,12 +710,16 @@ async function handleAdminSessionInput({
   return false;
 }
 
-async function handleAdminIdleMessage({ env, chat, chatId }) {
+async function handleAdminIdleMessage({ env, chat, chatId, role }) {
   if (!isPrivateChat(chat)) {
     return true;
   }
 
-  await sendMessage(env, chatId, "Halo Officer.\nKetik /help untuk daftar command.");
+  await sendMessage(env, chatId, buildTemankuHubText(role, { isPrivate: true }), {
+    parse_mode: "HTML",
+    reply_markup: buildOfficerHomeKeyboard(role),
+    disable_web_page_preview: true,
+  });
   return true;
 }
 
@@ -695,18 +770,55 @@ export async function handleTelegramWebhook(request, env) {
 
     const role = await getAdminRole(env, telegramId);
 
-    const handledOwnerCatalogBootstrap = await handleOwnerCatalogBootstrapCommand({
-      env,
-      chat,
-      msg,
-      chatId,
-      telegramId,
-      role,
-      text,
+    await syncProfileUsernameFromTelegram(env, telegramId, username).catch((err) => {
+      logError("[profile.sync_username.failed]", {
+        telegramId,
+        username: username || null,
+        err: err?.message || String(err || ""),
+      });
     });
 
-    if (handledOwnerCatalogBootstrap) {
-      return ok();
+    if (text && text.startsWith("/")) {
+      const handledCatalogFeed = await handleCatalogFeedCommand({
+        env,
+        chat,
+        msg,
+        chatId,
+        telegramId,
+        role,
+        text,
+      });
+
+      if (handledCatalogFeed) {
+        return ok();
+      }
+
+      const handledDynamicCatalog = await handleDynamicCatalogCommand({
+        env,
+        chat,
+        msg,
+        chatId,
+        text,
+      });
+
+      if (handledDynamicCatalog) {
+        return ok();
+      }
+
+      const handledTemanku = await handleTelegramCommand({
+        env,
+        msg,
+        chat,
+        chatId,
+        telegramId,
+        username,
+        text,
+        role,
+      });
+
+      if (handledTemanku) {
+        return ok();
+      }
     }
 
     const scopeAllowed = await isScopeAllowed(env, chat, msg).catch((err) => {
@@ -723,27 +835,6 @@ export async function handleTelegramWebhook(request, env) {
     }
 
     const STATE_KEY = `state:${telegramId}`;
-
-    await syncProfileUsernameFromTelegram(env, telegramId, username).catch((err) => {
-      logError("[profile.sync_username.failed]", {
-        telegramId,
-        username: username || null,
-        err: err?.message || String(err || ""),
-      });
-    });
-
-    const handledCommand = await handleTelegramCommand({
-      env,
-      msg,
-      chat,
-      chatId,
-      telegramId,
-      username,
-      text,
-      role,
-    });
-
-    if (handledCommand) return ok();
 
     const session = await loadSession(env, STATE_KEY);
 
@@ -805,7 +896,7 @@ export async function handleTelegramWebhook(request, env) {
     }
 
     if (!session && isAdminRole(role)) {
-      await handleAdminIdleMessage({ env, chat, chatId });
+      await handleAdminIdleMessage({ env, chat, chatId, role });
       return ok();
     }
 
