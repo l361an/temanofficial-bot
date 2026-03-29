@@ -1,5 +1,6 @@
 // services/subscriptionAdjustmentService.js
 
+import { sendMessage } from "./telegramApi.js";
 import { nowJakartaSql } from "../utils/time.js";
 import { getAdminRole } from "../repositories/adminsRepo.js";
 import { getProfileFullByTelegramId } from "../repositories/profilesRepo.js";
@@ -55,6 +56,35 @@ function resolvePartnerClassId(profile) {
   return "bronze";
 }
 
+function escapeHtml(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function pad2(value) {
+  return String(value).padStart(2, "0");
+}
+
+function formatDisplayDate(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "-";
+
+  const parsed = parseSqlDateTime(raw);
+  if (!parsed || Number.isNaN(parsed.getTime())) {
+    return raw;
+  }
+
+  const day = pad2(parsed.getDate());
+  const month = pad2(parsed.getMonth() + 1);
+  const year = pad2(parsed.getFullYear() % 100);
+
+  return `${day}-${month}-${year}`;
+}
+
 function buildNotes(action, days, note) {
   const normalizedNote = String(note || "").trim();
   const label = action === "add" ? "Tambah Masa Aktif" : "Kurangi Masa Aktif";
@@ -69,8 +99,8 @@ function buildNotes(action, days, note) {
 function buildSuccessNotice(result) {
   const actionLabel = result?.action === "add" ? "Tambah" : "Kurangi";
   const daysLabel = `${Number(result?.days || 0)} Hari`;
-  const periodStart = String(result?.subscription?.start_at || "-").trim() || "-";
-  const periodEnd = String(result?.subscription?.end_at || "-").trim() || "-";
+  const periodStart = formatDisplayDate(result?.subscription?.start_at);
+  const periodEnd = formatDisplayDate(result?.subscription?.end_at);
 
   return [
     `✅ <b>${actionLabel} Masa Aktif berhasil.</b>`,
@@ -80,6 +110,45 @@ function buildSuccessNotice(result) {
   ].join("\n");
 }
 
+function buildNotificationStatusNotice(notification) {
+  if (!notification || typeof notification !== "object") {
+    return "⚠️ Notifikasi partner: <b>tidak diproses</b>.";
+  }
+
+  if (notification.ok) {
+    return "📩 Notifikasi partner: <b>terkirim</b>.";
+  }
+
+  return "⚠️ Notifikasi partner: <b>gagal terkirim</b>. Adjustment tetap tersimpan.";
+}
+
+function buildPartnerNotificationText(result) {
+  const actionLabel = result?.action === "add" ? "ditambahkan" : "dikurangi";
+  const actionTitle = result?.action === "add" ? "Tambah Masa Aktif" : "Kurangi Masa Aktif";
+  const partnerName = String(result?.profile?.nickname || result?.profile?.nama_lengkap || "Partner").trim();
+  const daysLabel = `${Number(result?.days || 0)} Hari`;
+  const periodStart = formatDisplayDate(result?.subscription?.start_at);
+  const periodEnd = formatDisplayDate(result?.subscription?.end_at);
+  const note = String(result?.subscription?.metadata_note || result?.note || "").trim();
+
+  const lines = [
+    `🔔 <b>${escapeHtml(actionTitle)}</b>`,
+    `Halo TeMan <b>${escapeHtml(partnerName)}</b>,`,
+    "",
+    `Masa aktif kamu baru saja <b>${escapeHtml(actionLabel)}</b> oleh TeMan Founder.`,
+    `Adjustment : <b>${escapeHtml(daysLabel)}</b>`,
+    `Periode Aktif : <b>${escapeHtml(periodStart)}</b> s/d <b>${escapeHtml(periodEnd)}</b>`,
+  ];
+
+  if (note) {
+    lines.push(`Catatan : ${escapeHtml(note)}`);
+  }
+
+  lines.push("", "Jika ada kesalahan, silahkan hubungi TeMan Founder.");
+
+  return lines.join("\n");
+}
+
 function readStatusFromResult(value) {
   if (!value || typeof value !== "object") return null;
   if (!("ok" in value) || value.ok !== true) return null;
@@ -87,6 +156,40 @@ function readStatusFromResult(value) {
 
   const raw = value.status;
   return raw == null ? null : String(raw);
+}
+
+async function notifyPartnerSubscriptionAdjusted(env, result) {
+  const partnerId = String(result?.partner_id || "").trim();
+  if (!partnerId) {
+    return { ok: false, reason: "missing_partner_id" };
+  }
+
+  const text = buildPartnerNotificationText(result);
+
+  try {
+    const response = await sendMessage(env, partnerId, text, {
+      parse_mode: "HTML",
+      disable_web_page_preview: true,
+    });
+
+    if (!response?.ok) {
+      return {
+        ok: false,
+        reason: "telegram_send_failed",
+        response: response || null,
+      };
+    }
+
+    return {
+      ok: true,
+      response,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      reason: error?.message || String(error || "telegram_send_failed"),
+    };
+  }
 }
 
 /**
@@ -188,6 +291,7 @@ export async function adjustPartnerSubscriptionByDays(env, payload) {
 
   const classId = resolvePartnerClassId(profile);
   const notes = buildNotes(safeAction, safeDays, note);
+  const metadataNote = String(note || "").trim() || null;
   const metadataJson = JSON.stringify({
     duration_days: safeDays,
     duration_label: buildDurationLabel(safeDays),
@@ -201,7 +305,7 @@ export async function adjustPartnerSubscriptionByDays(env, payload) {
     previous_coverage_end_at: hasLiveCoverageNow ? coverage.latestEndAt : null,
     resulting_start_at: startAt,
     resulting_end_at: endAt,
-    note: String(note || "").trim() || null,
+    note: metadataNote,
   });
 
   const createdSubscription = await replaceActiveSubscriptionByTelegramId(
@@ -253,15 +357,26 @@ export async function adjustPartnerSubscriptionByDays(env, payload) {
     ok: true,
     action: safeAction,
     days: safeDays,
+    note: metadataNote,
     partner_id: partnerId,
     profile,
-    subscription,
+    subscription: {
+      ...subscription,
+      metadata_note: metadataNote,
+    },
     status: readStatusFromResult(statusRes),
     group_role_sync: groupRoleSync,
   };
 
+  const partner_notification = await notifyPartnerSubscriptionAdjusted(env, result);
+
   return {
     ...result,
-    notice_html: buildSuccessNotice(result),
+    partner_notification,
+    notice_html: [
+      buildSuccessNotice(result),
+      "",
+      buildNotificationStatusNotice(partner_notification),
+    ].join("\n"),
   };
 }
