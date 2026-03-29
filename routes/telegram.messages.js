@@ -35,9 +35,9 @@ export function buildTemankuHubText(role) {
       "• <code>/{kategori} {kota}</code>\n" +
       "• <code>/{kategori} {kecamatan} - {kota}</code>\n\n" +
       "Feed katalog otomatis:\n" +
-      "• <code>/katalog {kategori} on</code>\n" +
-      "• <code>/katalog {kategori} off</code>\n" +
-      "• <code>/katalog list</code>\n\n" +
+      "• <code>/katalog {kategori} {kota} on</code>\n" +
+      "• <code>/katalog {kategori} {kota} off</code>\n" +
+      "• <code>/katalog {kategori} {kota} list</code>\n\n" +
       "Officer gunakan menu inline untuk pengelolaan admin dan partner."
     );
   }
