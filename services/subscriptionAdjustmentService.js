@@ -1,6 +1,7 @@
 // services/subscriptionAdjustmentService.js
 
 import { sendMessage } from "./telegramApi.js";
+import { buildTeManMenuKeyboard } from "../routes/telegram.user.shared.js";
 import { nowJakartaSql } from "../utils/time.js";
 import { getAdminRole } from "../repositories/adminsRepo.js";
 import { getProfileFullByTelegramId } from "../repositories/profilesRepo.js";
@@ -170,6 +171,7 @@ async function notifyPartnerSubscriptionAdjusted(env, result) {
     const response = await sendMessage(env, partnerId, text, {
       parse_mode: "HTML",
       disable_web_page_preview: true,
+      reply_markup: buildTeManMenuKeyboard(),
     });
 
     if (!response?.ok) {
