@@ -1,4 +1,5 @@
 // routes/callbacks/partnerDatabase.render.js
+
 import {
   sendMessage,
   sendPhoto,
@@ -358,6 +359,7 @@ export async function renderPartnerControlPanel(
           selected_input: selectedInput ?? session?.data?.selected_input ?? null,
           details_anchor_chat_id: null,
           details_anchor_message_id: null,
+          subscription_adjust_action: null,
         },
       },
       fallbackMessage
@@ -387,6 +389,7 @@ export async function renderPartnerControlPanel(
         selected_input: selectedInput ?? session?.data?.selected_input ?? null,
         details_anchor_chat_id: null,
         details_anchor_message_id: null,
+        subscription_adjust_action: null,
       },
     },
     fallbackMessage
@@ -440,6 +443,7 @@ export async function renderPartnerDetailsPage(
         source_message_id: anchor?.anchor_message_id ?? null,
         details_anchor_chat_id: anchor?.anchor_chat_id ?? null,
         details_anchor_message_id: anchor?.anchor_message_id ?? null,
+        subscription_adjust_action: null,
       },
     },
     fallbackMessage
@@ -453,7 +457,7 @@ export async function renderPartnerSubscriptionPage(
   adminId,
   telegramId,
   role,
-  { session = null, fallbackMessage = null } = {}
+  { session = null, fallbackMessage = null, noticeText = "" } = {}
 ) {
   const context = await loadPartnerContext(env, telegramId);
 
@@ -468,11 +472,16 @@ export async function renderPartnerSubscriptionPage(
     return false;
   }
 
+  const bodyText = buildPartnerSubscriptionText(context);
+  const finalText = String(noticeText || "").trim()
+    ? `${String(noticeText).trim()}\n\n${bodyText}`
+    : bodyText;
+
   const panelAnchor = await renderPartnerDatabaseMessage(
     env,
     adminId,
-    buildPartnerSubscriptionText(context),
-    buildPartnerSubscriptionKeyboard(context.profile.telegram_id),
+    finalText,
+    buildPartnerSubscriptionKeyboard(context.profile.telegram_id, role),
     { session, fallbackMessage }
   );
 
@@ -488,6 +497,7 @@ export async function renderPartnerSubscriptionPage(
         selected_partner_id: String(context.profile.telegram_id),
         details_anchor_chat_id: null,
         details_anchor_message_id: null,
+        subscription_adjust_action: null,
       },
     },
     fallbackMessage
