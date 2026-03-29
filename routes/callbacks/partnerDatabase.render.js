@@ -477,12 +477,19 @@ export async function renderPartnerSubscriptionPage(
     ? `${String(noticeText).trim()}\n\n${bodyText}`
     : bodyText;
 
+  const shouldForceNewMessage =
+    String(session?.step || "").trim().toLowerCase() === "await_subscription_adjust_input";
+
   const panelAnchor = await renderPartnerDatabaseMessage(
     env,
     adminId,
     finalText,
     buildPartnerSubscriptionKeyboard(context.profile.telegram_id, role),
-    { session, fallbackMessage }
+    {
+      session,
+      fallbackMessage,
+      forceNewMessage: shouldForceNewMessage,
+    }
   );
 
   await persistPartnerViewSession(
