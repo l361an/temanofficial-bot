@@ -1,4 +1,3 @@
-// routes/callbacks/partnerDatabase.js
 import { sendMessage, upsertCallbackMessage } from "../../services/telegramApi.js";
 import { clearSession } from "../../utils/session.js";
 import {
@@ -9,6 +8,7 @@ import {
 import {
   buildPartnerDatabaseKeyboard,
   buildBackToPartnerDatabaseKeyboard,
+  buildPartnerSubscriptionAdjustInputKeyboard,
 } from "./keyboards.partner.js";
 
 import {
@@ -31,6 +31,15 @@ import {
   renderPartnerDatabaseMessage,
   buildPartnerViewPromptText,
 } from "./partnerDatabase.render.js";
+import { adjustPartnerSubscriptionByDays } from "../../services/subscriptionAdjustmentService.js";
+
+function normalizeRole(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function isOwnerRole(role) {
+  return normalizeRole(role) === "owner";
+}
 
 function normalizePartnerListKey(value) {
   const raw = String(value || "").trim().toLowerCase();
@@ -70,6 +79,248 @@ function normalizePartnerListKey(value) {
   return null;
 }
 
+function normalizeSubscriptionAdjustAction(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "add" || raw === "reduce") return raw;
+  return "";
+}
+
+function buildSubscriptionAdjustPromptText(action, telegramId) {
+  const isAdd = action === "add";
+  const title = isAdd ? "➕ <b>Tambah Masa Aktif</b>" : "➖ <b>Kurangi Masa Aktif</b>";
+  const example = isAdd ? "<code>7 bonus libur nasional</code>" : "<code>2 koreksi input sebelumnya</code>";
+
+  return [
+    title,
+    `Target : <code>${String(telegramId || "-")}</code>`,
+    "",
+    "Kirim format:",
+    example,
+    "",
+    "• angka wajib positif",
+    "• catatan opsional tapi sangat disarankan",
+    "",
+    "Ketik <b>batal</b> untuk kembali.",
+  ].join("\n");
+}
+
+function parseSubscriptionAdjustInput(text) {
+  const raw = String(text || "").trim();
+  const match = raw.match(/^(\d+)(?:\s+([\s\S]+))?$/);
+  if (!match) {
+    return { ok: false, reason: "invalid_format" };
+  }
+
+  const days = Number(match[1]);
+  if (!Number.isFinite(days) || !Number.isInteger(days) || days <= 0) {
+    return { ok: false, reason: "invalid_days" };
+  }
+
+  return {
+    ok: true,
+    days,
+    note: String(match[2] || "").trim() || null,
+  };
+}
+
+function buildSubscriptionAdjustValidationText(action) {
+  const example = action === "add"
+    ? "<code>7 bonus libur nasional</code>"
+    : "<code>2 koreksi input sebelumnya</code>";
+
+  return [
+    "⚠️ Format input tidak valid.",
+    "",
+    "Pakai format:",
+    example,
+    "",
+    "Ketik <b>batal</b> untuk kembali.",
+  ].join("\n");
+}
+
+function buildSubscriptionAdjustFailureNotice(result) {
+  const reason = String(result?.reason || "").trim().toLowerCase();
+
+  if (reason === "forbidden_owner_only") {
+    return "⚠️ <b>Fitur ini khusus owner.</b>";
+  }
+
+  if (reason === "partner_not_found") {
+    return "⚠️ Target partner tidak ditemukan.";
+  }
+
+  if (reason === "no_active_coverage_to_reduce") {
+    return "⚠️ Tidak ada masa aktif yang bisa dikurangi karena partner sedang tidak aktif.";
+  }
+
+  if (reason === "reduction_would_end_now_or_past") {
+    const maxReducibleDays = Number(result?.max_reducible_days || 0);
+    if (maxReducibleDays > 0) {
+      return `⚠️ Pengurangan terlalu besar. Maksimal pengurangan aman saat ini: <b>${maxReducibleDays} hari</b>.`;
+    }
+
+    return "⚠️ Pengurangan ditolak karena hasil akhirnya akan membuat masa aktif habis sekarang / lewat sekarang.";
+  }
+
+  if (reason === "invalid_days") {
+    return "⚠️ Jumlah hari tidak valid.";
+  }
+
+  return "⚠️ Gagal memproses adjustment masa aktif.";
+}
+
+function readSubscriptionAdjustNoticeHtml(result) {
+  if (!result || typeof result !== "object") return "";
+  if (!("ok" in result) || result.ok !== true) return "";
+  if (!("notice_html" in result)) return "";
+
+  return typeof result.notice_html === "string" ? result.notice_html : "";
+}
+
+async function startSubscriptionAdjustFlow({
+  env,
+  adminId,
+  telegramId,
+  role,
+  action,
+  session,
+  msg,
+}) {
+  if (!isOwnerRole(role)) {
+    return renderPartnerSubscriptionPage(env, adminId, telegramId, role, {
+      session,
+      fallbackMessage: msg,
+      noticeText: "⚠️ <b>Fitur ini khusus owner.</b>",
+    });
+  }
+
+  const safeAction = normalizeSubscriptionAdjustAction(action);
+  if (!safeAction) {
+    return renderPartnerSubscriptionPage(env, adminId, telegramId, role, {
+      session,
+      fallbackMessage: msg,
+      noticeText: "⚠️ Aksi subscription tidak valid.",
+    });
+  }
+
+  const promptAnchor = await renderPartnerDatabaseMessage(
+    env,
+    adminId,
+    buildSubscriptionAdjustPromptText(safeAction, telegramId),
+    buildPartnerSubscriptionAdjustInputKeyboard(telegramId),
+    { session, fallbackMessage: msg }
+  );
+
+  await persistPartnerViewSession(
+    env,
+    adminId,
+    session,
+    {
+      step: "await_subscription_adjust_input",
+      data: {
+        source_chat_id: promptAnchor?.anchor_chat_id ?? adminId,
+        source_message_id: promptAnchor?.anchor_message_id ?? null,
+        selected_partner_id: String(telegramId),
+        subscription_adjust_action: safeAction,
+        details_anchor_chat_id: null,
+        details_anchor_message_id: null,
+      },
+    },
+    msg
+  );
+
+  return true;
+}
+
+async function handleSubscriptionAdjustInput({
+  env,
+  adminId,
+  text,
+  role,
+  session,
+  msg,
+}) {
+  const targetId = String(session?.data?.selected_partner_id || "").trim();
+  const action = normalizeSubscriptionAdjustAction(session?.data?.subscription_adjust_action);
+
+  if (!targetId || !action) {
+    await clearSession(env, `state:${adminId}`).catch(() => {});
+    await renderPartnerDatabaseMessage(
+      env,
+      adminId,
+      "⚠️ Session adjustment tidak valid. Balik ke menu Partner Database ya.",
+      buildPartnerDatabaseKeyboard(),
+      { session, fallbackMessage: msg }
+    );
+    return true;
+  }
+
+  const raw = String(text || "").trim();
+
+  if (/^(batal|cancel|keluar)$/i.test(raw)) {
+    await renderPartnerSubscriptionPage(env, adminId, targetId, role, {
+      session,
+      fallbackMessage: msg,
+      noticeText: "✅ Oke, input adjustment masa aktif dibatalkan.",
+    });
+    return true;
+  }
+
+  const parsed = parseSubscriptionAdjustInput(raw);
+  if (!parsed.ok) {
+    const promptAnchor = await renderPartnerDatabaseMessage(
+      env,
+      adminId,
+      buildSubscriptionAdjustValidationText(action),
+      buildPartnerSubscriptionAdjustInputKeyboard(targetId),
+      { session, fallbackMessage: msg }
+    );
+
+    await persistPartnerViewSession(
+      env,
+      adminId,
+      session,
+      {
+        step: "await_subscription_adjust_input",
+        data: {
+          source_chat_id: promptAnchor?.anchor_chat_id ?? adminId,
+          source_message_id: promptAnchor?.anchor_message_id ?? null,
+          selected_partner_id: targetId,
+          subscription_adjust_action: action,
+        },
+      },
+      msg
+    );
+
+    return true;
+  }
+
+  const result = await adjustPartnerSubscriptionByDays(env, {
+    actorId: adminId,
+    targetPartnerId: targetId,
+    action,
+    days: parsed.days,
+    note: parsed.note,
+  });
+
+  if (!result?.ok) {
+    await renderPartnerSubscriptionPage(env, adminId, targetId, role, {
+      session,
+      fallbackMessage: msg,
+      noticeText: buildSubscriptionAdjustFailureNotice(result),
+    });
+    return true;
+  }
+
+  await renderPartnerSubscriptionPage(env, adminId, targetId, role, {
+    session,
+    fallbackMessage: msg,
+    noticeText: readSubscriptionAdjustNoticeHtml(result),
+  });
+
+  return true;
+}
+
 export async function handlePartnerViewSearchInput({
   env,
   chatId,
@@ -80,6 +331,17 @@ export async function handlePartnerViewSearchInput({
   STATE_KEY,
   msg,
 }) {
+  if (String(session?.step || "").trim().toLowerCase() === "await_subscription_adjust_input") {
+    return handleSubscriptionAdjustInput({
+      env,
+      adminId,
+      text,
+      role,
+      session,
+      msg,
+    });
+  }
+
   const raw = String(text || "").trim();
 
   if (/^(batal|cancel|keluar)$/i.test(raw)) {
@@ -110,6 +372,7 @@ export async function handlePartnerViewSearchInput({
           selected_input: null,
           details_anchor_chat_id: null,
           details_anchor_message_id: null,
+          subscription_adjust_action: null,
         },
       },
       null
@@ -145,6 +408,7 @@ export async function handlePartnerViewSearchInput({
           selected_input: raw,
           details_anchor_chat_id: null,
           details_anchor_message_id: null,
+          subscription_adjust_action: null,
         },
       },
       null
@@ -194,7 +458,12 @@ export function buildPartnerDatabaseHandlers() {
       env,
       adminId,
       null,
-      { step: "await_target" },
+      {
+        step: "await_target",
+        data: {
+          subscription_adjust_action: null,
+        },
+      },
       msg
     );
 
@@ -368,6 +637,72 @@ export function buildPartnerDatabaseHandlers() {
       });
 
       return true;
+    },
+  });
+
+  PREFIX.push({
+    match: (d) => d.startsWith(CALLBACK_PREFIX.PM_SUBSCRIPTION_ADD_START),
+    run: async (ctx) => {
+      const { env, data, adminId, msg, role, session } = ctx;
+
+      const telegramId = resolveTargetTelegramId(
+        String(data.slice(CALLBACK_PREFIX.PM_SUBSCRIPTION_ADD_START.length) || "").trim(),
+        session
+      );
+
+      if (!telegramId) {
+        await renderPartnerDatabaseMessage(
+          env,
+          adminId,
+          "⚠️ Target partner tidak valid.",
+          buildPartnerDatabaseKeyboard(),
+          { session, fallbackMessage: msg }
+        );
+        return true;
+      }
+
+      return startSubscriptionAdjustFlow({
+        env,
+        adminId,
+        telegramId,
+        role,
+        action: "add",
+        session,
+        msg,
+      });
+    },
+  });
+
+  PREFIX.push({
+    match: (d) => d.startsWith(CALLBACK_PREFIX.PM_SUBSCRIPTION_REDUCE_START),
+    run: async (ctx) => {
+      const { env, data, adminId, msg, role, session } = ctx;
+
+      const telegramId = resolveTargetTelegramId(
+        String(data.slice(CALLBACK_PREFIX.PM_SUBSCRIPTION_REDUCE_START.length) || "").trim(),
+        session
+      );
+
+      if (!telegramId) {
+        await renderPartnerDatabaseMessage(
+          env,
+          adminId,
+          "⚠️ Target partner tidak valid.",
+          buildPartnerDatabaseKeyboard(),
+          { session, fallbackMessage: msg }
+        );
+        return true;
+      }
+
+      return startSubscriptionAdjustFlow({
+        env,
+        adminId,
+        telegramId,
+        role,
+        action: "reduce",
+        session,
+        msg,
+      });
     },
   });
 
