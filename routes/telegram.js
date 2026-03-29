@@ -94,12 +94,18 @@ function buildCatalogReplyExtra(chat, msg, extra = {}) {
   };
 }
 
+function capitalizeFirstLetter(value) {
+  const raw = normalizeString(value);
+  if (!raw) return "";
+  return raw.charAt(0).toUpperCase() + raw.slice(1);
+}
+
 function buildCatalogTargetLine(item, index) {
   const chatTitle = normalizeString(item?.chat_title) || "(Tanpa Nama)";
   const chatId = normalizeString(item?.chat_id) || "-";
   const topicId = normalizeString(item?.topic_id);
   const categoryCode = normalizeString(item?.category_code) || "-";
-  const kota = normalizeString(item?.kota) || "-";
+  const kota = capitalizeFirstLetter(item?.kota) || "-";
   const status = item?.is_active ? "AKTIF" : "NONAKTIF";
 
   return [
@@ -137,7 +143,7 @@ function buildCatalogCommandUsageText() {
 function buildCatalogTargetSummaryLines(targetPayload) {
   return [
     `Kategori : ${normalizeString(targetPayload.category_code) || "-"}`,
-    `Kota : ${normalizeString(targetPayload.kota) || "-"}`,
+    `Kota : ${capitalizeFirstLetter(targetPayload.kota) || "-"}`,
     `Group : ${normalizeString(targetPayload.chat_title) || "-"}`,
     `Chat ID : ${normalizeString(targetPayload.chat_id) || "-"}`,
     `Topic ID : ${normalizeString(targetPayload.topic_id) || "-"}`,
