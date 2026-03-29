@@ -99,11 +99,13 @@ function buildCatalogTargetLine(item, index) {
   const chatId = normalizeString(item?.chat_id) || "-";
   const topicId = normalizeString(item?.topic_id);
   const categoryCode = normalizeString(item?.category_code) || "-";
+  const kota = normalizeString(item?.kota) || "-";
   const status = item?.is_active ? "AKTIF" : "NONAKTIF";
 
   return [
     `${index + 1}. <b>${escapeHtml(chatTitle)}</b>`,
     `   Kategori : <code>${escapeHtml(categoryCode)}</code>`,
+    `   Kota     : <code>${escapeHtml(kota)}</code>`,
     `   Chat ID  : <code>${escapeHtml(chatId)}</code>`,
     `   Topic ID : ${topicId ? `<code>${escapeHtml(topicId)}</code>` : "-"}`,
     `   Status   : <b>${status}</b>`,
@@ -126,15 +128,16 @@ function buildCatalogCommandUsageText() {
   return [
     "📚 <b>Command Feed Katalog</b>",
     "",
-    "• <code>/katalog {kategori} on</code>",
-    "• <code>/katalog {kategori} off</code>",
-    "• <code>/katalog list</code>",
+    "• <code>/katalog {kategori} {kota} on</code>",
+    "• <code>/katalog {kategori} {kota} off</code>",
+    "• <code>/katalog {kategori} {kota} list</code>",
   ].join("\n");
 }
 
 function buildCatalogTargetSummaryLines(targetPayload) {
   return [
     `Kategori : ${normalizeString(targetPayload.category_code) || "-"}`,
+    `Kota : ${normalizeString(targetPayload.kota) || "-"}`,
     `Group : ${normalizeString(targetPayload.chat_title) || "-"}`,
     `Chat ID : ${normalizeString(targetPayload.chat_id) || "-"}`,
     `Topic ID : ${normalizeString(targetPayload.topic_id) || "-"}`,
@@ -168,6 +171,40 @@ function parseCatalogLocationArgument(rawValue) {
   };
 }
 
+function buildCatalogIdentityKey(categoryCode, kota) {
+  return `${normalizeLower(categoryCode) || "-"}::${normalizeLower(kota) || "-"}`;
+}
+
+function parseCatalogFeedCommandArgs(text) {
+  const parts = splitCommandParts(text);
+  if (normalizeLower(parts[0]) !== "/katalog") {
+    return { ok: false, reason: "not_catalog_command" };
+  }
+
+  if (parts.length < 4) {
+    return { ok: false, reason: "invalid_format" };
+  }
+
+  const action = normalizeLower(parts[parts.length - 1]);
+  if (!["on", "off", "list"].includes(action)) {
+    return { ok: false, reason: "invalid_action" };
+  }
+
+  const rawCategoryCode = normalizeString(parts[1]);
+  const kota = normalizeString(parts.slice(2, -1).join(" "));
+
+  if (!rawCategoryCode || !kota) {
+    return { ok: false, reason: "missing_parts" };
+  }
+
+  return {
+    ok: true,
+    rawCategoryCode,
+    kota,
+    action,
+  };
+}
+
 async function findCategoryCodeFromCommand(env, text) {
   const commandToken = normalizeCommandToken(text);
   if (!commandToken || !commandToken.startsWith("/")) {
@@ -189,7 +226,7 @@ async function findCategoryCodeFromCommand(env, text) {
     return null;
   }
 
-  return normalizeLower(found.kode);
+  return normalizeString(found.kode);
 }
 
 async function resolveCategoryCode(env, rawCategoryCode) {
@@ -201,7 +238,7 @@ async function resolveCategoryCode(env, rawCategoryCode) {
     (item) => normalizeLower(item?.kode) === clean
   );
 
-  return found?.kode ? normalizeLower(found.kode) : "";
+  return found?.kode ? normalizeString(found.kode) : "";
 }
 
 function matchTargetScope(item, chat, msg) {
@@ -214,13 +251,21 @@ function matchTargetScope(item, chat, msg) {
   );
 }
 
-async function deactivateOtherCatalogTargetsInScope(env, chat, msg, keepCategoryCode) {
+function matchCatalogIdentity(item, categoryCode, kota) {
+  return (
+    buildCatalogIdentityKey(item?.category_code, item?.kota) ===
+    buildCatalogIdentityKey(categoryCode, kota)
+  );
+}
+
+async function deactivateOtherCatalogTargetsInScope(env, chat, msg, keepCategoryCode, keepKota) {
   const items = await getCatalogTargets(env).catch(() => []);
+  const keepKey = buildCatalogIdentityKey(keepCategoryCode, keepKota);
   const sameScopeTargets = (Array.isArray(items) ? items : []).filter(
     (item) =>
       item?.is_active &&
       matchTargetScope(item, chat, msg) &&
-      normalizeLower(item?.category_code) !== normalizeLower(keepCategoryCode)
+      buildCatalogIdentityKey(item?.category_code, item?.kota) !== keepKey
   );
 
   for (const item of sameScopeTargets) {
@@ -228,12 +273,14 @@ async function deactivateOtherCatalogTargetsInScope(env, chat, msg, keepCategory
       chat_id: item.chat_id,
       topic_id: item.topic_id,
       category_code: item.category_code,
+      kota: item.kota,
     }).catch(() => null);
 
     await cleanupPublishedCatalogForTarget(env, {
       chat_id: item.chat_id,
       topic_id: item.topic_id,
       category_code: item.category_code,
+      kota: item.kota,
     }).catch(() => null);
   }
 
@@ -309,10 +356,8 @@ async function handleCatalogFeedCommand({
     return true;
   }
 
-  const parts = splitCommandParts(text);
-  const secondToken = normalizeLower(parts[1]);
-
-  if (!secondToken) {
+  const parsedArgs = parseCatalogFeedCommandArgs(text);
+  if (!parsedArgs.ok) {
     await sendMessage(env, chatId, buildCatalogCommandUsageText(), {
       ...replyExtra,
       parse_mode: "HTML",
@@ -320,7 +365,19 @@ async function handleCatalogFeedCommand({
     return true;
   }
 
-  if (secondToken === "list") {
+  const categoryCode = await resolveCategoryCode(env, parsedArgs.rawCategoryCode);
+  const kota = parsedArgs.kota;
+  const action = parsedArgs.action;
+
+  if (!categoryCode) {
+    await sendMessage(env, chatId, buildCatalogCommandUsageText(), {
+      ...replyExtra,
+      parse_mode: "HTML",
+    });
+    return true;
+  }
+
+  if (action === "list") {
     const allItems = await getCatalogTargets(env).catch((err) => {
       logError("[catalog.targets.list.failed]", {
         telegramId,
@@ -329,26 +386,22 @@ async function handleCatalogFeedCommand({
       return [];
     });
 
-    const filteredItems = isPrivateChat(chat)
-      ? allItems
-      : (Array.isArray(allItems) ? allItems : []).filter((item) => matchTargetScope(item, chat, msg));
+    const filteredItems = (Array.isArray(allItems) ? allItems : []).filter((item) => {
+      if (!matchCatalogIdentity(item, categoryCode, kota)) {
+        return false;
+      }
+
+      if (isPrivateChat(chat)) {
+        return true;
+      }
+
+      return matchTargetScope(item, chat, msg);
+    });
 
     await sendMessage(env, chatId, buildCatalogTargetsListText(filteredItems), {
       parse_mode: "HTML",
       disable_web_page_preview: true,
       ...replyExtra,
-    });
-    return true;
-  }
-
-  const categoryCode = await resolveCategoryCode(env, secondToken);
-  const action = normalizeLower(parts[2]);
-  const allowedActions = new Set(["on", "off"]);
-
-  if (!categoryCode || !action || !allowedActions.has(action)) {
-    await sendMessage(env, chatId, buildCatalogCommandUsageText(), {
-      ...replyExtra,
-      parse_mode: "HTML",
     });
     return true;
   }
@@ -368,6 +421,7 @@ async function handleCatalogFeedCommand({
     chat_title: chat?.title || chat?.username || "Group Tanpa Nama",
     topic_id: msg?.message_thread_id ?? null,
     category_code: categoryCode,
+    kota,
     added_by: telegramId,
   };
 
@@ -376,7 +430,8 @@ async function handleCatalogFeedCommand({
       env,
       chat,
       msg,
-      categoryCode
+      categoryCode,
+      kota
     ).catch(() => 0);
 
     const result = await addOrUpdateCatalogTarget(env, targetPayload).catch((err) => {
@@ -385,6 +440,7 @@ async function handleCatalogFeedCommand({
         chatId,
         threadId: msg?.message_thread_id ?? null,
         categoryCode,
+        kota,
         err: err?.message || String(err || ""),
       });
       return { ok: false, reason: "exception" };
@@ -402,7 +458,7 @@ async function handleCatalogFeedCommand({
     ];
 
     if (replacedCount > 0) {
-      noticeLines.push("", `Kategori lama di scope ini dimatikan: ${replacedCount}`);
+      noticeLines.push("", `Feed lama di scope ini dimatikan: ${replacedCount}`);
     }
 
     await sendMessage(env, chatId, noticeLines.join("\n"), replyExtra);
@@ -415,6 +471,7 @@ async function handleCatalogFeedCommand({
         chatId,
         threadId: msg?.message_thread_id ?? null,
         categoryCode,
+        kota,
         err: err?.message || String(err || ""),
       });
       return { ok: false, reason: "exception" };
@@ -433,6 +490,7 @@ async function handleCatalogFeedCommand({
       chatId,
       threadId: msg?.message_thread_id ?? null,
       categoryCode,
+      kota,
       err: err?.message || String(err || ""),
     });
     return { ok: false, reason: "exception" };
@@ -449,6 +507,7 @@ async function handleCatalogFeedCommand({
       chatId,
       threadId: msg?.message_thread_id ?? null,
       categoryCode,
+      kota,
       err: err?.message || String(err || ""),
     });
     return { ok: false, removed_count: 0, failed_message_ids: [] };
