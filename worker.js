@@ -5,6 +5,7 @@ import { handleAdmin } from "./routes/admin.js";
 import { handleProfile } from "./routes/profile.js";
 import { json } from "./utils/response.js";
 import { runMaintenanceCron } from "./services/cronMaintenanceService.js";
+import { publishCatalogToActiveTargets } from "./services/catalogPublisher.js";
 
 function normalizePathname(pathname) {
   const raw = String(pathname || "/").replace(/\/{2,}/g, "/");
@@ -40,6 +41,25 @@ function isAuthorizedCronRequest(request, env) {
   if (!providedSecret) return false;
 
   return providedSecret === expectedSecret;
+}
+
+async function runScheduledJobs(env) {
+  const results = await Promise.allSettled([
+    runMaintenanceCron(env),
+    publishCatalogToActiveTargets(env, { pageSize: 3 }),
+  ]);
+
+  return {
+    ok: results.every((item) => item.status === "fulfilled"),
+    maintenance:
+      results[0]?.status === "fulfilled"
+        ? results[0].value
+        : { ok: false, error: String(results[0]?.reason || "unknown_error") },
+    catalog:
+      results[1]?.status === "fulfilled"
+        ? results[1].value
+        : { ok: false, error: String(results[1]?.reason || "unknown_error") },
+  };
 }
 
 export default {
@@ -121,7 +141,7 @@ export default {
       }
 
       try {
-        const result = await runMaintenanceCron(env);
+        const result = await runScheduledJobs(env);
         return json(result);
       } catch (error) {
         return json(
@@ -144,6 +164,6 @@ export default {
   },
 
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(runMaintenanceCron(env));
+    ctx.waitUntil(runScheduledJobs(env));
   },
 };
