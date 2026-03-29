@@ -13,8 +13,36 @@ function normalizeText(text) {
   return String(text || "").trim();
 }
 
+function normalizeRole(role) {
+  return String(role || "").trim().toLowerCase();
+}
+
+function canManagePartnerEdit(role) {
+  const currentRole = normalizeRole(role);
+  return currentRole === "owner" || currentRole === "superadmin";
+}
+
 function normalizeWhatsapp(value) {
   return String(value || "").replace(/\D/g, "");
+}
+
+function normalizeChannelUrl(value) {
+  const raw = normalizeText(value);
+  if (!raw) return "";
+
+  if (/^@?[A-Za-z0-9_]{5,}$/i.test(raw)) {
+    return `https://t.me/${raw.replace(/^@+/, "")}`;
+  }
+
+  const directTelegramPath = raw.match(
+    /^(?:https?:\/\/)?(?:t\.me|telegram\.me)\/([A-Za-z0-9_+\/]+)$/i
+  );
+
+  if (directTelegramPath?.[1]) {
+    return `https://t.me/${directTelegramPath[1].replace(/^\/+/, "")}`;
+  }
+
+  return null;
 }
 
 function buildSuccessKeyboard(telegramId) {
@@ -61,11 +89,22 @@ export async function handlePartnerTextEditInput({
   env,
   chatId,
   text,
+  role,
   session,
   STATE_KEY,
 }) {
   if (String(session?.mode || "").trim().toLowerCase() !== "partner_edit_text") {
     return false;
+  }
+
+  if (!canManagePartnerEdit(role)) {
+    await clearSession(env, STATE_KEY).catch(() => {});
+    await sendMessage(
+      env,
+      chatId,
+      "⚠️ Hanya owner / superadmin yang bisa mengubah data partner."
+    );
+    return true;
   }
 
   const rawText = normalizeText(text);
@@ -99,6 +138,22 @@ export async function handlePartnerTextEditInput({
       "⚠️ NIK harus berupa angka saja.\n\nKirim ulang atau ketik batal."
     );
     return true;
+  }
+
+  if (meta.key === "channel_url" && nextValue) {
+    const normalizedChannel = normalizeChannelUrl(nextValue);
+
+    if (!normalizedChannel) {
+      await sendMessage(
+        env,
+        chatId,
+        "⚠️ Link channel tidak valid.\nGunakan format <code>https://t.me/namachannel</code> atau <code>@namachannel</code>.\n\nKirim ulang atau ketik batal.",
+        { parse_mode: "HTML" }
+      );
+      return true;
+    }
+
+    nextValue = normalizedChannel;
   }
 
   if (nextValue.length > meta.max) {
