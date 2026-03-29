@@ -2,15 +2,25 @@
 
 import { answerCallbackQuery, editCallbackMessage } from "../../services/telegramApi.js";
 import { getCatalogPartnerByTelegramId } from "../../repositories/catalogRepo.js";
-import { CALLBACK_PREFIX, parseCatalogCallbackPayload } from "../telegram.constants.js";
 import {
   buildCatalogPartnerDetailsText,
   buildCatalogPartnerSummaryText,
   buildCatalogPartnerReplyMarkup,
 } from "../../services/catalogPublisher.js";
 
+const DETAILS_PREFIX = "catalog:details:";
+const DETAILS_CLOSE_PREFIX = "catalog:details:close:";
+const DETAILS_CLOSE_LEGACY_PREFIX = "catalog:close:";
+const BOOK_PREFIX = "catalog:book:";
+
 function normalizeString(value) {
   return String(value || "").trim();
+}
+
+function parseTelegramId(data, prefix) {
+  const raw = String(data || "");
+  if (!raw.startsWith(prefix)) return "";
+  return normalizeString(raw.slice(prefix.length));
 }
 
 async function answerAlert(env, callbackQueryId, text) {
@@ -21,16 +31,9 @@ async function answerAlert(env, callbackQueryId, text) {
   });
 }
 
-async function renderCatalogCard(ctx, mode) {
-  const { env, msg, callbackQueryId, data } = ctx;
-  const prefix =
-    mode === "details"
-      ? CALLBACK_PREFIX.CATALOG_DETAILS
-      : CALLBACK_PREFIX.CATALOG_DETAILS_CLOSE;
-
-  const { categoryCode, telegramId } = parseCatalogCallbackPayload(data, prefix);
+async function renderCatalogCard(ctx, telegramId, mode) {
+  const { env, msg, callbackQueryId } = ctx;
   const normalizedTelegramId = normalizeString(telegramId);
-  const normalizedCategoryCode = normalizeString(categoryCode).toLowerCase();
 
   if (!normalizedTelegramId) {
     await answerAlert(env, callbackQueryId, "Data partner tidak valid.");
@@ -46,14 +49,10 @@ async function renderCatalogCard(ctx, mode) {
 
   const text =
     mode === "details"
-      ? buildCatalogPartnerDetailsText(row, normalizedCategoryCode)
+      ? buildCatalogPartnerDetailsText(row)
       : buildCatalogPartnerSummaryText(row);
 
-  const replyMarkup = buildCatalogPartnerReplyMarkup(
-    mode,
-    normalizedCategoryCode,
-    normalizedTelegramId
-  );
+  const replyMarkup = buildCatalogPartnerReplyMarkup(mode, normalizedTelegramId);
 
   const res = await editCallbackMessage(env, msg, text, {
     parse_mode: "HTML",
@@ -69,11 +68,21 @@ async function renderCatalogCard(ctx, mode) {
 }
 
 async function handleCatalogDetails(ctx) {
-  await renderCatalogCard(ctx, "details");
+  const telegramId = parseTelegramId(ctx?.data, DETAILS_PREFIX)
+    .replace(/^close:/, "")
+    .trim();
+
+  await renderCatalogCard(ctx, telegramId, "details");
 }
 
 async function handleCatalogDetailsClose(ctx) {
-  await renderCatalogCard(ctx, "summary");
+  let telegramId = parseTelegramId(ctx?.data, DETAILS_CLOSE_PREFIX);
+
+  if (!telegramId) {
+    telegramId = parseTelegramId(ctx?.data, DETAILS_CLOSE_LEGACY_PREFIX);
+  }
+
+  await renderCatalogCard(ctx, telegramId, "summary");
 }
 
 async function handleCatalogBook(ctx) {
@@ -90,15 +99,22 @@ export function buildCatalogHandlers() {
     EXACT: {},
     PREFIX: [
       {
-        match: (data) => String(data || "").startsWith(CALLBACK_PREFIX.CATALOG_DETAILS_CLOSE),
+        match: (data) => String(data || "").startsWith(DETAILS_CLOSE_PREFIX),
         run: handleCatalogDetailsClose,
       },
       {
-        match: (data) => String(data || "").startsWith(CALLBACK_PREFIX.CATALOG_DETAILS),
+        match: (data) => String(data || "").startsWith(DETAILS_CLOSE_LEGACY_PREFIX),
+        run: handleCatalogDetailsClose,
+      },
+      {
+        match: (data) => {
+          const raw = String(data || "");
+          return raw.startsWith(DETAILS_PREFIX) && !raw.startsWith(DETAILS_CLOSE_PREFIX);
+        },
         run: handleCatalogDetails,
       },
       {
-        match: (data) => String(data || "").startsWith(CALLBACK_PREFIX.CATALOG_BOOK),
+        match: (data) => String(data || "").startsWith(BOOK_PREFIX),
         run: handleCatalogBook,
       },
     ],
