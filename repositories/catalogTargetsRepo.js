@@ -22,8 +22,21 @@ function normalizeTopicId(value) {
 }
 
 function normalizeCategoryCode(value) {
-  const raw = normalizeLower(value);
+  const raw = normalizeString(value);
   return raw || null;
+}
+
+function normalizeCategoryKey(value) {
+  return normalizeLower(value) || null;
+}
+
+function normalizeKota(value) {
+  const raw = normalizeString(value);
+  return raw || null;
+}
+
+function normalizeKotaKey(value) {
+  return normalizeLower(value) || null;
 }
 
 function nowIso() {
@@ -48,6 +61,7 @@ function parseTargets(rawValue) {
           chat_title: normalizeString(item?.chat_title) || "(Tanpa Nama)",
           topic_id: normalizeTopicId(item?.topic_id),
           category_code: normalizeCategoryCode(item?.category_code),
+          kota: normalizeKota(item?.kota),
           is_active: Boolean(item?.is_active),
           added_by: normalizeString(item?.added_by) || "",
           added_at: normalizeString(item?.added_at) || nowIso(),
@@ -64,15 +78,31 @@ function serializeTargets(targets) {
   return JSON.stringify(Array.isArray(targets) ? targets : []);
 }
 
-function buildTargetKey(chatId, topicId, categoryCode) {
+function buildTargetKey(chatId, topicId, categoryCode, kota) {
   const normalizedChatId = normalizeChatId(chatId);
   const normalizedTopicId = normalizeTopicId(topicId);
-  const normalizedCategoryCode = normalizeCategoryCode(categoryCode);
-  return `${normalizedChatId}::${normalizedTopicId || "-"}::${normalizedCategoryCode || "-"}`;
+  const normalizedCategoryKey = normalizeCategoryKey(categoryCode);
+  const normalizedKotaKey = normalizeKotaKey(kota);
+
+  return [
+    normalizedChatId,
+    normalizedTopicId || "-",
+    normalizedCategoryKey || "-",
+    normalizedKotaKey || "-",
+  ].join("::");
 }
 
-function buildLegacyTargetKey(chatId, topicId) {
-  return buildTargetKey(chatId, topicId, null);
+function buildLegacyScopeOnlyKey(chatId, topicId) {
+  return [normalizeChatId(chatId), normalizeTopicId(topicId) || "-", "-", "-"].join("::");
+}
+
+function buildLegacyCategoryOnlyKey(chatId, topicId, categoryCode) {
+  return [
+    normalizeChatId(chatId),
+    normalizeTopicId(topicId) || "-",
+    normalizeCategoryKey(categoryCode) || "-",
+    "-",
+  ].join("::");
 }
 
 export async function getCatalogTargets(env) {
@@ -88,6 +118,7 @@ export async function addOrUpdateCatalogTarget(env, payload = {}) {
   const chatId = normalizeChatId(payload?.chat_id);
   const topicId = normalizeTopicId(payload?.topic_id);
   const categoryCode = normalizeCategoryCode(payload?.category_code);
+  const kota = normalizeKota(payload?.kota);
 
   if (!chatId) {
     return { ok: false, reason: "missing_chat_id" };
@@ -98,14 +129,15 @@ export async function addOrUpdateCatalogTarget(env, payload = {}) {
   }
 
   const targets = await getCatalogTargets(env);
-  const targetKey = buildTargetKey(chatId, topicId, categoryCode);
-  const legacyTargetKey = buildLegacyTargetKey(chatId, topicId);
+  const targetKey = buildTargetKey(chatId, topicId, categoryCode, kota);
+  const legacyCategoryOnlyKey = buildLegacyCategoryOnlyKey(chatId, topicId, categoryCode);
+  const legacyScopeOnlyKey = buildLegacyScopeOnlyKey(chatId, topicId);
   const now = nowIso();
 
   let found = false;
 
   const nextTargets = targets.map((item) => {
-    const itemKey = buildTargetKey(item.chat_id, item.topic_id, item.category_code);
+    const itemKey = buildTargetKey(item.chat_id, item.topic_id, item.category_code, item.kota);
 
     if (itemKey === targetKey) {
       found = true;
@@ -113,13 +145,14 @@ export async function addOrUpdateCatalogTarget(env, payload = {}) {
         ...item,
         chat_title: normalizeString(payload?.chat_title) || item.chat_title || "(Tanpa Nama)",
         category_code: categoryCode,
+        kota,
         is_active: true,
         added_by: normalizeString(payload?.added_by) || item.added_by || "",
         updated_at: now,
       };
     }
 
-    if (itemKey === legacyTargetKey) {
+    if (itemKey === legacyCategoryOnlyKey || itemKey === legacyScopeOnlyKey) {
       return {
         ...item,
         is_active: false,
@@ -136,6 +169,7 @@ export async function addOrUpdateCatalogTarget(env, payload = {}) {
       chat_title: normalizeString(payload?.chat_title) || "(Tanpa Nama)",
       topic_id: topicId,
       category_code: categoryCode,
+      kota,
       is_active: true,
       added_by: normalizeString(payload?.added_by) || "",
       added_at: now,
@@ -147,7 +181,7 @@ export async function addOrUpdateCatalogTarget(env, payload = {}) {
 
   const savedItem =
     nextTargets.find(
-      (item) => buildTargetKey(item.chat_id, item.topic_id, item.category_code) === targetKey
+      (item) => buildTargetKey(item.chat_id, item.topic_id, item.category_code, item.kota) === targetKey
     ) || null;
 
   return {
@@ -162,6 +196,7 @@ export async function deactivateCatalogTarget(env, payload = {}) {
   const chatId = normalizeChatId(payload?.chat_id);
   const topicId = normalizeTopicId(payload?.topic_id);
   const categoryCode = normalizeCategoryCode(payload?.category_code);
+  const kota = normalizeKota(payload?.kota);
 
   if (!chatId) {
     return { ok: false, reason: "missing_chat_id" };
@@ -172,15 +207,19 @@ export async function deactivateCatalogTarget(env, payload = {}) {
   }
 
   const targets = await getCatalogTargets(env);
-  const targetKey = buildTargetKey(chatId, topicId, categoryCode);
-  const legacyTargetKey = buildLegacyTargetKey(chatId, topicId);
+  const targetKey = buildTargetKey(chatId, topicId, categoryCode, kota);
+  const legacyCategoryOnlyKey = buildLegacyCategoryOnlyKey(chatId, topicId, categoryCode);
+  const legacyScopeOnlyKey = buildLegacyScopeOnlyKey(chatId, topicId);
   const now = nowIso();
 
   let found = false;
 
   const nextTargets = targets.map((item) => {
-    const itemKey = buildTargetKey(item.chat_id, item.topic_id, item.category_code);
-    const shouldDeactivate = itemKey === targetKey || itemKey === legacyTargetKey;
+    const itemKey = buildTargetKey(item.chat_id, item.topic_id, item.category_code, item.kota);
+    const shouldDeactivate =
+      itemKey === targetKey ||
+      itemKey === legacyCategoryOnlyKey ||
+      itemKey === legacyScopeOnlyKey;
 
     if (!shouldDeactivate) {
       return item;
