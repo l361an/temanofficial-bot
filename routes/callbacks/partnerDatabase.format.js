@@ -1,6 +1,18 @@
 // routes/callbacks/partnerDatabase.format.js
+
 import { escapeHtml } from "./shared.js";
 import { cleanHandle, fmtClassId } from "../../utils/partnerHelpers.js";
+
+function safeJsonParse(rawValue) {
+  const raw = String(rawValue || "").trim();
+  if (!raw) return null;
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
 
 export function partnerStatusLabel(status) {
   const raw = String(status || "").trim().toLowerCase();
@@ -54,23 +66,13 @@ function normalizeDurationCode(raw) {
 }
 
 export function resolveDurationCode(row) {
-  const metaRaw = String(row?.metadata_json || "").trim();
-  if (metaRaw) {
-    try {
-      const meta = JSON.parse(metaRaw);
-      const code = normalizeDurationCode(meta?.duration_code);
-      if (code) return code;
-    } catch {}
-  }
+  const meta = safeJsonParse(row?.metadata_json);
+  const metaCode = normalizeDurationCode(meta?.duration_code);
+  if (metaCode) return metaCode;
 
-  const snapRaw = String(row?.pricing_snapshot_json || "").trim();
-  if (snapRaw) {
-    try {
-      const snap = JSON.parse(snapRaw);
-      const code = normalizeDurationCode(snap?.duration_code);
-      if (code) return code;
-    } catch {}
-  }
+  const snap = safeJsonParse(row?.pricing_snapshot_json);
+  const snapCode = normalizeDurationCode(snap?.duration_code);
+  if (snapCode) return snapCode;
 
   const months = Number(row?.duration_months || 0);
   if (months === 1) return "1m";
@@ -79,6 +81,15 @@ export function resolveDurationCode(row) {
 }
 
 export function formatDurationLabelFromRow(row) {
+  const meta = safeJsonParse(row?.metadata_json);
+  const metaDurationLabel = String(meta?.duration_label || "").trim();
+  if (metaDurationLabel) return metaDurationLabel;
+
+  const metaDays = Number(meta?.duration_days || 0);
+  if (Number.isFinite(metaDays) && metaDays > 0) {
+    return `${metaDays} Hari`;
+  }
+
   const code = resolveDurationCode(row);
 
   if (code === "1d") return "1 Hari";
@@ -147,6 +158,8 @@ export function buildPartnerSubscriptionText(context) {
   const premiumAccess = premiumAccessLabel(profile, subInfo);
   const row = subInfo?.row || null;
   const durationLabel = formatDurationLabelFromRow(row);
+  const activeSourceType = String(row?.source_type || "").trim() || "-";
+  const activeNotes = String(row?.notes || "").trim() || "-";
 
   const lines = [
     "📦 <b>Partner Subscription</b>",
@@ -155,6 +168,8 @@ export function buildPartnerSubscriptionText(context) {
     `Class Partner : <b>${escapeHtml(fmtClassId(profile?.class_id))}</b>`,
     `Durasi : <b>${escapeHtml(durationLabel)}</b>`,
     `Periode : <b>${escapeHtml(formatDateTime(row?.start_at))}</b> s/d <b>${escapeHtml(formatDateTime(row?.end_at))}</b>`,
+    `Source Aktif : <b>${escapeHtml(activeSourceType)}</b>`,
+    `Catatan Aktif : <b>${escapeHtml(activeNotes)}</b>`,
   ];
 
   if (latestPayment) {
