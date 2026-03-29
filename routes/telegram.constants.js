@@ -86,6 +86,8 @@ export const CALLBACK_PREFIX = {
   PM_PANEL_OPEN: "pm:panel:",
   PM_DETAILS_OPEN: "pm:details:",
   PM_SUBSCRIPTION_OPEN: "pm:subscription:",
+  PM_SUBSCRIPTION_ADD_START: "pm:subscription:add:",
+  PM_SUBSCRIPTION_REDUCE_START: "pm:subscription:reduce:",
   PM_PANEL_BACK: "pm:panel:back:",
 
   PM_CLASS_START: "pmclass:start:",
@@ -185,6 +187,8 @@ export const cb = {
   pmPanelOpen: (telegramId) => `${CALLBACK_PREFIX.PM_PANEL_OPEN}${telegramId}`,
   pmDetailsOpen: (telegramId) => `${CALLBACK_PREFIX.PM_DETAILS_OPEN}${telegramId}`,
   pmSubscriptionOpen: (telegramId) => `${CALLBACK_PREFIX.PM_SUBSCRIPTION_OPEN}${telegramId}`,
+  pmSubscriptionAddStart: (telegramId) => `${CALLBACK_PREFIX.PM_SUBSCRIPTION_ADD_START}${telegramId}`,
+  pmSubscriptionReduceStart: (telegramId) => `${CALLBACK_PREFIX.PM_SUBSCRIPTION_REDUCE_START}${telegramId}`,
   pmPanelBack: (telegramId) => `${CALLBACK_PREFIX.PM_PANEL_BACK}${telegramId}`,
 
   pmClassStart: (telegramId) => `${CALLBACK_PREFIX.PM_CLASS_START}${telegramId}`,
