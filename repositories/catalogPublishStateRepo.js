@@ -22,8 +22,21 @@ function normalizeTopicId(value) {
 }
 
 function normalizeCategoryCode(value) {
-  const raw = normalizeLower(value);
+  const raw = normalizeString(value);
   return raw || null;
+}
+
+function normalizeCategoryKey(value) {
+  return normalizeLower(value) || null;
+}
+
+function normalizeKota(value) {
+  const raw = normalizeString(value);
+  return raw || null;
+}
+
+function normalizeKotaKey(value) {
+  return normalizeLower(value) || null;
 }
 
 function normalizeMessageIds(values) {
@@ -45,15 +58,31 @@ function nowIso() {
   return new Date().toISOString();
 }
 
-function buildStateKey(chatId, topicId, categoryCode) {
+function buildStateKey(chatId, topicId, categoryCode, kota) {
   const normalizedChatId = normalizeChatId(chatId);
   const normalizedTopicId = normalizeTopicId(topicId);
-  const normalizedCategoryCode = normalizeCategoryCode(categoryCode);
-  return `${normalizedChatId}::${normalizedTopicId || "-"}::${normalizedCategoryCode || "-"}`;
+  const normalizedCategoryKey = normalizeCategoryKey(categoryCode);
+  const normalizedKotaKey = normalizeKotaKey(kota);
+
+  return [
+    normalizedChatId,
+    normalizedTopicId || "-",
+    normalizedCategoryKey || "-",
+    normalizedKotaKey || "-",
+  ].join("::");
 }
 
-function buildLegacyStateKey(chatId, topicId) {
-  return buildStateKey(chatId, topicId, null);
+function buildLegacyScopeOnlyKey(chatId, topicId) {
+  return [normalizeChatId(chatId), normalizeTopicId(topicId) || "-", "-", "-"].join("::");
+}
+
+function buildLegacyCategoryOnlyKey(chatId, topicId, categoryCode) {
+  return [
+    normalizeChatId(chatId),
+    normalizeTopicId(topicId) || "-",
+    normalizeCategoryKey(categoryCode) || "-",
+    "-",
+  ].join("::");
 }
 
 function parseStates(rawValue) {
@@ -73,6 +102,7 @@ function parseStates(rawValue) {
           chat_id: chatId,
           topic_id: normalizeTopicId(item?.topic_id),
           category_code: normalizeCategoryCode(item?.category_code),
+          kota: normalizeKota(item?.kota),
           message_ids: normalizeMessageIds(item?.message_ids),
           partner_count: normalizeNonNegativeInteger(item?.partner_count, 0),
           page_count: normalizeNonNegativeInteger(item?.page_count, 0),
@@ -103,27 +133,37 @@ export async function getCatalogPublishState(env, target = {}) {
   const chatId = normalizeChatId(target?.chat_id);
   const topicId = normalizeTopicId(target?.topic_id);
   const categoryCode = normalizeCategoryCode(target?.category_code);
+  const kota = normalizeKota(target?.kota);
 
   if (!chatId) return null;
 
   const states = await getCatalogPublishStates(env);
-  const exactKey = buildStateKey(chatId, topicId, categoryCode);
+  const exactKey = buildStateKey(chatId, topicId, categoryCode, kota);
 
   const exact =
     states.find(
       (item) =>
-        buildStateKey(item.chat_id, item.topic_id, item.category_code) === exactKey
+        buildStateKey(item.chat_id, item.topic_id, item.category_code, item.kota) === exactKey
     ) || null;
 
   if (exact) return exact;
 
   if (!categoryCode) return null;
 
+  const legacyCategoryOnly =
+    states.find(
+      (item) =>
+        buildStateKey(item.chat_id, item.topic_id, item.category_code, item.kota) ===
+        buildLegacyCategoryOnlyKey(chatId, topicId, categoryCode)
+    ) || null;
+
+  if (legacyCategoryOnly) return legacyCategoryOnly;
+
   return (
     states.find(
       (item) =>
-        buildStateKey(item.chat_id, item.topic_id, item.category_code) ===
-        buildLegacyStateKey(chatId, topicId)
+        buildStateKey(item.chat_id, item.topic_id, item.category_code, item.kota) ===
+        buildLegacyScopeOnlyKey(chatId, topicId)
     ) || null
   );
 }
@@ -132,6 +172,7 @@ export async function upsertCatalogPublishState(env, payload = {}) {
   const chatId = normalizeChatId(payload?.chat_id);
   const topicId = normalizeTopicId(payload?.topic_id);
   const categoryCode = normalizeCategoryCode(payload?.category_code);
+  const kota = normalizeKota(payload?.kota);
 
   if (!chatId) {
     return { ok: false, reason: "missing_chat_id" };
@@ -142,13 +183,15 @@ export async function upsertCatalogPublishState(env, payload = {}) {
   }
 
   const states = await getCatalogPublishStates(env);
-  const stateKey = buildStateKey(chatId, topicId, categoryCode);
-  const legacyStateKey = buildLegacyStateKey(chatId, topicId);
+  const stateKey = buildStateKey(chatId, topicId, categoryCode, kota);
+  const legacyCategoryOnlyKey = buildLegacyCategoryOnlyKey(chatId, topicId, categoryCode);
+  const legacyScopeOnlyKey = buildLegacyScopeOnlyKey(chatId, topicId);
 
   const nextItem = {
     chat_id: chatId,
     topic_id: topicId,
     category_code: categoryCode,
+    kota,
     message_ids: normalizeMessageIds(payload?.message_ids),
     partner_count: normalizeNonNegativeInteger(payload?.partner_count, 0),
     page_count: normalizeNonNegativeInteger(payload?.page_count, 0),
@@ -159,8 +202,11 @@ export async function upsertCatalogPublishState(env, payload = {}) {
   let found = false;
 
   const nextStates = states.filter((item) => {
-    const itemKey = buildStateKey(item.chat_id, item.topic_id, item.category_code);
-    const shouldReplace = itemKey === stateKey || itemKey === legacyStateKey;
+    const itemKey = buildStateKey(item.chat_id, item.topic_id, item.category_code, item.kota);
+    const shouldReplace =
+      itemKey === stateKey ||
+      itemKey === legacyCategoryOnlyKey ||
+      itemKey === legacyScopeOnlyKey;
 
     if (shouldReplace) {
       found = true;
@@ -186,23 +232,35 @@ export async function removeCatalogPublishState(env, target = {}) {
   const chatId = normalizeChatId(target?.chat_id);
   const topicId = normalizeTopicId(target?.topic_id);
   const categoryCode = normalizeCategoryCode(target?.category_code);
+  const kota = normalizeKota(target?.kota);
 
   if (!chatId) {
     return { ok: false, reason: "missing_chat_id" };
   }
 
   const states = await getCatalogPublishStates(env);
-  const stateKey = buildStateKey(chatId, topicId, categoryCode);
-  const legacyStateKey = categoryCode ? buildLegacyStateKey(chatId, topicId) : null;
+  const stateKey = buildStateKey(chatId, topicId, categoryCode, kota);
+  const legacyCategoryOnlyKey = categoryCode
+    ? buildLegacyCategoryOnlyKey(chatId, topicId, categoryCode)
+    : null;
+  const legacyScopeOnlyKey = categoryCode ? buildLegacyScopeOnlyKey(chatId, topicId) : null;
 
   const removedItems = states.filter((item) => {
-    const itemKey = buildStateKey(item.chat_id, item.topic_id, item.category_code);
-    return itemKey === stateKey || (legacyStateKey && itemKey === legacyStateKey);
+    const itemKey = buildStateKey(item.chat_id, item.topic_id, item.category_code, item.kota);
+    return (
+      itemKey === stateKey ||
+      (legacyCategoryOnlyKey && itemKey === legacyCategoryOnlyKey) ||
+      (legacyScopeOnlyKey && itemKey === legacyScopeOnlyKey)
+    );
   });
 
   const nextStates = states.filter((item) => {
-    const itemKey = buildStateKey(item.chat_id, item.topic_id, item.category_code);
-    return itemKey !== stateKey && (!legacyStateKey || itemKey !== legacyStateKey);
+    const itemKey = buildStateKey(item.chat_id, item.topic_id, item.category_code, item.kota);
+    return (
+      itemKey !== stateKey &&
+      (!legacyCategoryOnlyKey || itemKey !== legacyCategoryOnlyKey) &&
+      (!legacyScopeOnlyKey || itemKey !== legacyScopeOnlyKey)
+    );
   });
 
   await saveCatalogPublishStates(env, nextStates);
