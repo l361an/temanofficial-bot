@@ -16,8 +16,6 @@ import {
 import { escapeHtml } from "./shared.js";
 import { CALLBACK_PREFIX, SESSION_MODES } from "../telegram.constants.js";
 
-import { getPartnerEditFieldMeta } from "./partner.class.js";
-
 import {
   loadCategoryOptions,
   buildCategoryPickerKeyboard,
@@ -29,17 +27,104 @@ import {
 
 import { encodeSelectedCategoryIds } from "./partner.utils.js";
 
+function normalizeRole(role) {
+  return String(role || "").trim().toLowerCase();
+}
+
+function canManagePartnerEdit(role) {
+  const currentRole = normalizeRole(role);
+  return currentRole === "owner" || currentRole === "superadmin";
+}
+
+function getPartnerEditFieldMeta(field) {
+  const key = String(field || "").trim();
+
+  if (key === "nama_lengkap") {
+    return {
+      key,
+      currentKey: "nama_lengkap",
+      label: "Nama Lengkap",
+      prompt: "Kirim nama lengkap baru",
+    };
+  }
+
+  if (key === "nickname") {
+    return {
+      key,
+      currentKey: "nickname",
+      label: "Nickname",
+      prompt: "Kirim nickname baru",
+    };
+  }
+
+  if (key === "no_whatsapp") {
+    return {
+      key,
+      currentKey: "no_whatsapp",
+      label: "Whatsapp",
+      prompt: "Kirim nomor Whatsapp baru",
+    };
+  }
+
+  if (key === "nik") {
+    return {
+      key,
+      currentKey: "nik",
+      label: "NIK",
+      prompt: "Kirim NIK baru",
+    };
+  }
+
+  if (key === "kecamatan") {
+    return {
+      key,
+      currentKey: "kecamatan",
+      label: "Kecamatan",
+      prompt: "Kirim kecamatan baru",
+    };
+  }
+
+  if (key === "kota") {
+    return {
+      key,
+      currentKey: "kota",
+      label: "Kota",
+      prompt: "Kirim kota baru",
+    };
+  }
+
+  if (key === "channel_url") {
+    return {
+      key,
+      currentKey: "channel_url",
+      label: "Channel",
+      prompt: "Kirim link channel Telegram baru. Contoh: https://t.me/namachannel atau @namachannel",
+    };
+  }
+
+  return null;
+}
+
 export function buildPartnerEditDomainHandlers() {
   const EXACT = {};
   const PREFIX = [];
 
-  /**
-   * PM_EDIT_START
-   */
   PREFIX.push({
     match: (d) => d.startsWith(CALLBACK_PREFIX.PM_EDIT_START),
     run: async (ctx) => {
-      const { env, data, adminId, msgChatId, msgId } = ctx;
+      const { env, data, adminId, role, msgChatId, msgId } = ctx;
+
+      if (!canManagePartnerEdit(role)) {
+        await sendMessage(
+          env,
+          adminId,
+          "⚠️ Hanya owner / superadmin yang bisa mengubah data partner.",
+          {
+            reply_markup: buildBackToPartnerDatabaseKeyboard(),
+          }
+        );
+        return true;
+      }
 
       const payload = String(
         data.slice(CALLBACK_PREFIX.PM_EDIT_START.length) || ""
@@ -63,9 +148,6 @@ export function buildPartnerEditDomainHandlers() {
         return true;
       }
 
-      /**
-       * CATEGORY EDIT MODE
-       */
       if (field === "category") {
         const categories = await loadCategoryOptions(env);
 
@@ -105,7 +187,7 @@ export function buildPartnerEditDomainHandlers() {
           `🗂️ <b>Edit Category</b>\n\n` +
             `Partner: <b>${escapeHtml(profile.nama_lengkap || "-")}</b>\n` +
             `Telegram ID: <code>${escapeHtml(profile.telegram_id || "-")}</code>\n\n` +
-            `Pilih Category dibawah :`,
+            `Pilih Category di bawah:`,
           {
             parse_mode: "HTML",
             reply_markup: buildCategoryPickerKeyboard(
@@ -119,9 +201,6 @@ export function buildPartnerEditDomainHandlers() {
         return true;
       }
 
-      /**
-       * TEXT FIELD EDIT
-       */
       const meta = getPartnerEditFieldMeta(field);
 
       if (!meta) {
@@ -141,7 +220,10 @@ export function buildPartnerEditDomainHandlers() {
         await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
       }
 
-      const currentValue = profile?.[meta.currentKey] ?? "-";
+      const currentValue =
+        profile?.[meta.currentKey] == null || String(profile?.[meta.currentKey]).trim() === ""
+          ? "-"
+          : String(profile?.[meta.currentKey]);
 
       await sendMessage(
         env,
@@ -149,7 +231,7 @@ export function buildPartnerEditDomainHandlers() {
         `📝 <b>Edit ${escapeHtml(meta.label)}</b>\n\n` +
           `Partner: <b>${escapeHtml(profile.nama_lengkap || "-")}</b>\n` +
           `Telegram ID: <code>${escapeHtml(profile.telegram_id || "-")}</code>\n` +
-          `Current: <b>${escapeHtml(currentValue || "-")}</b>\n\n` +
+          `Current: <code>${escapeHtml(currentValue)}</code>\n\n` +
           `${escapeHtml(meta.prompt)}.\n` +
           `Ketik <b>-</b> untuk kosongkan field.\n\n` +
           `Ketik <b>batal</b> untuk keluar.`,
