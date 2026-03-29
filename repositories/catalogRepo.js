@@ -1,7 +1,5 @@
 // repositories/catalogRepo.js
 
-import { nowJakartaSql } from "../utils/time.js";
-
 function normalizeString(value) {
   return String(value || "").trim();
 }
@@ -16,41 +14,34 @@ function normalizePositiveInteger(value, fallback) {
   return Math.floor(num);
 }
 
-function parseCsvCodes(rawValue) {
-  const raw = normalizeString(rawValue);
-  if (!raw) return [];
+const JAKARTA_NOW_SQL = `datetime('now', '+7 hours')`;
 
-  return raw
-    .split(",")
-    .map((item) => normalizeString(item))
-    .filter(Boolean);
-}
-
-function buildActiveSubscriptionWhere(alias = "ps") {
+function buildActiveSubscriptionExistsClause(profileAlias = "p") {
   return [
-    `${alias}.status = 'active'`,
-    `${alias}.start_at IS NOT NULL`,
-    `${alias}.end_at IS NOT NULL`,
-    `datetime(${alias}.start_at) <= datetime(?)`,
-    `datetime(${alias}.end_at) > datetime(?)`,
-  ].join(" AND ");
+    `EXISTS (`,
+    `  SELECT 1`,
+    `  FROM partner_subscriptions ps`,
+    `  WHERE CAST(ps.partner_id AS TEXT) = CAST(${profileAlias}.telegram_id AS TEXT)`,
+    `    AND ps.status = 'active'`,
+    `    AND ps.start_at IS NOT NULL`,
+    `    AND ps.end_at IS NOT NULL`,
+    `    AND datetime(ps.start_at) <= ${JAKARTA_NOW_SQL}`,
+    `    AND datetime(ps.end_at) > ${JAKARTA_NOW_SQL}`,
+    `)`,
+  ].join("\n");
 }
 
 function buildBaseFilter() {
-  const nowSql = nowJakartaSql();
-
   return {
     whereSql: [
       `p.status = 'approved'`,
       `IFNULL(p.is_manual_suspended, 0) != 1`,
-      `p.is_catalog_visible = 1`,
+      `IFNULL(p.is_catalog_visible, 0) = 1`,
       `p.start_price IS NOT NULL`,
-      `p.start_price > 0`,
-      `p.telegram_id IN (SELECT ps.partner_id FROM partner_subscriptions ps WHERE ${buildActiveSubscriptionWhere(
-        "ps"
-      )})`,
+      `CAST(p.start_price AS INTEGER) > 0`,
+      buildActiveSubscriptionExistsClause("p"),
     ].join("\n  AND "),
-    binds: [nowSql, nowSql],
+    binds: [],
   };
 }
 
@@ -72,7 +63,7 @@ function buildListFilters(options = {}) {
 
   const telegramId = normalizeString(options.telegramId);
   if (telegramId) {
-    clauses.push(`p.telegram_id = ?`);
+    clauses.push(`CAST(p.telegram_id AS TEXT) = CAST(? AS TEXT)`);
     binds.push(telegramId);
   }
 
@@ -209,30 +200,30 @@ async function loadActiveSubscriptionMap(env, partnerIds = []) {
 
   if (!ids.length) return new Map();
 
-  const nowSql = nowJakartaSql();
   const placeholders = ids.map(() => "?").join(",");
   const sql = `
     SELECT
       ps.id,
-      ps.partner_id,
+      CAST(ps.partner_id AS TEXT) AS partner_id,
       ps.class_id,
       ps.start_at,
       ps.end_at,
       ps.created_at
     FROM partner_subscriptions ps
-    WHERE ps.partner_id IN (${placeholders})
-      AND ${buildActiveSubscriptionWhere("ps")}
+    WHERE CAST(ps.partner_id AS TEXT) IN (${placeholders})
+      AND ps.status = 'active'
+      AND ps.start_at IS NOT NULL
+      AND ps.end_at IS NOT NULL
+      AND datetime(ps.start_at) <= ${JAKARTA_NOW_SQL}
+      AND datetime(ps.end_at) > ${JAKARTA_NOW_SQL}
     ORDER BY
-      ps.partner_id ASC,
+      CAST(ps.partner_id AS TEXT) ASC,
       datetime(ps.end_at) DESC,
       datetime(ps.start_at) ASC,
       datetime(ps.created_at) DESC
   `;
 
-  const { results } = await env.DB.prepare(sql)
-    .bind(...ids, nowSql, nowSql)
-    .all();
-
+  const { results } = await env.DB.prepare(sql).bind(...ids).all();
   const rows = Array.isArray(results) ? results : [];
   const map = new Map();
 
