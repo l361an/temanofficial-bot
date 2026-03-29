@@ -6,8 +6,8 @@ import {
   normalizeReminderKey,
   resolveNowSql,
   readDurationCode,
-  canReminderApplyToDuration,
   buildReminderWindow,
+  isDateInsideReminderWindow,
 } from "./partnerSubscriptions.shared.js";
 
 export async function listSubscriptionsDueForReminder(
@@ -46,15 +46,10 @@ export async function listSubscriptionsDueForReminder(
   const { results } = await env.DB.prepare(sql).bind(...bindParams).all();
   const rows = Array.isArray(results) ? results : [];
 
-  return rows
-    .filter((row) => {
-      const durationCode = readDurationCode(row);
-      return canReminderApplyToDuration(durationCode, safeReminderKey);
-    })
-    .map((row) => ({
-      ...row,
-      duration_code: readDurationCode(row),
-    }));
+  return rows.map((row) => ({
+    ...row,
+    duration_code: readDurationCode(row),
+  }));
 }
 
 export async function markSubscriptionReminderSent(
@@ -142,10 +137,10 @@ export async function listReminderDebugRows(
       duration_code: durationCode,
       debug_now: nowSql,
       reminder_matrix: {
-        h3d: canReminderApplyToDuration(durationCode, "h3d"),
-        h2d: canReminderApplyToDuration(durationCode, "h2d"),
-        h1d: canReminderApplyToDuration(durationCode, "h1d"),
-        h3h: canReminderApplyToDuration(durationCode, "h3h"),
+        h3d: isDateInsideReminderWindow(row?.end_at, "h3d", nowSql),
+        h2d: isDateInsideReminderWindow(row?.end_at, "h2d", nowSql),
+        h1d: isDateInsideReminderWindow(row?.end_at, "h1d", nowSql),
+        h3h: isDateInsideReminderWindow(row?.end_at, "h3h", nowSql),
       },
       reminder_windows: {
         h3d: h3dWindow.debug,
