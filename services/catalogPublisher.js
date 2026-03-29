@@ -72,21 +72,10 @@ function formatMoney(value) {
   }
 }
 
-function formatMoneyLabel(value) {
+function formatCurrencyLabel(value) {
   const num = Number(value || 0);
   if (!Number.isFinite(num) || num <= 0) return "-";
-  return `Rp ${formatMoney(num)}`;
-}
-
-function titleCase(value) {
-  const raw = normalizeString(value).toLowerCase();
-  if (!raw) return "-";
-
-  return raw
-    .split(/[\s_-]+/g)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
+  return `Rp. ${formatMoney(num)}`;
 }
 
 function buildTargetSendExtra(target = {}) {
@@ -100,76 +89,88 @@ function buildLocationText(row) {
   const kota = normalizeString(row?.kota);
 
   if (kecamatan && kota) return `${kecamatan} - ${kota}`;
-  if (kecamatan) return kecamatan;
   if (kota) return kota;
+  if (kecamatan) return kecamatan;
   return "-";
 }
 
+function buildUsernameValue(row) {
+  return normalizeString(row?.username).replace(/^@+/, "");
+}
+
+function buildUsernameLink(username) {
+  const clean = normalizeString(username).replace(/^@+/, "");
+  if (!clean) return "-";
+  return `<a href="https://t.me/${encodeURIComponent(clean)}">@${escapeHtml(clean)}</a>`;
+}
+
+function buildPartnerHeadline(row) {
+  const nickname = normalizeString(row?.nickname) || "Partner";
+  const username = buildUsernameValue(row);
+
+  if (username) {
+    return `<b>${escapeHtml(nickname)}</b> - ${buildUsernameLink(username)}`;
+  }
+
+  return `<b>${escapeHtml(nickname)}</b> - -`;
+}
+
 function buildCategoryLabel(categoryCode) {
-  return titleCase(categoryCode);
+  return normalizeString(categoryCode) || "-";
 }
 
-export function buildCatalogPartnerDisplayName(row) {
-  const nickname = normalizeString(row?.nickname);
-  const namaLengkap = normalizeString(row?.nama_lengkap);
+function buildChannelHtml(url) {
+  const value = normalizeString(url);
+  if (!value) return "-";
 
-  if (nickname && namaLengkap && nickname !== namaLengkap) {
-    return `${nickname} (${namaLengkap})`;
+  if (/^https?:\/\//i.test(value)) {
+    return `<a href="${escapeHtml(value)}">${escapeHtml(value)}</a>`;
   }
 
-  if (nickname) return nickname;
-  if (namaLengkap) return namaLengkap;
-  return "Partner";
+  return escapeHtml(value);
 }
 
-function buildReviewLine(stats = {}) {
-  const completedOrderCount = Number(stats?.completed_order_count || 0);
-  if (!Number.isFinite(completedOrderCount) || completedOrderCount <= 0) {
-    return "";
-  }
+function buildFilterLabel(filters = {}) {
+  const kecamatan = normalizeString(filters?.kecamatan);
+  const kota = normalizeString(filters?.kota);
 
-  const averageRating = Number(stats?.average_rating || 0);
-  const ratingLabel = Number.isFinite(averageRating) ? averageRating.toFixed(1) : "0.0";
-
-  return `⭐ Review: <b>${escapeHtml(ratingLabel)}</b> • <b>${completedOrderCount}</b> terima order via bot`;
+  if (kecamatan && kota) return `${kecamatan} - ${kota}`;
+  if (kota) return kota;
+  return "";
 }
 
 export function buildCatalogPartnerSummaryText(row) {
-  return `<b>${escapeHtml(buildCatalogPartnerDisplayName(row))}</b>`;
+  return buildPartnerHeadline(row);
 }
 
-export function buildCatalogPartnerDetailsText(row, stats = {}) {
-  const username = normalizeString(row?.username);
-  const reviewLine = buildReviewLine(stats);
+export function buildCatalogPartnerDetailsText(row, categoryCode) {
+  return [
+    `Partner : ${buildPartnerHeadline(row)}`,
+    `Area : ${escapeHtml(buildLocationText(row))}`,
+    `Kategori : ${escapeHtml(buildCategoryLabel(categoryCode) || row?.category_codes_csv || "-")}`,
+    `Start From : ${escapeHtml(formatCurrencyLabel(row?.start_price))}`,
+    `Channel : ${buildChannelHtml(row?.channel_url)}`,
+  ].join("\n");
+}
 
-  const lines = [
-    `<b>${escapeHtml(buildCatalogPartnerDisplayName(row))}</b>`,
-    `Nama: <b>${escapeHtml(buildCatalogPartnerDisplayName(row))}</b>`,
-    `Username: ${username ? `@${escapeHtml(username)}` : "-"}`,
-    `Lokasi: ${escapeHtml(buildLocationText(row))}`,
-    `Tarif Minimum: <b>${escapeHtml(formatMoneyLabel(row?.start_price))}</b>`,
-  ];
+export function buildCatalogPartnerReplyMarkup(mode, categoryCode, telegramId) {
+  const normalizedMode = normalizeString(mode).toLowerCase() === "details" ? "details" : "summary";
+  const normalizedCategoryCode = normalizeCategoryCode(categoryCode);
+  const normalizedTelegramId = normalizeString(telegramId);
 
-  if (reviewLine) {
-    lines.push(reviewLine);
+  if (!normalizedCategoryCode || !normalizedTelegramId) {
+    return undefined;
   }
 
-  return lines.join("\n");
-}
-
-export function buildCatalogPartnerReplyMarkup(mode, telegramId) {
-  const normalizedTelegramId = normalizeString(telegramId);
-  if (!normalizedTelegramId) return undefined;
-
   const detailButton =
-    mode === "details"
+    normalizedMode === "details"
       ? {
-          text: "Tutup Details",
-          callback_data: cb.catalogDetailsClose(normalizedTelegramId),
+          text: "Tutup",
+          callback_data: cb.catalogDetailsClose(normalizedCategoryCode, normalizedTelegramId),
         }
       : {
           text: "Details",
-          callback_data: cb.catalogDetailsOpen(normalizedTelegramId),
+          callback_data: cb.catalogDetails(normalizedCategoryCode, normalizedTelegramId),
         };
 
   return {
@@ -178,7 +179,7 @@ export function buildCatalogPartnerReplyMarkup(mode, telegramId) {
         detailButton,
         {
           text: "Safety Booking",
-          callback_data: cb.catalogBook(normalizedTelegramId),
+          callback_data: cb.catalogBook(normalizedCategoryCode, normalizedTelegramId),
         },
       ],
     ],
@@ -194,11 +195,22 @@ function pickCatalogPhotoFileId(row) {
   return null;
 }
 
-function buildEmptyCatalogText(categoryCode) {
+function buildEmptyCatalogText(categoryCode, filters = {}) {
+  const locationLabel = buildFilterLabel(filters);
+
+  if (locationLabel) {
+    return [
+      `📚 <b>Katalog ${escapeHtml(buildCategoryLabel(categoryCode))}</b>`,
+      `Area : <b>${escapeHtml(locationLabel)}</b>`,
+      "",
+      "Belum ada partner yang tersedia.",
+    ].join("\n");
+  }
+
   return [
     `📚 <b>Katalog ${escapeHtml(buildCategoryLabel(categoryCode))}</b>`,
     "",
-    "Belum ada partner yang siap tampil saat ini.",
+    "Belum ada partner yang tersedia.",
   ].join("\n");
 }
 
@@ -286,33 +298,118 @@ async function loadPartnerBatchForTarget(env, target = {}, pageSize = DEFAULT_PA
   };
 }
 
-async function sendCatalogPartnerCard(env, chatId, target, row) {
+async function sendCatalogPartnerCard(env, chatId, target, row, categoryCode) {
   const summaryText = buildCatalogPartnerSummaryText(row);
-  const replyMarkup = buildCatalogPartnerReplyMarkup("summary", row?.telegram_id);
+  const replyMarkup = buildCatalogPartnerReplyMarkup("summary", categoryCode, row?.telegram_id);
+  const sendExtra = {
+    parse_mode: "HTML",
+    reply_markup: replyMarkup,
+    disable_web_page_preview: true,
+    ...buildTargetSendExtra(target),
+  };
+
   const photoFileId = pickCatalogPhotoFileId(row);
 
   if (photoFileId) {
-    return sendPhoto(env, chatId, photoFileId, summaryText, {
+    const photoRes = await sendPhoto(env, chatId, photoFileId, summaryText, {
       parse_mode: "HTML",
       reply_markup: replyMarkup,
       ...buildTargetSendExtra(target),
     });
+
+    if (photoRes?.ok && photoRes?.result?.message_id) {
+      return photoRes;
+    }
   }
 
-  return sendMessage(env, chatId, summaryText, {
+  return sendMessage(env, chatId, summaryText, sendExtra);
+}
+
+async function sendEmptyCatalogCard(env, chatId, target, categoryCode, filters = {}) {
+  return sendMessage(env, chatId, buildEmptyCatalogText(categoryCode, filters), {
     parse_mode: "HTML",
-    reply_markup: replyMarkup,
     disable_web_page_preview: true,
     ...buildTargetSendExtra(target),
   });
 }
 
-async function sendEmptyCatalogCard(env, chatId, target, categoryCode) {
-  return sendMessage(env, chatId, buildEmptyCatalogText(categoryCode), {
-    parse_mode: "HTML",
-    disable_web_page_preview: true,
-    ...buildTargetSendExtra(target),
-  });
+export async function publishOnDemandCatalog(env, target = {}, options = {}) {
+  const chatId = normalizeChatId(target?.chat_id);
+  const topicId = normalizeTopicId(target?.topic_id);
+  const categoryCode = normalizeCategoryCode(
+    options?.categoryCode || options?.category_code || target?.category_code
+  );
+  const pageSize = Math.max(
+    1,
+    Math.min(normalizePositiveInteger(options?.pageSize || DEFAULT_PAGE_SIZE, DEFAULT_PAGE_SIZE), 10)
+  );
+  const kota = normalizeString(options?.kota || target?.kota);
+  const kecamatan = normalizeString(options?.kecamatan || target?.kecamatan);
+
+  if (!chatId) {
+    return { ok: false, reason: "missing_chat_id" };
+  }
+
+  if (!categoryCode) {
+    return { ok: false, reason: "missing_category_code" };
+  }
+
+  const rows = await listCatalogPartners(env, {
+    categoryCode,
+    kota,
+    kecamatan,
+    limit: pageSize,
+    offset: 0,
+  }).catch(() => []);
+
+  if (!rows.length) {
+    const emptyRes = await sendEmptyCatalogCard(
+      env,
+      chatId,
+      { topic_id: topicId },
+      categoryCode,
+      { kota, kecamatan }
+    );
+
+    return {
+      ok: Boolean(emptyRes?.ok),
+      category_code: categoryCode,
+      visible_count: 0,
+      response: emptyRes || null,
+    };
+  }
+
+  const messageIds = [];
+
+  for (const row of rows) {
+    const res = await sendCatalogPartnerCard(
+      env,
+      chatId,
+      { topic_id: topicId },
+      row,
+      categoryCode
+    );
+
+    if (!res?.ok || !res?.result?.message_id) {
+      return {
+        ok: false,
+        reason: "telegram_send_failed",
+        category_code: categoryCode,
+        visible_count: messageIds.length,
+        message_ids: messageIds,
+        response: res || null,
+      };
+    }
+
+    messageIds.push(Number(res.result.message_id));
+  }
+
+  return {
+    ok: true,
+    category_code: categoryCode,
+    visible_count: rows.length,
+    message_ids: messageIds,
+  };
 }
 
 export async function cleanupPublishedCatalogForTarget(env, target = {}) {
@@ -446,10 +543,9 @@ export async function publishCatalogToTarget(env, target = {}, options = {}) {
     const res = await sendCatalogPartnerCard(
       env,
       chatId,
-      {
-        topic_id: topicId,
-      },
-      row
+      { topic_id: topicId },
+      row,
+      categoryCode
     );
 
     if (!res?.ok || !res?.result?.message_id) {
