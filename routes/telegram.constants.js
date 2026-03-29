@@ -131,20 +131,53 @@ export const CALLBACK_PREFIX = {
   SETCATALOGTOPIC_CONFIRM: "setcatalogtopic_confirm:",
   SETCATALOGTOPIC_CANCEL: "setcatalogtopic_cancel:",
 
-  CATALOG_DETAILS_OPEN: "catalog:details:",
-  CATALOG_DETAILS_CLOSE: "catalog:close:",
+  CATALOG_DETAILS: "catalog:details:",
+  CATALOG_DETAILS_CLOSE: "catalog:details:close:",
   CATALOG_BOOK: "catalog:book:",
 };
 
 export const OBSOLETE_ADMIN_COMMANDS = new Set([
+  "/help",
+  "/cmd",
   "/list",
   "/restore",
   "/suspend",
+  "/activate",
+  "/ceksub",
   "/delpartner",
   "/viewpartner",
   "/setwelcome",
   "/setlink",
 ]);
+
+function normalizeString(value) {
+  return String(value || "").trim();
+}
+
+function encodeCatalogPayload(categoryCode, telegramId) {
+  const category = normalizeString(categoryCode).toLowerCase();
+  const partnerId = normalizeString(telegramId);
+  return `${category}:${partnerId}`;
+}
+
+function decodeCatalogPayload(data, prefix) {
+  const raw = String(data || "");
+  if (!raw.startsWith(prefix)) {
+    return { categoryCode: "", telegramId: "" };
+  }
+
+  const payload = raw.slice(prefix.length);
+  const lastColonIndex = payload.lastIndexOf(":");
+
+  if (lastColonIndex <= 0) {
+    return { categoryCode: "", telegramId: normalizeString(payload) };
+  }
+
+  return {
+    categoryCode: normalizeString(payload.slice(0, lastColonIndex)).toLowerCase(),
+    telegramId: normalizeString(payload.slice(lastColonIndex + 1)),
+  };
+}
 
 export const cb = {
   pmList: (status) => `${CALLBACK_PREFIX.PM_LIST}${status}`,
@@ -197,15 +230,22 @@ export const cb = {
   setCatalogTopicConfirm: (adminId) => `${CALLBACK_PREFIX.SETCATALOGTOPIC_CONFIRM}${adminId}`,
   setCatalogTopicCancel: (adminId) => `${CALLBACK_PREFIX.SETCATALOGTOPIC_CANCEL}${adminId}`,
 
-  catalogDetailsOpen: (telegramId) => `${CALLBACK_PREFIX.CATALOG_DETAILS_OPEN}${telegramId}`,
-  catalogDetailsClose: (telegramId) => `${CALLBACK_PREFIX.CATALOG_DETAILS_CLOSE}${telegramId}`,
-  catalogBook: (telegramId) => `${CALLBACK_PREFIX.CATALOG_BOOK}${telegramId}`,
+  catalogDetails: (categoryCode, telegramId) =>
+    `${CALLBACK_PREFIX.CATALOG_DETAILS}${encodeCatalogPayload(categoryCode, telegramId)}`,
+  catalogDetailsClose: (categoryCode, telegramId) =>
+    `${CALLBACK_PREFIX.CATALOG_DETAILS_CLOSE}${encodeCatalogPayload(categoryCode, telegramId)}`,
+  catalogBook: (categoryCode, telegramId) =>
+    `${CALLBACK_PREFIX.CATALOG_BOOK}${encodeCatalogPayload(categoryCode, telegramId)}`,
 };
+
+export function parseCatalogCallbackPayload(data, prefix) {
+  return decodeCatalogPayload(data, prefix);
+}
 
 export function isCatalogCallbackData(data) {
   const value = String(data || "");
   return (
-    value.startsWith(CALLBACK_PREFIX.CATALOG_DETAILS_OPEN) ||
+    value.startsWith(CALLBACK_PREFIX.CATALOG_DETAILS) ||
     value.startsWith(CALLBACK_PREFIX.CATALOG_DETAILS_CLOSE) ||
     value.startsWith(CALLBACK_PREFIX.CATALOG_BOOK)
   );
