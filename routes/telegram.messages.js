@@ -1,78 +1,75 @@
 // routes/telegram.messages.js
 
-import { isAdminRole, isSuperadminRole } from "../utils/roles.js";
+import { isAdminRole } from "../utils/roles.js";
 
 function normalizeString(value) {
   return String(value || "").trim();
 }
 
+function normalizeLower(value) {
+  return normalizeString(value).toLowerCase();
+}
+
 function isOwnerRole(role) {
-  return normalizeString(role).toLowerCase() === "owner";
+  return normalizeLower(role) === "owner";
 }
 
 export function buildOfficerHomeText() {
   return (
     "👮 <b>Officer Home</b>\n\n" +
-    "Pilih menu di bawah untuk kelola admin, partner, dan pengaturan sistem TeMan.\n" +
-    "Ketik <code>/help</code> untuk bantuan."
+    "Kelola admin, partner, dan pengaturan sistem lewat menu inline.\n" +
+    "Gunakan <code>/temanku</code> untuk hub command bot ini."
   );
 }
 
 export function buildOfficerIdleText() {
-  return "Halo Officer TeMan. Ketik /start untuk buka Officer Home.";
+  return "Halo Officer TeMan. Ketik /temanku untuk buka hub bot ini.";
+}
+
+export function buildTemankuHubText(role) {
+  if (isAdminRole(role)) {
+    return (
+      "📌 <b>Temanku Hub</b>\n\n" +
+      "On-demand katalog:\n" +
+      "• <code>/{kategori}</code>\n" +
+      "• <code>/{kategori} {kota}</code>\n" +
+      "• <code>/{kategori} {kecamatan} - {kota}</code>\n\n" +
+      "Feed katalog otomatis:\n" +
+      "• <code>/katalog {kategori} on</code>\n" +
+      "• <code>/katalog {kategori} off</code>\n" +
+      "• <code>/katalog list</code>\n\n" +
+      "Officer gunakan menu inline untuk pengelolaan admin dan partner."
+    );
+  }
+
+  return (
+    "📌 <b>Temanku Hub</b>\n\n" +
+    "On-demand katalog:\n" +
+    "• <code>/{kategori}</code>\n" +
+    "• <code>/{kategori} {kota}</code>\n" +
+    "• <code>/{kategori} {kecamatan} - {kota}</code>\n\n" +
+    "Gunakan format lokasi aman: <code>Kecamatan - Kota</code>."
+  );
 }
 
 export function buildHelpText(role) {
   if (isOwnerRole(role)) {
     return (
       "📌 <b>Owner Panel</b>\n\n" +
-      "Perintah utama:\n" +
-      "• <code>/start</code> — buka Officer Home\n" +
-      "• <code>/help</code> / <code>/cmd</code> — lihat bantuan\n" +
-      "• <code>/ceksub @username|telegram_id</code> — cek subscription partner\n\n" +
-      "Owner only:\n" +
-      "• <code>/katalog list</code> — lihat daftar target katalog\n" +
-      "• <code>/katalog on</code> — aktifkan target katalog di grup/topic ini\n" +
-      "• <code>/katalog off</code> — nonaktifkan target katalog di grup/topic ini\n" +
-      "• <code>/katalog refresh</code> — refresh katalog di target ini\n\n" +
-      "Menu utama:\n" +
-      "• <b>Admin Management</b> — list admin, add admin, update role/status admin\n" +
-      "• <b>Partner Management</b> — Partner Database & Partner Moderation\n" +
-      "• <b>System Settings</b> — Welcome Message, Link Aturan, Category, Finance"
-    );
-  }
-
-  if (isSuperadminRole(role)) {
-    return (
-      "📌 <b>Officer Panel</b>\n\n" +
-      "Perintah utama:\n" +
-      "• <code>/start</code> — buka Officer Home\n" +
-      "• <code>/help</code> / <code>/cmd</code> — lihat bantuan\n" +
-      "• <code>/ceksub @username|telegram_id</code> — cek subscription partner\n\n" +
-      "Menu utama:\n" +
-      "• <b>Admin Management</b> — list admin, add admin, update role/status admin\n" +
-      "• <b>Partner Management</b> — Partner Database & Partner Moderation\n" +
-      "• <b>System Settings</b> — Welcome Message, Link Aturan, Category, Finance"
+      "Gunakan <code>/temanku</code> untuk hub command bot ini.\n\n" +
+      "Owner dan officer kelola sistem dari menu inline."
     );
   }
 
   if (isAdminRole(role)) {
     return (
       "📌 <b>Officer Panel</b>\n\n" +
-      "Perintah utama:\n" +
-      "• <code>/start</code> — buka Officer Home\n" +
-      "• <code>/help</code> / <code>/cmd</code> — lihat bantuan\n" +
-      "• <code>/ceksub @username|telegram_id</code> — cek subscription partner\n\n" +
-      "Menu utama:\n" +
-      "• <b>Partner Management</b> — Partner Database & Partner Moderation"
+      "Gunakan <code>/temanku</code> untuk hub command bot ini.\n\n" +
+      "Officer kelola partner dan pengaturan dari menu inline."
     );
   }
 
-  return (
-    "ℹ️ <b>Bantuan</b>\n\n" +
-    "• <code>/start</code> — tampilkan Menu TeMan\n" +
-    "• <code>/me</code> — cek role"
-  );
+  return buildTemankuHubText(role);
 }
 
 export function buildWelcomePreviewText(current, draft) {
