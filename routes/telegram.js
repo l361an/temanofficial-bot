@@ -83,6 +83,17 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
+function titleCase(value) {
+  const raw = normalizeString(value).toLowerCase();
+  if (!raw) return "-";
+
+  return raw
+    .split(/[\s_-]+/g)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 function buildHelp(role) {
   if (isOwnerRole(role)) {
     return (
@@ -98,9 +109,9 @@ function buildHelp(role) {
       "• <code>/delpartner @username|telegram_id</code>\n\n" +
       "Owner only:\n" +
       "• <code>/katalog list</code>\n" +
-      "• <code>/katalog on</code>\n" +
-      "• <code>/katalog off</code>\n" +
-      "• <code>/katalog refresh</code>"
+      "• <code>/katalog temantera on</code>\n" +
+      "• <code>/katalog temantera off</code>\n" +
+      "• <code>/katalog temantera refresh</code>"
     );
   }
 
@@ -140,13 +151,15 @@ function buildCatalogTargetLine(item, index) {
   const chatTitle = normalizeString(item?.chat_title) || "(Tanpa Nama)";
   const chatId = normalizeString(item?.chat_id) || "-";
   const topicId = normalizeString(item?.topic_id);
+  const categoryCode = normalizeString(item?.category_code) || "-";
   const status = item?.is_active ? "AKTIF" : "NONAKTIF";
 
   return [
     `${index + 1}. <b>${escapeHtml(chatTitle)}</b>`,
-    `   Chat ID : <code>${escapeHtml(chatId)}</code>`,
-    `   Topic   : ${topicId ? `<code>${escapeHtml(topicId)}</code>` : "-"}`,
-    `   Status  : <b>${status}</b>`,
+    `   Kategori : <code>${escapeHtml(categoryCode)}</code>`,
+    `   Chat ID  : <code>${escapeHtml(chatId)}</code>`,
+    `   Topic    : ${topicId ? `<code>${escapeHtml(topicId)}</code>` : "-"}`,
+    `   Status   : <b>${status}</b>`,
   ].join("\n");
 }
 
@@ -167,14 +180,15 @@ function buildCatalogCommandUsageText() {
     "📚 <b>Command Katalog</b>",
     "",
     "• <code>/katalog list</code> — lihat daftar target katalog",
-    "• <code>/katalog on</code> — aktifkan target katalog di grup/topic ini",
-    "• <code>/katalog off</code> — nonaktifkan target katalog di grup/topic ini",
-    "• <code>/katalog refresh</code> — refresh katalog di target ini",
+    "• <code>/katalog temantera on</code> — aktifkan katalog kategori ini di topic sekarang",
+    "• <code>/katalog temantera off</code> — nonaktifkan katalog kategori ini di topic sekarang",
+    "• <code>/katalog temantera refresh</code> — refresh katalog kategori ini di topic sekarang",
   ].join("\n");
 }
 
 function buildCatalogTargetSummaryLines(targetPayload) {
   return [
+    `Kategori : ${normalizeString(targetPayload.category_code) || "-"}`,
     `Group : ${targetPayload.chat_title}`,
     `Chat ID : ${normalizeString(targetPayload.chat_id)}`,
     `Topic ID : ${
@@ -219,9 +233,9 @@ async function handleOwnerCatalogBootstrapCommand({
   }
 
   const parts = splitCommandParts(text);
-  const action = normalizeLower(parts[1]);
+  const secondToken = normalizeLower(parts[1]);
 
-  if (!action) {
+  if (!secondToken) {
     await sendMessage(env, chatId, buildCatalogCommandUsageText(), {
       ...replyExtra,
       parse_mode: "HTML",
@@ -229,7 +243,7 @@ async function handleOwnerCatalogBootstrapCommand({
     return true;
   }
 
-  if (action === "list") {
+  if (secondToken === "list") {
     if (!isPrivateChat(chat)) {
       await sendMessage(
         env,
@@ -253,12 +267,16 @@ async function handleOwnerCatalogBootstrapCommand({
 
     await sendMessage(env, chatId, buildCatalogTargetsListText(items), {
       parse_mode: "HTML",
+      disable_web_page_preview: true,
     });
     return true;
   }
 
+  const categoryCode = secondToken;
+  const action = normalizeLower(parts[2]);
   const allowedActions = new Set(["on", "off", "refresh"]);
-  if (!allowedActions.has(action)) {
+
+  if (!categoryCode || !action || !allowedActions.has(action)) {
     await sendMessage(env, chatId, buildCatalogCommandUsageText(), {
       ...replyExtra,
       parse_mode: "HTML",
@@ -279,6 +297,7 @@ async function handleOwnerCatalogBootstrapCommand({
     chat_id: chat?.id,
     chat_title: chat?.title || chat?.username || "Group Tanpa Nama",
     topic_id: msg?.message_thread_id ?? null,
+    category_code: categoryCode,
     added_by: telegramId,
   };
 
@@ -288,6 +307,7 @@ async function handleOwnerCatalogBootstrapCommand({
         telegramId,
         chatId,
         threadId: msg?.message_thread_id ?? null,
+        categoryCode,
         err: err?.message || String(err || ""),
       });
       return { ok: false, reason: "exception" };
@@ -297,7 +317,7 @@ async function handleOwnerCatalogBootstrapCommand({
       await sendMessage(
         env,
         chatId,
-        "⚠️ Gagal mengaktifkan target katalog ini.",
+        "⚠️ Gagal mengaktifkan target katalog kategori ini.",
         replyExtra
       );
       return true;
@@ -310,8 +330,8 @@ async function handleOwnerCatalogBootstrapCommand({
       chatId,
       [
         isCreated
-          ? "✅ Target katalog berhasil ditambahkan. Sedang memunculkan katalog..."
-          : "✅ Target katalog berhasil diaktifkan. Sedang memunculkan katalog...",
+          ? "✅ Target katalog kategori ini berhasil ditambahkan. Sedang memunculkan katalog..."
+          : "✅ Target katalog kategori ini berhasil diaktifkan. Sedang memunculkan katalog...",
         "",
         ...buildCatalogTargetSummaryLines(targetPayload),
       ].join("\n"),
@@ -319,12 +339,13 @@ async function handleOwnerCatalogBootstrapCommand({
     );
 
     const publishResult = await publishCatalogToTarget(env, targetPayload, {
-      limit: 500,
+      pageSize: 3,
     }).catch((err) => {
       logError("[catalog.publish.on.failed]", {
         telegramId,
         chatId,
         threadId: msg?.message_thread_id ?? null,
+        categoryCode,
         err: err?.message || String(err || ""),
       });
       return { ok: false, reason: "exception" };
@@ -348,6 +369,7 @@ async function handleOwnerCatalogBootstrapCommand({
         telegramId,
         chatId,
         threadId: msg?.message_thread_id ?? null,
+        categoryCode,
         err: err?.message || String(err || ""),
       });
       return { ok: false, reason: "exception" };
@@ -357,7 +379,7 @@ async function handleOwnerCatalogBootstrapCommand({
       await sendMessage(
         env,
         chatId,
-        "⚠️ Target katalog ini belum ditemukan atau gagal dinonaktifkan.",
+        "⚠️ Target katalog kategori ini belum ditemukan atau gagal dinonaktifkan.",
         replyExtra
       );
       return true;
@@ -368,6 +390,7 @@ async function handleOwnerCatalogBootstrapCommand({
         telegramId,
         chatId,
         threadId: msg?.message_thread_id ?? null,
+        categoryCode,
         err: err?.message || String(err || ""),
       });
       return { ok: false, removed_count: 0, failed_message_ids: [] };
@@ -379,7 +402,7 @@ async function handleOwnerCatalogBootstrapCommand({
       env,
       chatId,
       [
-        "✅ Target katalog berhasil dinonaktifkan.",
+        "✅ Target katalog kategori ini berhasil dinonaktifkan.",
         "",
         ...buildCatalogTargetSummaryLines(targetPayload),
         "",
@@ -392,12 +415,13 @@ async function handleOwnerCatalogBootstrapCommand({
 
   if (action === "refresh") {
     const publishResult = await publishCatalogToTarget(env, targetPayload, {
-      limit: 500,
+      pageSize: 3,
     }).catch((err) => {
       logError("[catalog.publish.refresh.failed]", {
         telegramId,
         chatId,
         threadId: msg?.message_thread_id ?? null,
+        categoryCode,
         err: err?.message || String(err || ""),
       });
       return { ok: false, reason: "exception" };
@@ -407,7 +431,7 @@ async function handleOwnerCatalogBootstrapCommand({
       await sendMessage(
         env,
         chatId,
-        "⚠️ Gagal refresh katalog di target ini.",
+        "⚠️ Gagal refresh katalog kategori ini di target sekarang.",
         replyExtra
       );
     }
