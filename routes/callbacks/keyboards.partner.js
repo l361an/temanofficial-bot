@@ -7,6 +7,10 @@ function normalizeRole(role) {
   return String(role || "").trim().toLowerCase();
 }
 
+function isOwnerRole(role) {
+  return normalizeRole(role) === "owner";
+}
+
 function canManagePartnerDetails(role) {
   const currentRole = normalizeRole(role);
   return currentRole === "owner" || currentRole === "superadmin";
@@ -108,10 +112,26 @@ export function buildPartnerDetailsKeyboard(telegramId, role) {
   return { inline_keyboard: rows };
 }
 
-export function buildPartnerSubscriptionKeyboard(telegramId) {
+export function buildPartnerSubscriptionKeyboard(telegramId, role) {
+  const rows = [];
+
+  if (isOwnerRole(role)) {
+    rows.push([
+      { text: "➕ Tambah Masa Aktif", callback_data: cb.pmSubscriptionAddStart(telegramId) },
+      { text: "➖ Kurangi Masa Aktif", callback_data: cb.pmSubscriptionReduceStart(telegramId) },
+    ]);
+  }
+
+  rows.push([{ text: "⬅️ Back to Panel", callback_data: cb.pmPanelBack(telegramId) }]);
+  rows.push([officerHomeButton()]);
+
+  return { inline_keyboard: rows };
+}
+
+export function buildPartnerSubscriptionAdjustInputKeyboard(telegramId) {
   return {
     inline_keyboard: [
-      [{ text: "⬅️ Back to Panel", callback_data: cb.pmPanelBack(telegramId) }],
+      [{ text: "⬅️ Back to Subscription", callback_data: cb.pmSubscriptionOpen(telegramId) }],
       [officerHomeButton()],
     ],
   };
