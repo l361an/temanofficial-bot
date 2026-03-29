@@ -12,7 +12,11 @@ export function normalizeReminderColumn(reminderKey) {
 }
 
 export function normalizeReminderKey(reminderKey) {
-  return String(reminderKey || "").trim().toLowerCase();
+  const raw = String(reminderKey || "").trim().toLowerCase();
+  if (raw === "h3d" || raw === "h2d" || raw === "h1d" || raw === "h3h") {
+    return raw;
+  }
+  throw new Error("invalid_reminder_key");
 }
 
 export function toSqlDateTime(value = new Date()) {
@@ -38,38 +42,114 @@ export function resolveNowSql(nowOverride = null) {
   return nowJakartaSql();
 }
 
+export function parseSqlDateTime(value) {
+  if (!value) return null;
+
+  const raw = String(value).trim();
+  if (!raw) return null;
+
+  const normalized = raw.includes("T") ? raw : raw.replace(" ", "T");
+  const d = new Date(normalized);
+  if (Number.isNaN(d.getTime())) return null;
+
+  return d;
+}
+
+export function addDaysSqlDate(baseDate, daysToAdd) {
+  const d = parseSqlDateTime(baseDate);
+  if (!d) {
+    throw new Error("invalid_base_date");
+  }
+
+  d.setDate(d.getDate() + Number(daysToAdd || 0));
+  return toSqlDateTime(d);
+}
+
+export function addMonthsSqlDate(baseDate, monthsToAdd) {
+  const d = parseSqlDateTime(baseDate);
+  if (!d) {
+    throw new Error("invalid_base_date");
+  }
+
+  const originalDate = d.getDate();
+  d.setMonth(d.getMonth() + Number(monthsToAdd || 0));
+
+  if (d.getDate() !== originalDate) {
+    d.setDate(0);
+  }
+
+  return toSqlDateTime(d);
+}
+
+export function readJsonObject(rawValue) {
+  const raw = String(rawValue || "").trim();
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 export function readDurationCode(row) {
-  const metadata = String(row?.metadata_json || "").trim();
-  if (metadata) {
-    try {
-      const parsed = JSON.parse(metadata);
-      const raw = String(parsed?.duration_code || "").trim().toLowerCase();
-      if (raw === "1d" || raw === "3d" || raw === "7d" || raw === "1m") return raw;
-    } catch {}
+  const metadata = readJsonObject(row?.metadata_json);
+  const metaCode = String(metadata?.duration_code || "").trim().toLowerCase();
+  if (metaCode === "1d" || metaCode === "3d" || metaCode === "7d" || metaCode === "1m") {
+    return metaCode;
+  }
+
+  const pricingSnapshot = readJsonObject(row?.pricing_snapshot_json);
+  const snapshotCode = String(pricingSnapshot?.duration_code || "").trim().toLowerCase();
+  if (
+    snapshotCode === "1d" ||
+    snapshotCode === "3d" ||
+    snapshotCode === "7d" ||
+    snapshotCode === "1m"
+  ) {
+    return snapshotCode;
   }
 
   const months = Number(row?.duration_months || 0);
   if (months === 1) return "1m";
-  return "1d";
+
+  return "";
 }
 
-export function canReminderApplyToDuration(durationCode, reminderKey) {
-  const d = String(durationCode || "").trim().toLowerCase();
-  const k = normalizeReminderKey(reminderKey);
-
-  if (d === "1d") {
-    return k === "h3h";
+export function collectCoverageWindow(activeSubscriptions, fallbackNowSql) {
+  const rows = Array.isArray(activeSubscriptions) ? activeSubscriptions : [];
+  if (!rows.length) {
+    return {
+      hasActiveCoverage: false,
+      earliestStartAt: fallbackNowSql,
+      latestEndAt: fallbackNowSql,
+      mergedFromIds: [],
+    };
   }
 
-  if (d === "3d") {
-    return k === "h2d" || k === "h1d" || k === "h3h";
+  let earliestStart = null;
+  let latestEnd = null;
+
+  for (const row of rows) {
+    const startAt = parseSqlDateTime(row?.start_at);
+    const endAt = parseSqlDateTime(row?.end_at);
+
+    if (startAt && (!earliestStart || startAt.getTime() < earliestStart.getTime())) {
+      earliestStart = startAt;
+    }
+
+    if (endAt && (!latestEnd || endAt.getTime() > latestEnd.getTime())) {
+      latestEnd = endAt;
+    }
   }
 
-  if (d === "7d" || d === "1m") {
-    return k === "h3d" || k === "h2d" || k === "h1d" || k === "h3h";
-  }
-
-  return false;
+  return {
+    hasActiveCoverage: Boolean(earliestStart && latestEnd),
+    earliestStartAt: earliestStart ? toSqlDateTime(earliestStart) : fallbackNowSql,
+    latestEndAt: latestEnd ? toSqlDateTime(latestEnd) : fallbackNowSql,
+    mergedFromIds: rows.map((row) => String(row?.id || "")).filter(Boolean),
+  };
 }
 
 export function getReminderWindowConfig(reminderKey) {
@@ -99,15 +179,11 @@ export function getReminderWindowConfig(reminderKey) {
     };
   }
 
-  if (k === "h3h") {
-    return {
-      targetSeconds: 3 * 60 * 60,
-      lookBehindSeconds: 15 * 60,
-      lookAheadSeconds: 60 * 60,
-    };
-  }
-
-  throw new Error("invalid_reminder_key");
+  return {
+    targetSeconds: 3 * 60 * 60,
+    lookBehindSeconds: 15 * 60,
+    lookAheadSeconds: 60 * 60,
+  };
 }
 
 export function buildReminderWindow(reminderKey, nowSql) {
@@ -129,4 +205,16 @@ export function buildReminderWindow(reminderKey, nowSql) {
       upperSeconds,
     },
   };
+}
+
+export function isDateInsideReminderWindow(targetValue, reminderKey, nowValue) {
+  const targetDate = parseSqlDateTime(targetValue);
+  const nowDate = parseSqlDateTime(nowValue);
+  if (!targetDate || !nowDate) return false;
+
+  const { lowerSeconds, upperSeconds } = buildReminderWindow(reminderKey, nowValue).debug;
+  const lowerDate = new Date(nowDate.getTime() + lowerSeconds * 1000);
+  const upperDate = new Date(nowDate.getTime() + upperSeconds * 1000);
+
+  return targetDate.getTime() >= lowerDate.getTime() && targetDate.getTime() < upperDate.getTime();
 }
