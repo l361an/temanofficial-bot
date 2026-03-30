@@ -1,7 +1,6 @@
 // routes/callbacks/superadmin.js
 
 import { buildSuperadminConfigHandlers } from "./superadmin.config.js";
-import { buildSuperadminCatalogSettingsHandlers } from "./superadmin.catalogSettings.js";
 import { buildSuperadminCategoryHandlers } from "./superadmin.category.js";
 import { buildSuperadminFinanceHandlers } from "./superadmin.finance.js";
 import { buildSuperadminPaymentReviewHandlers } from "./superadmin.paymentReview.js";
@@ -22,7 +21,6 @@ function mergeHandlers(...parts) {
 export function buildSuperadminHandlers() {
   return mergeHandlers(
     buildSuperadminConfigHandlers(),
-    buildSuperadminCatalogSettingsHandlers(),
     buildSuperadminCategoryHandlers(),
     buildSuperadminFinanceHandlers(),
     buildSuperadminPaymentReviewHandlers(),
