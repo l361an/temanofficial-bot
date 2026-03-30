@@ -15,7 +15,6 @@ import { handleRegistrationFlow } from "./telegram.flow.js";
 import { handleSuperadminFinanceInput } from "./telegram.flow.superadminFinance.js";
 import { handleSuperadminAdminManagerInput } from "./telegram.flow.superadminAdminManager.js";
 import { handleSuperadminCategoryInput } from "./telegram.flow.superadminCategory.js";
-import { handleSuperadminCatalogSettingsInput } from "./telegram.flow.superadminCatalogSettings.js";
 import { handlePaymentProofUpload } from "./telegram.flow.paymentProof.js";
 import { handlePartnerModerationInput } from "./telegram.flow.partnerModeration.js";
 import { handlePartnerTextEditInput } from "./telegram.flow.partnerTextEdit.js";
@@ -706,18 +705,6 @@ async function handleAdminSessionInput({
     );
   }
 
-  if (session?.mode === SESSION_MODES.SA_CATALOG_SETTINGS) {
-    return Boolean(
-      await handleSuperadminCatalogSettingsInput({
-        env,
-        chatId,
-        telegramId,
-        text,
-        session,
-        STATE_KEY,
-      })
-    );
-  }
 
   if (session?.mode === SESSION_MODES.PARTNER_VIEW) {
     return Boolean(
