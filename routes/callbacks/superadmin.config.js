@@ -140,7 +140,7 @@ export function buildSuperadminConfigHandlers() {
   const PREFIX = [];
 
   EXACT[CALLBACKS.SUPERADMIN_TOOLS_MENU] = async (ctx) => {
-    const { env, adminId } = ctx;
+    const { env, adminId, role } = ctx;
 
     await clearSessionSafely(env, adminId, {
       action: "open_tools_menu",
@@ -148,12 +148,12 @@ export function buildSuperadminConfigHandlers() {
 
     return renderMenuMessage(ctx, buildSystemSettingsText(), {
       parse_mode: "HTML",
-      reply_markup: buildSuperadminToolsKeyboard(),
+      reply_markup: buildSuperadminToolsKeyboard(role),
     });
   };
 
   EXACT[CALLBACKS.SUPERADMIN_SETTINGS_MENU] = async (ctx) => {
-    const { env, adminId } = ctx;
+    const { env, adminId, role } = ctx;
 
     await clearSessionSafely(env, adminId, {
       action: "open_settings_menu",
@@ -161,7 +161,7 @@ export function buildSuperadminConfigHandlers() {
 
     return renderMenuMessage(ctx, buildSystemSettingsText(), {
       parse_mode: "HTML",
-      reply_markup: buildSuperadminToolsKeyboard(),
+      reply_markup: buildSuperadminToolsKeyboard(role),
     });
   };
 
@@ -283,7 +283,7 @@ export function buildSuperadminConfigHandlers() {
       d.startsWith(CALLBACK_PREFIX.SETLINK_CANCEL),
 
     run: async (ctx) => {
-      const { env, data, adminId } = ctx;
+      const { env, data, adminId, role } = ctx;
       const [action] = data.split(":");
 
       if (action === "setwelcome_confirm" || action === "setwelcome_cancel") {
@@ -292,7 +292,7 @@ export function buildSuperadminConfigHandlers() {
 
         if (!draftText) {
           return renderMenuMessage(ctx, "⚠️ Draft welcome tidak ditemukan / sudah dibatalkan.", {
-            reply_markup: buildSuperadminToolsKeyboard(),
+            reply_markup: buildSuperadminToolsKeyboard(role),
           });
         }
 
@@ -310,7 +310,7 @@ export function buildSuperadminConfigHandlers() {
           }
 
           return renderMenuMessage(ctx, "❌ Draft welcome dibatalkan.", {
-            reply_markup: buildSuperadminToolsKeyboard(),
+            reply_markup: buildSuperadminToolsKeyboard(role),
           });
         }
 
@@ -334,7 +334,7 @@ export function buildSuperadminConfigHandlers() {
           {
             parse_mode: "Markdown",
             disable_web_page_preview: true,
-            reply_markup: buildSuperadminToolsKeyboard(),
+            reply_markup: buildSuperadminToolsKeyboard(role),
           }
         );
       }
@@ -345,7 +345,7 @@ export function buildSuperadminConfigHandlers() {
 
         if (!draftUrl) {
           return renderMenuMessage(ctx, "⚠️ Draft link aturan tidak ditemukan / sudah dibatalkan.", {
-            reply_markup: buildSuperadminToolsKeyboard(),
+            reply_markup: buildSuperadminToolsKeyboard(role),
           });
         }
 
@@ -363,7 +363,7 @@ export function buildSuperadminConfigHandlers() {
           }
 
           return renderMenuMessage(ctx, "❌ Draft link aturan dibatalkan.", {
-            reply_markup: buildSuperadminToolsKeyboard(),
+            reply_markup: buildSuperadminToolsKeyboard(role),
           });
         }
 
@@ -383,7 +383,7 @@ export function buildSuperadminConfigHandlers() {
 
         return renderMenuMessage(ctx, `✅ Link aturan berhasil diupdate:\n${draftUrl}`, {
           disable_web_page_preview: true,
-          reply_markup: buildSuperadminToolsKeyboard(),
+          reply_markup: buildSuperadminToolsKeyboard(role),
         });
       }
 
