@@ -2,25 +2,30 @@
 
 import { answerCallbackQuery, editCallbackMessage } from "../../services/telegramApi.js";
 import { getCatalogPartnerByTelegramId } from "../../repositories/catalogRepo.js";
+import { getProfileFullByTelegramId } from "../../repositories/profilesRepo.js";
+import { findOrCreateBooking } from "../../repositories/bookingsRepo.js";
+import { createBookingEvent } from "../../repositories/bookingEventsRepo.js";
 import {
   buildCatalogPartnerDetailsText,
   buildCatalogPartnerSummaryText,
   buildCatalogPartnerReplyMarkup,
 } from "../../services/catalogPublisher.js";
+import { parseCatalogCallbackPayload, CALLBACK_PREFIX } from "../telegram.constants.js";
+import { sendSelfMenu } from "../telegram.flow.selfProfile.menu.js";
+import { sendBookingPanel } from "./booking.shared.js";
+import { persistBookingSession } from "./booking.session.js";
 
-const DETAILS_PREFIX = "catalog:details:";
-const DETAILS_CLOSE_PREFIX = "catalog:details:close:";
+const DETAILS_PREFIX = CALLBACK_PREFIX.CATALOG_DETAILS;
+const DETAILS_CLOSE_PREFIX = CALLBACK_PREFIX.CATALOG_DETAILS_CLOSE;
+const BOOK_PREFIX = CALLBACK_PREFIX.CATALOG_BOOK;
 const DETAILS_CLOSE_LEGACY_PREFIX = "catalog:close:";
-const BOOK_PREFIX = "catalog:book:";
 
 function normalizeString(value) {
   return String(value || "").trim();
 }
 
-function parseTelegramId(data, prefix) {
-  const raw = String(data || "");
-  if (!raw.startsWith(prefix)) return "";
-  return normalizeString(raw.slice(prefix.length));
+function makeId() {
+  return crypto.randomUUID();
 }
 
 async function answerAlert(env, callbackQueryId, text) {
@@ -31,9 +36,10 @@ async function answerAlert(env, callbackQueryId, text) {
   });
 }
 
-async function renderCatalogCard(ctx, telegramId, mode) {
+async function renderCatalogCard(ctx, categoryCode, telegramId, mode) {
   const { env, msg, callbackQueryId } = ctx;
   const normalizedTelegramId = normalizeString(telegramId);
+  const normalizedCategoryCode = normalizeString(categoryCode).toLowerCase();
 
   if (!normalizedTelegramId) {
     await answerAlert(env, callbackQueryId, "Data partner tidak valid.");
@@ -52,7 +58,11 @@ async function renderCatalogCard(ctx, telegramId, mode) {
       ? buildCatalogPartnerDetailsText(row)
       : buildCatalogPartnerSummaryText(row);
 
-  const replyMarkup = buildCatalogPartnerReplyMarkup(mode, normalizedTelegramId);
+  const replyMarkup = buildCatalogPartnerReplyMarkup(
+    mode,
+    normalizedCategoryCode,
+    normalizedTelegramId
+  );
 
   const res = await editCallbackMessage(env, msg, text, {
     parse_mode: "HTML",
@@ -68,30 +78,111 @@ async function renderCatalogCard(ctx, telegramId, mode) {
 }
 
 async function handleCatalogDetails(ctx) {
-  const telegramId = parseTelegramId(ctx?.data, DETAILS_PREFIX)
-    .replace(/^close:/, "")
-    .trim();
-
-  await renderCatalogCard(ctx, telegramId, "details");
+  const { categoryCode, telegramId } = parseCatalogCallbackPayload(ctx?.data, DETAILS_PREFIX);
+  await renderCatalogCard(ctx, categoryCode, telegramId, "details");
 }
 
 async function handleCatalogDetailsClose(ctx) {
-  let telegramId = parseTelegramId(ctx?.data, DETAILS_CLOSE_PREFIX);
+  let payload = parseCatalogCallbackPayload(ctx?.data, DETAILS_CLOSE_PREFIX);
 
-  if (!telegramId) {
-    telegramId = parseTelegramId(ctx?.data, DETAILS_CLOSE_LEGACY_PREFIX);
+  if (!payload?.telegramId) {
+    const raw = String(ctx?.data || "");
+    if (raw.startsWith(DETAILS_CLOSE_LEGACY_PREFIX)) {
+      payload = {
+        categoryCode: "",
+        telegramId: normalizeString(raw.slice(DETAILS_CLOSE_LEGACY_PREFIX.length)),
+      };
+    }
   }
 
-  await renderCatalogCard(ctx, telegramId, "summary");
+  await renderCatalogCard(ctx, payload?.categoryCode || "", payload?.telegramId || "", "summary");
 }
 
 async function handleCatalogBook(ctx) {
-  const { env, callbackQueryId } = ctx;
+  const { env, callbackQueryId, adminId, msg } = ctx;
+  const actorId = normalizeString(adminId);
+  const { categoryCode, telegramId: partnerTelegramId } = parseCatalogCallbackPayload(
+    ctx?.data,
+    BOOK_PREFIX
+  );
 
-  await answerCallbackQuery(env, callbackQueryId, {
-    text: "under construction",
-    show_alert: true,
+  if (!actorId || !partnerTelegramId) {
+    await answerAlert(env, callbackQueryId, "Data booking tidak valid.");
+    return;
+  }
+
+  const targetPartner = await getCatalogPartnerByTelegramId(env, partnerTelegramId);
+  if (!targetPartner) {
+    await answerAlert(env, callbackQueryId, "Partner ini sudah tidak tersedia di katalog.");
+    return;
+  }
+
+  const actorProfile = await getProfileFullByTelegramId(env, actorId).catch(() => null);
+  const actorIsPartner = Boolean(actorProfile);
+
+  if (actorIsPartner) {
+    await sendSelfMenu(env, actorId, actorId).catch(() => null);
+
+    if (actorId === String(partnerTelegramId)) {
+      await answerAlert(env, callbackQueryId, "Ini profil kamu sendiri. Kamu diarahkan ke menu partner.");
+      return;
+    }
+
+    await answerAlert(env, callbackQueryId, "Akun partner diarahkan ke menu partner.");
+    return;
+  }
+
+  const booking = await findOrCreateBooking(env, {
+    id: makeId(),
+    userTelegramId: actorId,
+    partnerTelegramId: String(partnerTelegramId),
+    sourceCategoryCode: normalizeString(categoryCode || "").toLowerCase() || null,
   });
+
+  await createBookingEvent(env, {
+    id: makeId(),
+    bookingId: booking.id,
+    actorTelegramId: actorId,
+    actorType: "user",
+    eventType: "booking_opened_from_catalog",
+    fromStatus: null,
+    toStatus: booking.status,
+    payload: {
+      source_category_code: normalizeString(categoryCode || "").toLowerCase() || null,
+      partner_telegram_id: String(partnerTelegramId),
+    },
+  }).catch(() => null);
+
+  await persistBookingSession(
+    env,
+    actorId,
+    null,
+    {
+      step: "panel",
+      data: {
+        booking_id: booking.id,
+        actor_side: "user",
+        source_chat_id: msg?.chat?.id ?? actorId,
+        source_message_id: msg?.message_id ?? null,
+      },
+    },
+    msg
+  ).catch(() => null);
+
+  const dmRes = await sendBookingPanel(env, actorId, booking.id, {
+    noticeText: "🛡️ Booking dibuka dari katalog.",
+  }).catch(() => ({ ok: false }));
+
+  if (!dmRes?.ok) {
+    await answerAlert(
+      env,
+      callbackQueryId,
+      "Buka /start dulu di chat pribadi bot, lalu klik Safety Booking lagi."
+    );
+    return;
+  }
+
+  await answerAlert(env, callbackQueryId, "Panel booking sudah dikirim ke chat pribadi bot.");
 }
 
 export function buildCatalogHandlers() {
