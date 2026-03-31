@@ -26,12 +26,21 @@ export const fmtClassId = (classId) => {
   return "-";
 };
 
+function normalizeUsernameLookup(username) {
+  return String(username || "").trim().replace(/^@/, "").toLowerCase();
+}
+
 export async function findTelegramIdByUsername(env, username) {
-  const clean = String(username || "").trim().replace(/^@/, "");
+  const clean = normalizeUsernameLookup(username);
   if (!clean) return null;
 
   const row = await env.DB.prepare(
-    `SELECT telegram_id FROM profiles WHERE username = ? LIMIT 1`
+    `
+    SELECT telegram_id
+    FROM profiles
+    WHERE lower(trim(coalesce(username, ''))) = ?
+    LIMIT 1
+  `
   )
     .bind(clean)
     .first();
