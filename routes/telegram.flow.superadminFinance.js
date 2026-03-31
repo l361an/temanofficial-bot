@@ -10,6 +10,12 @@ import {
   buildFinanceClassPricingKeyboard,
 } from "./callbacks/keyboards.finance.js";
 
+function formatMoney(value) {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n) || n <= 0) return "Belum diset";
+  return `Rp ${n.toLocaleString("id-ID")}`;
+}
+
 function formatDurationLabel(value) {
   const raw = String(value || "").trim().toLowerCase();
   if (raw === "1d") return "1 Hari";
@@ -73,6 +79,7 @@ export async function handleSuperadminFinanceInput({
 
     const classId = String(session?.class_id || "").trim().toLowerCase();
     const durationCode = String(session?.duration_code || "").trim().toLowerCase();
+    const previousAmount = Number(session?.previous_amount || 0);
     const key = buildPriceSettingKey(classId, durationCode);
 
     await upsertSetting(env, key, String(amount));
@@ -83,8 +90,13 @@ export async function handleSuperadminFinanceInput({
     await sendMessage(
       env,
       chatId,
-      `✅ Harga berhasil disimpan.\n${classLabel} - ${formatDurationLabel(durationCode)} = Rp ${amount.toLocaleString("id-ID")}`,
+      `✅ Harga berhasil disimpan.\n\n` +
+        `Class: <b>${classLabel}</b>\n` +
+        `Durasi: <b>${formatDurationLabel(durationCode)}</b>\n` +
+        `Harga lama: <b>${formatMoney(previousAmount)}</b>\n` +
+        `Harga baru: <b>${formatMoney(amount)}</b>`,
       {
+        parse_mode: "HTML",
         reply_markup: buildFinanceClassPricingKeyboard(classId),
       }
     );
