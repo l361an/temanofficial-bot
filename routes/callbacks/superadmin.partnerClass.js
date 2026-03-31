@@ -75,7 +75,6 @@ function buildPartnerClassListText(rows, defaultClassId) {
     );
     lines.push(`ID: <code>${escapeHtml(row.id)}</code>`);
     lines.push(`Status: <b>${escapeHtml(statusLabel)}</b>`);
-    lines.push(`Pricing Ref: <code>${escapeHtml(String(row.pricing_ref_id || row.id))}</code>`);
     lines.push("");
   });
 
