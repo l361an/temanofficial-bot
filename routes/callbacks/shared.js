@@ -18,15 +18,25 @@ export const fmtHandle = (username) => {
   return u.startsWith("@") ? u : `@${u}`;
 };
 
+function titleCaseWords(value) {
+  return String(value || "")
+    .trim()
+    .replace(/[_-]+/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 export const fmtClassId = (classId) => {
   const v = String(classId || "").trim().toLowerCase();
+  if (!v) return "-";
   if (v === "bronze") return "Bronze";
   if (v === "gold") return "Gold";
   if (v === "platinum") return "Platinum";
-  return "-";
+  return titleCaseWords(v);
 };
 
-// PM list rendering helper
 export function buildVerificatorLine(row, verificatorMap) {
   const vid = row?.verificator_admin_id ? String(row.verificator_admin_id) : "";
   if (!vid) return `Verificator: <b>-</b>`;
