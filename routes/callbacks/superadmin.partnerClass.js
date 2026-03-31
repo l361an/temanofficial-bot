@@ -1,9 +1,8 @@
 // routes/callbacks/superadmin.partnerClass.js
 
 import { sendMessage, upsertCallbackMessage } from "../../services/telegramApi.js";
-import { saveSession, clearSession, loadSession } from "../../utils/session.js";
+import { saveSession, clearSession } from "../../utils/session.js";
 import {
-  addPartnerClass,
   deactivatePartnerClass,
   deletePartnerClass,
   getDefaultPartnerClassId,
@@ -107,30 +106,6 @@ function buildProfilesUsingClassText(classId, rows = []) {
   return lines.join("\n");
 }
 
-function buildPartnerClassAddPreviewText(label, classId) {
-  return [
-    "➕ <b>Preview Class Baru</b>",
-    "",
-    `Label: <b>${escapeHtml(label)}</b>`,
-    `Class ID: <code>${escapeHtml(classId)}</code>`,
-    "",
-    "Kalau sudah sesuai, klik <b>Simpan</b>.",
-    "Kalau mau ganti Class ID, klik <b>Ubah ID</b>.",
-  ].join("\n");
-}
-
-function buildPartnerClassAddPreviewKeyboard() {
-  return {
-    inline_keyboard: [
-      [
-        { text: "✅ Simpan", callback_data: CALLBACKS.SUPERADMIN_PARTNER_CLASS_ADD_CONFIRM },
-        { text: "✏️ Ubah ID", callback_data: CALLBACKS.SUPERADMIN_PARTNER_CLASS_ADD_EDIT_ID },
-      ],
-      [{ text: "❌ Batal", callback_data: CALLBACKS.SUPERADMIN_PARTNER_CLASS_MENU }],
-    ],
-  };
-}
-
 async function startPartnerClassSession(env, adminId, patch = {}) {
   const stateKey = getStateKey(adminId);
   await saveSession(env, stateKey, {
@@ -178,89 +153,7 @@ export function buildSuperadminPartnerClassHandlers() {
     await sendMessage(
       ctx.env,
       ctx.adminId,
-      "➕ <b>Tambah Class</b>\n\nKetik nama / label class baru.\n\nContoh:\n• <b>General</b>\n• <b>VIP Plus</b>\n• <b>Corporate A</b>\n\nBot akan buatkan <code>class_id</code> otomatis, lalu kamu tinggal review.\n\nKetik <b>batal</b> untuk keluar.",
-      {
-        parse_mode: "HTML",
-        reply_markup: buildPartnerClassBackKeyboard(),
-      }
-    );
-
-    return true;
-  };
-
-  EXACT[CALLBACKS.SUPERADMIN_PARTNER_CLASS_ADD_CONFIRM] = async (ctx) => {
-    if (!isOwnerRole(ctx.role)) return denyOwnerOnly(ctx);
-
-    const session = await loadSession(ctx.env, getStateKey(ctx.adminId)).catch(() => null);
-    const area = String(session?.area || "");
-    const classId = String(session?.draft_class_id || "").trim().toLowerCase();
-    const label = String(session?.draft_label || "").trim();
-
-    if (area !== "partner_class_add_preview" || !classId || !label) {
-      await sendMessage(ctx.env, ctx.adminId, "⚠️ Draft class tidak ditemukan. Ulangi dari menu Tambah Class.", {
-        reply_markup: buildPartnerClassMenuKeyboard(),
-      });
-      return true;
-    }
-
-    const res = await addPartnerClass(ctx.env, { id: classId, label });
-
-    if (!res?.ok) {
-      const msg =
-        res.reason === "class_id_exists"
-          ? "⚠️ Class ID sudah dipakai. Klik <b>Ubah ID</b> untuk ganti."
-          : res.reason === "invalid_class_id"
-          ? "⚠️ Class ID tidak valid. Klik <b>Ubah ID</b> untuk ganti."
-          : res.reason === "empty_label"
-          ? "⚠️ Label class wajib diisi."
-          : "⚠️ Gagal menambah class.";
-
-      await sendMessage(ctx.env, ctx.adminId, msg, {
-        parse_mode: "HTML",
-        reply_markup: buildPartnerClassAddPreviewKeyboard(),
-      });
-      return true;
-    }
-
-    await clearSession(ctx.env, getStateKey(ctx.adminId)).catch(() => {});
-    await sendMessage(
-      ctx.env,
-      ctx.adminId,
-      `✅ Class baru berhasil ditambahkan.\n\nID: <code>${escapeHtml(classId)}</code>\nLabel: <b>${escapeHtml(label)}</b>`,
-      {
-        parse_mode: "HTML",
-        reply_markup: buildPartnerClassMenuKeyboard(),
-      }
-    );
-    return true;
-  };
-
-  EXACT[CALLBACKS.SUPERADMIN_PARTNER_CLASS_ADD_EDIT_ID] = async (ctx) => {
-    if (!isOwnerRole(ctx.role)) return denyOwnerOnly(ctx);
-
-    const stateKey = getStateKey(ctx.adminId);
-    const session = await loadSession(ctx.env, stateKey).catch(() => null);
-    const label = String(session?.draft_label || "").trim();
-    const classId = String(session?.draft_class_id || "").trim().toLowerCase();
-
-    if (!label) {
-      await sendMessage(ctx.env, ctx.adminId, "⚠️ Draft class tidak ditemukan. Ulangi dari menu Tambah Class.", {
-        reply_markup: buildPartnerClassMenuKeyboard(),
-      });
-      return true;
-    }
-
-    await startPartnerClassSession(ctx.env, ctx.adminId, {
-      area: "partner_class_add_edit_id",
-      step: "await_text",
-      draft_label: label,
-      draft_class_id: classId,
-    });
-
-    await sendMessage(
-      ctx.env,
-      ctx.adminId,
-      `✏️ <b>Ubah Class ID</b>\n\nLabel: <b>${escapeHtml(label)}</b>\nSaran ID saat ini: <code>${escapeHtml(classId)}</code>\n\nKetik Class ID custom.\nFormat: huruf kecil, angka, underscore.\nContoh: <code>vip_plus</code>\n\nKetik <b>batal</b> untuk keluar.`,
+      "➕ <b>Tambah Class</b>\n\nKetik nama / label class baru.\n\nContoh:\n• <b>General</b>\n• <b>VIP Plus</b>\n• <b>Corporate A</b>\n\nBot akan buatkan <code>class_id</code> otomatis dan langsung simpan.\n\nKetik <b>batal</b> untuk keluar.",
       {
         parse_mode: "HTML",
         reply_markup: buildPartnerClassBackKeyboard(),
