@@ -4,10 +4,10 @@ import { getSetting } from "../repositories/settingsRepo.js";
 import { createPaymentTicket } from "../repositories/paymentTicketsRepo.js";
 import { sendPhoto } from "../services/telegramApi.js";
 import { nowJakarta } from "../utils/time.js";
+import { fmtClassId } from "../utils/partnerHelpers.js";
 
 import {
   normalizeStatus,
-  normalizeClassId,
   makeSqlDate,
   addHours,
   randomInt,
@@ -190,7 +190,9 @@ async function sendDurationConfirmation(env, chatId, telegramId, durationCode, o
 
   const allowedDurationCodes = new Set(["1d", "3d", "7d", "1m"]);
   const normalizedDurationCode = String(durationCode || "").trim().toLowerCase();
-  const finalDurationCode = allowedDurationCodes.has(normalizedDurationCode) ? normalizedDurationCode : "1m";
+  const finalDurationCode = allowedDurationCodes.has(normalizedDurationCode)
+    ? normalizedDurationCode
+    : "1m";
 
   const ctx = await loadSelfPaymentContext(env, telegramId);
   if (!ctx.profile) {
@@ -255,15 +257,17 @@ async function sendDurationConfirmation(env, chatId, telegramId, durationCode, o
     return;
   }
 
-  const classId = normalizeClassId(ctx.profile.class_id || "bronze");
+  const classId = ctx.classId;
   const price = await resolvePriceByClassAndDuration(env, classId, finalDurationCode);
 
   if (!Number(price.amount)) {
+    const classLabel = fmtClassId(price?.classId || classId);
+
     await renderPaymentScreen(
       env,
       chatId,
       sourceMessage,
-      `⚠️ Harga untuk class <b>${classId === "bronze" ? "Bronze" : classId === "gold" ? "Gold" : classId === "platinum" ? "Platinum" : classId}</b> durasi <b>${price.durationLabel}</b> belum diset di settings.`,
+      `⚠️ Harga untuk class <b>${classLabel}</b> durasi <b>${price.durationLabel}</b> belum diset di settings.`,
       buildPaymentDurationKeyboard()
     );
     return;
@@ -287,7 +291,9 @@ async function createPartnerPaymentTicket(env, chatId, telegramId, durationCode,
 
   const allowedDurationCodes = new Set(["1d", "3d", "7d", "1m"]);
   const normalizedDurationCode = String(durationCode || "").trim().toLowerCase();
-  const finalDurationCode = allowedDurationCodes.has(normalizedDurationCode) ? normalizedDurationCode : "1m";
+  const finalDurationCode = allowedDurationCodes.has(normalizedDurationCode)
+    ? normalizedDurationCode
+    : "1m";
 
   const ctx = await loadSelfPaymentContext(env, telegramId);
   if (!ctx.profile) {
@@ -352,19 +358,24 @@ async function createPartnerPaymentTicket(env, chatId, telegramId, durationCode,
     return;
   }
 
-  const classId = normalizeClassId(ctx.profile.class_id || "bronze");
+  const classId = ctx.classId;
   const price = await resolvePriceByClassAndDuration(env, classId, finalDurationCode);
 
   if (!Number(price.amount)) {
+    const classLabel = fmtClassId(price?.classId || classId);
+
     await renderPaymentScreen(
       env,
       chatId,
       sourceMessage,
-      `⚠️ Harga untuk class <b>${classId === "bronze" ? "Bronze" : classId === "gold" ? "Gold" : classId === "platinum" ? "Platinum" : classId}</b> durasi <b>${price.durationLabel}</b> belum diset di settings.`,
+      `⚠️ Harga untuk class <b>${classLabel}</b> durasi <b>${price.durationLabel}</b> belum diset di settings.`,
       buildPaymentDurationKeyboard()
     );
     return;
   }
+
+  const ticketClassId = price.classId || classId;
+  const ticketClassLabel = fmtClassId(ticketClassId);
 
   const uniqueRange = await getUniqueCodeRange(env);
   const uniqueCode = randomInt(uniqueRange.min, uniqueRange.max);
@@ -379,7 +390,7 @@ async function createPartnerPaymentTicket(env, chatId, telegramId, durationCode,
     ticketCode: makeTicketCode(telegramId),
     partnerId: telegramId,
     subscriptionId: null,
-    classId,
+    classId: ticketClassId,
     durationMonths: price.durationMonths,
     amountBase,
     uniqueCode,
@@ -389,8 +400,8 @@ async function createPartnerPaymentTicket(env, chatId, telegramId, durationCode,
     status: "waiting_payment",
     expiresAt,
     pricingSnapshotJson: JSON.stringify({
-      class_id: classId,
-      class_label: classId,
+      class_id: ticketClassId,
+      class_label: ticketClassLabel,
       duration_code: price.durationCode,
       duration_label: price.durationLabel,
       duration_days: price.durationDays,
