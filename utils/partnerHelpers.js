@@ -18,12 +18,23 @@ export const cleanHandle = (username) => {
   return u ? `@${u}` : "-";
 };
 
+function titleCaseWords(value) {
+  return String(value || "")
+    .trim()
+    .replace(/[_-]+/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 export const fmtClassId = (classId) => {
   const v = String(classId || "").trim().toLowerCase();
+  if (!v) return "-";
   if (v === "bronze") return "Bronze";
   if (v === "gold") return "Gold";
   if (v === "platinum") return "Platinum";
-  return "-";
+  return titleCaseWords(v);
 };
 
 function normalizeUsernameLookup(username) {
