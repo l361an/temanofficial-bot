@@ -3,6 +3,7 @@
 import {
   sendMessage,
   editMessageReplyMarkup,
+  upsertCallbackMessage,
 } from "../../services/telegramApi.js";
 
 import {
@@ -16,20 +17,27 @@ import {
 } from "./keyboards.partner.js";
 
 import { escapeHtml, fmtClassId } from "./shared.js";
-import { CALLBACK_PREFIX } from "../telegram.constants.js";
+import { CALLBACK_PREFIX, cb } from "../telegram.constants.js";
 
 import {
   renderActionMenu,
-  renderSuccessState,
 } from "./partner.render.js";
+
+function buildClassSuccessKeyboard(telegramId) {
+  return {
+    inline_keyboard: [
+      [
+        { text: "🏷️ Ubah Lagi", callback_data: cb.pmClassStart(telegramId) },
+        { text: "⬅️ Back to Panel", callback_data: cb.pmPanelBack(telegramId) },
+      ],
+    ],
+  };
+}
 
 export function buildPartnerClassDomainHandlers() {
   const EXACT = {};
   const PREFIX = [];
 
-  /**
-   * PM_CLASS_START
-   */
   PREFIX.push({
     match: (d) => d.startsWith(CALLBACK_PREFIX.PM_CLASS_START),
     run: async (ctx) => {
@@ -77,18 +85,12 @@ export function buildPartnerClassDomainHandlers() {
     },
   });
 
-  /**
-   * PM_CLASS_SET
-   */
   PREFIX.push({
     match: (d) => d.startsWith(CALLBACK_PREFIX.PM_CLASS_SET),
     run: async (ctx) => {
       const { env, data, adminId, msg, msgChatId, msgId } = ctx;
 
-      const payload = String(
-        data.slice(CALLBACK_PREFIX.PM_CLASS_SET.length)
-      );
-
+      const payload = String(data.slice(CALLBACK_PREFIX.PM_CLASS_SET.length));
       const [telegramId, classId] = payload.split(":");
 
       if (!telegramId) {
@@ -97,6 +99,8 @@ export function buildPartnerClassDomainHandlers() {
         });
         return true;
       }
+
+      const beforeProfile = await getProfileFullByTelegramId(env, telegramId);
 
       const res = await updateProfileClassByTelegramId(env, telegramId, classId);
 
@@ -118,19 +122,36 @@ export function buildPartnerClassDomainHandlers() {
         return true;
       }
 
+      const afterProfile = await getProfileFullByTelegramId(env, telegramId);
+
       if (msgChatId && msgId) {
         await editMessageReplyMarkup(env, msgChatId, msgId, null).catch(() => {});
       }
 
-      await renderSuccessState(env, adminId, telegramId, "Class", msg);
+      const successText =
+        `✅ <b>Update Class Berhasil</b>\n\n` +
+        `Partner: <b>${escapeHtml(afterProfile?.nama_lengkap || beforeProfile?.nama_lengkap || "-")}</b>\n` +
+        `Telegram ID: <code>${escapeHtml(telegramId)}</code>\n` +
+        `Class lama: <b>${escapeHtml(fmtClassId(beforeProfile?.class_id))}</b>\n` +
+        `Class baru: <b>${escapeHtml(fmtClassId(afterProfile?.class_id || res.class_id))}</b>`;
 
+      const extra = {
+        parse_mode: "HTML",
+        reply_markup: buildClassSuccessKeyboard(telegramId),
+      };
+
+      if (msg) {
+        await upsertCallbackMessage(env, msg, successText, extra).catch(async () => {
+          await sendMessage(env, adminId, successText, extra);
+        });
+        return true;
+      }
+
+      await sendMessage(env, adminId, successText, extra);
       return true;
     },
   });
 
-  /**
-   * PM_CLASS_BACK
-   */
   PREFIX.push({
     match: (d) => d.startsWith(CALLBACK_PREFIX.PM_CLASS_BACK),
     run: async (ctx) => {
