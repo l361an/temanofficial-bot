@@ -19,9 +19,7 @@ import {
 import { escapeHtml, fmtClassId } from "./shared.js";
 import { CALLBACK_PREFIX, cb } from "../telegram.constants.js";
 
-import {
-  renderActionMenu,
-} from "./partner.render.js";
+import { renderActionMenu } from "./partner.render.js";
 
 function buildClassSuccessKeyboard(telegramId) {
   return {
@@ -77,7 +75,7 @@ export function buildPartnerClassDomainHandlers() {
           `Pilih class baru dibawah :`,
         {
           parse_mode: "HTML",
-          reply_markup: buildPartnerClassPickerKeyboard(profile.telegram_id),
+          reply_markup: await buildPartnerClassPickerKeyboard(env, profile.telegram_id),
         }
       );
 
@@ -101,13 +99,12 @@ export function buildPartnerClassDomainHandlers() {
       }
 
       const beforeProfile = await getProfileFullByTelegramId(env, telegramId);
-
       const res = await updateProfileClassByTelegramId(env, telegramId, classId);
 
       if (!res.ok) {
         const msgText =
           res.reason === "invalid_class_id"
-            ? "⚠️ Class ID tidak valid. Pilih Bronze, Gold, atau Platinum."
+            ? "⚠️ Class ID tidak valid atau sudah tidak aktif."
             : res.reason === "not_found"
             ? "⚠️ Data partner tidak ditemukan."
             : "⚠️ Gagal mengubah class partner.";
@@ -115,7 +112,7 @@ export function buildPartnerClassDomainHandlers() {
         await sendMessage(env, adminId, msgText, {
           reply_markup:
             res.reason === "invalid_class_id"
-              ? buildPartnerClassPickerKeyboard(telegramId)
+              ? await buildPartnerClassPickerKeyboard(env, telegramId)
               : buildBackToPartnerDatabaseKeyboard(),
         });
 
