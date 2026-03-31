@@ -5,10 +5,7 @@ import { getProfileFullByTelegramId } from "../repositories/profilesRepo.js";
 import { getSubscriptionInfoByTelegramId } from "../repositories/partnerSubscriptionsRepo.js";
 import { getOpenPaymentTicketByPartnerId } from "../repositories/paymentTicketsRepo.js";
 import { normalizeClassId } from "./telegram.user.shared.js";
-import {
-  getDefaultPartnerClassId,
-  resolvePartnerPricingClassId,
-} from "../repositories/partnerClassesRepo.js";
+import { getDefaultPartnerClassId } from "../repositories/partnerClassesRepo.js";
 
 export function resolvePartnerStatusLabel(profile) {
   const raw = String(profile?.status || "").trim().toLowerCase();
@@ -124,52 +121,27 @@ export async function getUniqueCodeRange(env) {
   };
 }
 
-function buildPriceKeyCandidates(classId, durationCode) {
+export function buildPaymentPriceSettingKey(classId, durationCode) {
   const cid = normalizeClassId(classId);
-  const dcode = String(durationCode || "").trim().toLowerCase();
-
-  return [
-    `payment_price_${cid}_${dcode}`,
-    `payment_${cid}_${dcode}`,
-    `pp_price_${cid}_${dcode}`,
-    `${cid}_price_${dcode}`,
-  ];
+  const duration = resolveDurationMeta(durationCode);
+  return `payment_price_${cid}_${duration.durationCode}`;
 }
 
 export async function resolvePriceByClassAndDuration(env, classId, durationCode) {
   const defaultClassId = await getDefaultPartnerClassId(env).catch(() => "general");
-  const normalizedClassId = normalizeClassId(classId || defaultClassId || "general");
+  const normalizedClassId = normalizeClassId(classId || defaultClassId || "general") || "general";
   const duration = resolveDurationMeta(durationCode);
+  const key = buildPaymentPriceSettingKey(normalizedClassId, duration.durationCode);
 
-  const pricingClassId = await resolvePartnerPricingClassId(env, normalizedClassId).catch(() => normalizedClassId);
-
-  const keyCandidates = [
-    ...buildPriceKeyCandidates(normalizedClassId, duration.durationCode),
-    ...buildPriceKeyCandidates(pricingClassId, duration.durationCode),
-  ].filter((value, index, array) => array.indexOf(value) === index);
-
-  for (const key of keyCandidates) {
-    const raw = await getSetting(env, key);
-    const num = Number(raw);
-    if (Number.isFinite(num) && num > 0) {
-      return {
-        amount: num,
-        key,
-        classId: normalizedClassId,
-        pricingClassId,
-        durationCode: duration.durationCode,
-        durationLabel: duration.durationLabel,
-        durationDays: duration.durationDays,
-        durationMonths: duration.durationMonths,
-      };
-    }
-  }
+  const raw = await getSetting(env, key);
+  const amount = Number(raw);
+  const resolvedAmount = Number.isFinite(amount) && amount > 0 ? amount : 0;
 
   return {
-    amount: 0,
-    key: null,
+    amount: resolvedAmount,
+    key: resolvedAmount > 0 ? key : null,
     classId: normalizedClassId,
-    pricingClassId,
+    pricingClassId: normalizedClassId,
     durationCode: duration.durationCode,
     durationLabel: duration.durationLabel,
     durationDays: duration.durationDays,
@@ -195,7 +167,7 @@ export async function loadSelfPaymentContext(env, telegramId) {
   const premiumAccessLabel = resolvePremiumAccessLabel(profile, subInfo);
   const primaryActionText = resolvePrimaryActionText(profile, subInfo);
   const defaultClassId = await getDefaultPartnerClassId(env).catch(() => "general");
-  const classId = normalizeClassId(profile?.class_id || defaultClassId || "general");
+  const classId = normalizeClassId(profile?.class_id || defaultClassId || "general") || "general";
 
   return {
     profile,
