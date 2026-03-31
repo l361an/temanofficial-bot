@@ -1,7 +1,7 @@
 // routes/telegram.flow.superadminFinance.js
 
 import { sendMessage, sendPhoto } from "../services/telegramApi.js";
-import { getSetting, upsertSetting } from "../repositories/settingsRepo.js";
+import { getSetting, upsertSetting, deleteSetting } from "../repositories/settingsRepo.js";
 import { getPartnerClassLabel } from "../repositories/partnerClassesRepo.js";
 import { clearSession } from "../utils/session.js";
 import {
@@ -16,18 +16,65 @@ function formatMoney(value) {
   return `Rp ${n.toLocaleString("id-ID")}`;
 }
 
-function formatDurationLabel(value) {
+function normalizeClassId(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function normalizeDurationCode(value) {
   const raw = String(value || "").trim().toLowerCase();
+  if (raw === "1h") return "1d";
+  if (raw === "3h") return "3d";
+  if (raw === "7h") return "7d";
+  if (raw === "1m") return "1m";
+  if (raw === "1d") return "1d";
+  if (raw === "3d") return "3d";
+  if (raw === "7d") return "7d";
+  return "1m";
+}
+
+function formatDurationLabel(value) {
+  const raw = normalizeDurationCode(value);
   if (raw === "1d") return "1 Hari";
   if (raw === "3d") return "3 Hari";
   if (raw === "7d") return "7 Hari";
   return "1 Bulan";
 }
 
-function buildPriceSettingKey(classId, durationCode) {
-  return `payment_price_${String(classId || "").trim().toLowerCase()}_${String(durationCode || "")
-    .trim()
-    .toLowerCase()}`;
+function buildCanonicalPriceSettingKey(classId, durationCode) {
+  return `payment_price_${normalizeClassId(classId)}_${normalizeDurationCode(durationCode)}`;
+}
+
+function getDurationAliases(durationCode) {
+  const code = normalizeDurationCode(durationCode);
+
+  if (code === "1d") return ["1d", "1h"];
+  if (code === "3d") return ["3d", "3h"];
+  if (code === "7d") return ["7d", "7h"];
+  return ["1m"];
+}
+
+function buildLegacyPriceKeyCandidates(classId, durationCode) {
+  const cid = normalizeClassId(classId);
+  const aliases = getDurationAliases(durationCode);
+  const out = new Set();
+
+  for (const alias of aliases) {
+    out.add(`pp_price_${cid}_${alias}`);
+    out.add(`payment_${cid}_${alias}`);
+    out.add(`${cid}_price_${alias}`);
+    out.add(`payment_price_${cid}_${alias}`);
+  }
+
+  return [...out];
+}
+
+async function cleanupLegacyPricingSlot(env, classId, durationCode) {
+  const canonicalKey = buildCanonicalPriceSettingKey(classId, durationCode);
+  const legacyKeys = buildLegacyPriceKeyCandidates(classId, durationCode).filter((key) => key !== canonicalKey);
+
+  for (const key of legacyKeys) {
+    await deleteSetting(env, key).catch(() => {});
+  }
 }
 
 async function buildFinanceMenuKeyboard(env) {
@@ -77,12 +124,13 @@ export async function handleSuperadminFinanceInput({
       return true;
     }
 
-    const classId = String(session?.class_id || "").trim().toLowerCase();
-    const durationCode = String(session?.duration_code || "").trim().toLowerCase();
+    const classId = normalizeClassId(session?.class_id);
+    const durationCode = normalizeDurationCode(session?.duration_code);
     const previousAmount = Number(session?.previous_amount || 0);
-    const key = buildPriceSettingKey(classId, durationCode);
+    const key = buildCanonicalPriceSettingKey(classId, durationCode);
 
     await upsertSetting(env, key, String(amount));
+    await cleanupLegacyPricingSlot(env, classId, durationCode);
     await clearSession(env, STATE_KEY).catch(() => {});
 
     const classLabel = await getPartnerClassLabel(env, classId).catch(() => classId);
