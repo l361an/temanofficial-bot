@@ -60,6 +60,10 @@ function normalizeTicketStatus(status) {
   return String(status || "").trim().toLowerCase();
 }
 
+function resolveContextClassLabel(ctx) {
+  return fmtClassId(ctx?.classId || ctx?.profile?.class_id || "");
+}
+
 export function buildWaitingPaymentKeyboard() {
   return {
     inline_keyboard: [
@@ -180,7 +184,7 @@ export function buildPaymentHomeMessage(ctx) {
     "",
     `Status Partner: <b>${escapeHtml(ctx.partnerStatusLabel)}</b>`,
     `Akses Premium: <b>${escapeHtml(ctx.premiumAccessLabel)}</b>`,
-    `Class Partner: <b>${escapeHtml(fmtClassId(ctx.profile?.class_id || "bronze"))}</b>`,
+    `Class Partner: <b>${escapeHtml(resolveContextClassLabel(ctx))}</b>`,
   ].join("\n");
 }
 
@@ -190,7 +194,7 @@ export function buildChooseDurationMessage(ctx) {
     "",
     `Status Partner: <b>${escapeHtml(ctx.partnerStatusLabel)}</b>`,
     `Akses Premium: <b>${escapeHtml(ctx.premiumAccessLabel)}</b>`,
-    `Class Partner: <b>${escapeHtml(fmtClassId(ctx.profile?.class_id || "bronze"))}</b>`,
+    `Class Partner: <b>${escapeHtml(resolveContextClassLabel(ctx))}</b>`,
     "",
     "Pilih durasi yang ingin kamu aktifkan:",
     "• 1 Hari",
@@ -201,7 +205,7 @@ export function buildChooseDurationMessage(ctx) {
 }
 
 export function buildPaymentDurationConfirmMessage(ctx, price) {
-  const classLabel = fmtClassId(ctx?.profile?.class_id || "bronze");
+  const classLabel = fmtClassId(price?.classId || ctx?.classId || ctx?.profile?.class_id || "");
 
   return [
     "🧾 <b>KONFIRMASI DURASI PREMIUM</b>",
