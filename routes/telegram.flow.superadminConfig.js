@@ -12,6 +12,7 @@ import { buildPartnerClassMenuKeyboard } from "./callbacks/keyboards.superadmin.
 import {
   addPartnerClass,
   renamePartnerClassLabel,
+  getPartnerClassById,
 } from "../repositories/partnerClassesRepo.js";
 
 function buildConfigBackKeyboard() {
@@ -22,6 +23,61 @@ function buildConfigBackKeyboard() {
 
 function buildPartnerClassBackKeyboard() {
   return buildPartnerClassMenuKeyboard();
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function slugifyClassId(label) {
+  const normalized = String(label || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .replace(/_+/g, "_");
+
+  let out = normalized;
+
+  if (!out) out = "class_baru";
+  if (!/^[a-z]/.test(out)) out = `class_${out}`;
+  out = out.replace(/_+/g, "_").replace(/^_+|_+$/g, "");
+
+  if (out.length > 32) {
+    out = out.slice(0, 32).replace(/_+$/g, "");
+  }
+
+  if (!/^[a-z][a-z0-9_]{1,31}$/.test(out)) {
+    out = "class_baru";
+  }
+
+  return out;
+}
+
+async function suggestAvailableClassId(env, label) {
+  const base = slugifyClassId(label);
+
+  const direct = await getPartnerClassById(env, base).catch(() => null);
+  if (!direct) return base;
+
+  for (let i = 2; i <= 999; i += 1) {
+    const suffix = `_${i}`;
+    const stem = base.slice(0, Math.max(1, 32 - suffix.length)).replace(/_+$/g, "");
+    const candidate = `${stem}${suffix}`;
+
+    if (!/^[a-z][a-z0-9_]{1,31}$/.test(candidate)) continue;
+
+    const exists = await getPartnerClassById(env, candidate).catch(() => null);
+    if (!exists) return candidate;
+  }
+
+  return base;
 }
 
 export async function handleSuperadminConfigInput({ env, chatId, telegramId, text, session, STATE_KEY }) {
@@ -103,28 +159,28 @@ export async function handleSuperadminConfigInput({ env, chatId, telegramId, tex
     return true;
   }
 
-  if (area === "partner_class_add") {
-    const [rawClassId, ...labelParts] = raw.split("|");
-    const classId = String(rawClassId || "").trim().toLowerCase();
-    const label = labelParts.join("|").trim();
+  if (area === "partner_class_add_label") {
+    const label = raw;
 
-    if (!/^[a-z][a-z0-9_]{1,31}$/.test(classId) || !label) {
+    if (!label) {
       await sendMessage(
         env,
         chatId,
-        "⚠️ Format tidak valid.\n\nPakai format:\n<code>class_id|Label Class</code>\n\nContoh:\n<code>general|General</code>\n<code>vip_plus|VIP Plus</code>\n\nKetik <b>batal</b> untuk keluar.",
+        "⚠️ Label class wajib diisi.\n\nContoh:\n• <b>VIP Plus</b>\n• <b>Corporate A</b>\n\nKetik <b>batal</b> untuk keluar.",
         { parse_mode: "HTML" }
       );
       return true;
     }
 
+    const classId = await suggestAvailableClassId(env, label);
     const res = await addPartnerClass(env, { id: classId, label });
+
     if (!res?.ok) {
       const msg =
         res.reason === "class_id_exists"
-          ? "⚠️ Class ID sudah ada."
+          ? "⚠️ Class ID bentrok saat simpan. Coba kirim label lagi."
           : res.reason === "invalid_class_id"
-          ? "⚠️ Class ID tidak valid."
+          ? "⚠️ Class ID hasil generate tidak valid."
           : res.reason === "empty_label"
           ? "⚠️ Label class wajib diisi."
           : "⚠️ Gagal menambah class.";
@@ -139,11 +195,21 @@ export async function handleSuperadminConfigInput({ env, chatId, telegramId, tex
     await sendMessage(
       env,
       chatId,
-      `✅ Class baru berhasil ditambahkan.\n\nID: <code>${classId}</code>\nLabel: <b>${label}</b>`,
+      `✅ Class baru berhasil ditambahkan.\n\nID: <code>${escapeHtml(classId)}</code>\nLabel: <b>${escapeHtml(label)}</b>`,
       {
         parse_mode: "HTML",
         reply_markup: buildPartnerClassBackKeyboard(),
       }
+    );
+    return true;
+  }
+
+  if (area === "partner_class_add") {
+    await sendMessage(
+      env,
+      chatId,
+      "⚠️ Format lama sudah tidak dipakai.\n\nSekarang cukup ketik <b>label class</b> saja.\nContoh:\n• <b>VIP Plus</b>\n• <b>Corporate A</b>\n\nBot akan buatkan <code>class_id</code> otomatis dan langsung simpan.",
+      { parse_mode: "HTML" }
     );
     return true;
   }
@@ -171,7 +237,7 @@ export async function handleSuperadminConfigInput({ env, chatId, telegramId, tex
     await sendMessage(
       env,
       chatId,
-      `✅ Label class berhasil diubah.\n\nID: <code>${classId}</code>\nLabel baru: <b>${label}</b>`,
+      `✅ Label class berhasil diubah.\n\nID: <code>${classId}</code>\nLabel baru: <b>${escapeHtml(label)}</b>`,
       {
         parse_mode: "HTML",
         reply_markup: buildPartnerClassBackKeyboard(),
