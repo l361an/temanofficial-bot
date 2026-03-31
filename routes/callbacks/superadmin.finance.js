@@ -1,8 +1,8 @@
 // routes/callbacks/superadmin.finance.js
 
 import { sendMessage, sendPhoto, upsertCallbackMessage } from "../../services/telegramApi.js";
-import { getSetting, upsertSetting } from "../../repositories/settingsRepo.js";
-import { getPartnerClassLabel } from "../../repositories/partnerClassesRepo.js";
+import { getSetting, upsertSetting, deleteSetting } from "../../repositories/settingsRepo.js";
+import { getPartnerClassLabel, listPartnerClasses } from "../../repositories/partnerClassesRepo.js";
 import { saveSession, clearSession } from "../../utils/session.js";
 import {
   buildFinanceKeyboard,
@@ -12,14 +12,102 @@ import {
 } from "./keyboards.finance.js";
 import { CALLBACKS, CALLBACK_PREFIX, SESSION_MODES } from "../telegram.constants.js";
 
+const CANONICAL_DURATION_CODES = ["1d", "3d", "7d", "1m"];
+const FIXED_LEGACY_CLASS_IDS = ["general", "bronze", "gold", "platinum"];
+
 function getStateKey(adminId) {
   return `state:${adminId}`;
 }
 
-function buildPriceSettingKey(classId, durationCode) {
-  return `payment_price_${String(classId || "").trim().toLowerCase()}_${String(durationCode || "")
-    .trim()
-    .toLowerCase()}`;
+function normalizeClassId(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function normalizeDurationCode(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "1h") return "1d";
+  if (raw === "3h") return "3d";
+  if (raw === "7h") return "7d";
+  if (raw === "1m") return "1m";
+  if (raw === "1d") return "1d";
+  if (raw === "3d") return "3d";
+  if (raw === "7d") return "7d";
+  return "1m";
+}
+
+function getDurationAliases(durationCode) {
+  const code = normalizeDurationCode(durationCode);
+
+  if (code === "1d") return ["1d", "1h"];
+  if (code === "3d") return ["3d", "3h"];
+  if (code === "7d") return ["7d", "7h"];
+  return ["1m"];
+}
+
+function buildCanonicalPriceSettingKey(classId, durationCode) {
+  return `payment_price_${normalizeClassId(classId)}_${normalizeDurationCode(durationCode)}`;
+}
+
+function buildLegacyPriceKeyCandidates(classId, durationCode) {
+  const cid = normalizeClassId(classId);
+  const aliases = getDurationAliases(durationCode);
+  const out = new Set();
+
+  for (const alias of aliases) {
+    out.add(`pp_price_${cid}_${alias}`);
+    out.add(`payment_${cid}_${alias}`);
+    out.add(`${cid}_price_${alias}`);
+    out.add(`payment_price_${cid}_${alias}`);
+  }
+
+  return [...out];
+}
+
+async function deleteKeys(env, keys = []) {
+  for (const key of keys) {
+    await deleteSetting(env, key).catch(() => {});
+  }
+}
+
+async function cleanupLegacyPricingSlot(env, classId, durationCode) {
+  const canonicalKey = buildCanonicalPriceSettingKey(classId, durationCode);
+  const candidates = buildLegacyPriceKeyCandidates(classId, durationCode).filter((key) => key !== canonicalKey);
+  await deleteKeys(env, candidates);
+}
+
+async function cleanupLegacyPricingSettings(env) {
+  const rows = await listPartnerClasses(env).catch(() => []);
+  const classIds = new Set(FIXED_LEGACY_CLASS_IDS);
+
+  for (const row of rows) {
+    const cid = normalizeClassId(row?.id);
+    if (cid) classIds.add(cid);
+  }
+
+  for (const classId of classIds) {
+    for (const durationCode of CANONICAL_DURATION_CODES) {
+      await cleanupLegacyPricingSlot(env, classId, durationCode);
+    }
+  }
+
+  const globalLegacyKeys = [
+    "payment_price_1d",
+    "payment_price_3d",
+    "payment_price_7d",
+    "payment_price_1m",
+    "payment_price_1h",
+    "payment_price_3h",
+    "payment_price_7h",
+    "pp_price_1d",
+    "pp_price_3d",
+    "pp_price_7d",
+    "pp_price_1m",
+    "pp_price_1h",
+    "pp_price_3h",
+    "pp_price_7h",
+  ];
+
+  await deleteKeys(env, globalLegacyKeys);
 }
 
 function formatMoney(value) {
@@ -29,7 +117,7 @@ function formatMoney(value) {
 }
 
 function formatDurationLabel(value) {
-  const raw = String(value || "").trim().toLowerCase();
+  const raw = normalizeDurationCode(value);
   if (raw === "1d") return "1 Hari";
   if (raw === "3d") return "3 Hari";
   if (raw === "7d") return "7 Hari";
@@ -37,7 +125,7 @@ function formatDurationLabel(value) {
 }
 
 async function getCurrentPrice(env, classId, durationCode) {
-  const key = buildPriceSettingKey(classId, durationCode);
+  const key = buildCanonicalPriceSettingKey(classId, durationCode);
   const raw = await getSetting(env, key);
   const amount = Number(raw || 0);
 
@@ -147,8 +235,8 @@ function parsePricingSetPayload(data) {
   if (lastColonIndex <= 0) return { classId: "", durationCode: "" };
 
   return {
-    classId: String(payload.slice(0, lastColonIndex) || "").trim().toLowerCase(),
-    durationCode: String(payload.slice(lastColonIndex + 1) || "").trim().toLowerCase(),
+    classId: normalizeClassId(payload.slice(0, lastColonIndex)),
+    durationCode: normalizeDurationCode(payload.slice(lastColonIndex + 1)),
   };
 }
 
@@ -169,6 +257,8 @@ export function buildSuperadminFinanceHandlers() {
 
   EXACT[CALLBACKS.SUPERADMIN_FINANCE_PRICING_MENU] = async (ctx) => {
     await clearSession(ctx.env, getStateKey(ctx.adminId)).catch(() => {});
+    await cleanupLegacyPricingSettings(ctx.env).catch(() => {});
+
     return renderMenuMessage(ctx, buildPricingClassText(), {
       parse_mode: "HTML",
       reply_markup: await buildFinancePricingKeyboard(ctx.env),
@@ -224,7 +314,7 @@ export function buildSuperadminFinanceHandlers() {
   PREFIX.push({
     match: (d) => String(d || "").startsWith(CALLBACK_PREFIX.SA_FIN_PRICING_CLASS),
     run: async (ctx) => {
-      const classId = String(ctx.data || "").slice(CALLBACK_PREFIX.SA_FIN_PRICING_CLASS.length).trim().toLowerCase();
+      const classId = normalizeClassId(String(ctx.data || "").slice(CALLBACK_PREFIX.SA_FIN_PRICING_CLASS.length));
       const classLabel = await getPartnerClassLabel(ctx.env, classId).catch(() => classId);
       const snapshot = await getPricingSnapshot(ctx.env, classId);
 
