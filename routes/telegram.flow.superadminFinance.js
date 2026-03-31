@@ -2,16 +2,13 @@
 
 import { sendMessage, sendPhoto } from "../services/telegramApi.js";
 import { getSetting, upsertSetting } from "../repositories/settingsRepo.js";
+import { getPartnerClassLabel } from "../repositories/partnerClassesRepo.js";
 import { clearSession } from "../utils/session.js";
-import { buildFinanceKeyboard, buildFinanceQrisKeyboard } from "./callbacks/keyboards.finance.js";
-
-function formatClassLabel(value) {
-  const raw = String(value || "").trim().toLowerCase();
-  if (raw === "bronze") return "Bronze";
-  if (raw === "gold") return "Gold";
-  if (raw === "platinum") return "Platinum";
-  return raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : "-";
-}
+import {
+  buildFinanceKeyboard,
+  buildFinanceQrisKeyboard,
+  buildFinanceClassPricingKeyboard,
+} from "./callbacks/keyboards.finance.js";
 
 function formatDurationLabel(value) {
   const raw = String(value || "").trim().toLowerCase();
@@ -81,12 +78,14 @@ export async function handleSuperadminFinanceInput({
     await upsertSetting(env, key, String(amount));
     await clearSession(env, STATE_KEY).catch(() => {});
 
+    const classLabel = await getPartnerClassLabel(env, classId).catch(() => classId);
+
     await sendMessage(
       env,
       chatId,
-      `✅ Harga berhasil disimpan.\n${formatClassLabel(classId)} - ${formatDurationLabel(durationCode)} = Rp ${amount.toLocaleString("id-ID")}`,
+      `✅ Harga berhasil disimpan.\n${classLabel} - ${formatDurationLabel(durationCode)} = Rp ${amount.toLocaleString("id-ID")}`,
       {
-        reply_markup: await buildFinanceMenuKeyboard(env),
+        reply_markup: buildFinanceClassPricingKeyboard(classId),
       }
     );
     return true;
