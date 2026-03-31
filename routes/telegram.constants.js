@@ -147,6 +147,9 @@ export const CALLBACK_PREFIX = {
   SA_PCLASS_DEACTIVATE_EXEC: "sapclass:deactivate:exec:",
   SA_PCLASS_DELETE_EXEC: "sapclass:delete:exec:",
 
+  SA_FIN_PRICING_CLASS: "sa:fin:pricing:class:",
+  SA_FIN_PRICE_SET: "sa:fin:price:set:",
+
   CATALOG_DETAILS: "catalog:details:",
   CATALOG_DETAILS_CLOSE: "catalog:details:close:",
   CATALOG_BOOK: "catalog:book:",
@@ -258,6 +261,9 @@ export const cb = {
   saPartnerClassRenameStart: (classId) => `${CALLBACK_PREFIX.SA_PCLASS_RENAME_START}${classId}`,
   saPartnerClassDeactivateExec: (classId) => `${CALLBACK_PREFIX.SA_PCLASS_DEACTIVATE_EXEC}${classId}`,
   saPartnerClassDeleteExec: (classId) => `${CALLBACK_PREFIX.SA_PCLASS_DELETE_EXEC}${classId}`,
+
+  saFinancePricingClass: (classId) => `${CALLBACK_PREFIX.SA_FIN_PRICING_CLASS}${classId}`,
+  saFinancePriceSet: (classId, durationCode) => `${CALLBACK_PREFIX.SA_FIN_PRICE_SET}${classId}:${durationCode}`,
 
   catalogDetails: (categoryCode, telegramId) =>
     `${CALLBACK_PREFIX.CATALOG_DETAILS}${encodeCatalogPayload(categoryCode, telegramId)}`,
