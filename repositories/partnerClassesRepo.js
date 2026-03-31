@@ -255,8 +255,7 @@ function ensureValidClassId(classId) {
 }
 
 export async function cleanupUnusedLegacyPartnerClasses(env) {
-  const rows = await loadRows(env, { pruneLegacy: true });
-  return rows;
+  return loadRows(env, { pruneLegacy: true });
 }
 
 export async function listPartnerClasses(env) {
@@ -292,7 +291,6 @@ export async function isSelectablePartnerClassId(env, classId) {
   return Boolean(row && Number(row.is_active) === 1);
 }
 
-// Keep function name for compatibility, but pricing class is now always the class itself.
 export async function resolvePartnerPricingClassId(env, classId) {
   const cid = normalizeClassId(classId);
   if (cid) return cid;
