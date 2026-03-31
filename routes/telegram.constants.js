@@ -56,25 +56,6 @@ export const CALLBACKS = {
   SUPERADMIN_FINANCE_QRIS_SET: "sa:fin:qris:set",
   SUPERADMIN_FINANCE_QRIS_VIEW: "sa:fin:qris:view",
 
-  SUPERADMIN_FINANCE_PRICING_BRONZE_MENU: "sa:fin:pricing:bronze",
-  SUPERADMIN_FINANCE_PRICING_GOLD_MENU: "sa:fin:pricing:gold",
-  SUPERADMIN_FINANCE_PRICING_PLATINUM_MENU: "sa:fin:pricing:platinum",
-
-  SUPERADMIN_FINANCE_PRICE_BRONZE_1D: "sa:fin:price:bronze:1d",
-  SUPERADMIN_FINANCE_PRICE_BRONZE_3D: "sa:fin:price:bronze:3d",
-  SUPERADMIN_FINANCE_PRICE_BRONZE_7D: "sa:fin:price:bronze:7d",
-  SUPERADMIN_FINANCE_PRICE_BRONZE_1M: "sa:fin:price:bronze:1m",
-
-  SUPERADMIN_FINANCE_PRICE_GOLD_1D: "sa:fin:price:gold:1d",
-  SUPERADMIN_FINANCE_PRICE_GOLD_3D: "sa:fin:price:gold:3d",
-  SUPERADMIN_FINANCE_PRICE_GOLD_7D: "sa:fin:price:gold:7d",
-  SUPERADMIN_FINANCE_PRICE_GOLD_1M: "sa:fin:price:gold:1m",
-
-  SUPERADMIN_FINANCE_PRICE_PLATINUM_1D: "sa:fin:price:platinum:1d",
-  SUPERADMIN_FINANCE_PRICE_PLATINUM_3D: "sa:fin:price:platinum:3d",
-  SUPERADMIN_FINANCE_PRICE_PLATINUM_7D: "sa:fin:price:platinum:7d",
-  SUPERADMIN_FINANCE_PRICE_PLATINUM_1M: "sa:fin:price:platinum:1m",
-
   SUPERADMIN_ADMIN_MENU: "sa:admin:menu",
   SUPERADMIN_ADMIN_LIST: "sa:admin:list",
   SUPERADMIN_ADMIN_ADD: "sa:admin:add",
