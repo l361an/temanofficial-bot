@@ -43,7 +43,6 @@ function buildBootstrapRows() {
       label: "General",
       is_active: 1,
       sort_order: 10,
-      pricing_ref_id: "general",
       created_at: ts,
       updated_at: ts,
     },
@@ -52,7 +51,6 @@ function buildBootstrapRows() {
       label: "Bronze",
       is_active: 0,
       sort_order: 20,
-      pricing_ref_id: "bronze",
       created_at: ts,
       updated_at: ts,
     },
@@ -61,7 +59,6 @@ function buildBootstrapRows() {
       label: "Gold",
       is_active: 0,
       sort_order: 30,
-      pricing_ref_id: "gold",
       created_at: ts,
       updated_at: ts,
     },
@@ -70,7 +67,6 @@ function buildBootstrapRows() {
       label: "Platinum",
       is_active: 0,
       sort_order: 40,
-      pricing_ref_id: "platinum",
       created_at: ts,
       updated_at: ts,
     },
@@ -82,20 +78,21 @@ function normalizeClassRow(input, fallbackSortOrder = 999) {
   if (!id) return null;
 
   const label = normalizeClassLabel(input?.label) || titleCaseWords(id);
-  const pricingRefId = normalizeClassId(input?.pricing_ref_id || id) || id;
   const isActive = Number(input?.is_active) === 0 ? 0 : 1;
 
   let sortOrder = Number(input?.sort_order);
   if (!Number.isFinite(sortOrder)) sortOrder = fallbackSortOrder;
+
+  const createdAt = String(input?.created_at || "").trim() || nowSql();
+  const updatedAt = String(input?.updated_at || "").trim() || nowSql();
 
   return {
     id,
     label,
     is_active: isActive,
     sort_order: Math.floor(sortOrder),
-    pricing_ref_id: pricingRefId,
-    created_at: String(input?.created_at || nowSql()).trim(),
-    updated_at: String(input?.updated_at || nowSql()).trim(),
+    created_at: createdAt,
+    updated_at: updatedAt,
   };
 }
 
@@ -107,10 +104,35 @@ function sortRows(rows = []) {
   });
 }
 
+function hasOwn(obj, key) {
+  return Boolean(obj) && Object.prototype.hasOwnProperty.call(obj, key);
+}
+
 async function saveRows(env, rows) {
-  const finalRows = sortRows(rows);
+  const finalRows = sortRows(rows).map((row) => ({
+    id: normalizeClassId(row.id),
+    label: normalizeClassLabel(row.label) || titleCaseWords(row.id),
+    is_active: Number(row.is_active) === 0 ? 0 : 1,
+    sort_order: Math.floor(Number(row.sort_order || 999)),
+    created_at: String(row.created_at || nowSql()).trim(),
+    updated_at: String(row.updated_at || nowSql()).trim(),
+  }));
+
   await upsertSetting(env, PARTNER_CLASSES_SETTING_KEY, JSON.stringify(finalRows));
   return finalRows;
+}
+
+async function ensureDefaultClassSetting(env, rows = []) {
+  const configured = normalizeClassId(await getSetting(env, PARTNER_DEFAULT_CLASS_SETTING_KEY));
+  const activeRows = rows.filter((row) => Number(row.is_active) === 1);
+
+  if (configured && activeRows.some((row) => row.id === configured)) {
+    return configured;
+  }
+
+  const fallback = activeRows[0]?.id || rows[0]?.id || "general";
+  await upsertSetting(env, PARTNER_DEFAULT_CLASS_SETTING_KEY, fallback);
+  return fallback;
 }
 
 async function loadRows(env) {
@@ -129,13 +151,33 @@ async function loadRows(env) {
 
     const seen = new Set();
     const normalized = [];
+    let needsRewrite = false;
 
     for (let i = 0; i < parsed.length; i += 1) {
-      const row = normalizeClassRow(parsed[i], (i + 1) * 10);
-      if (!row) continue;
-      if (seen.has(row.id)) continue;
+      const source = parsed[i];
+
+      if (hasOwn(source, "pricing_ref_id")) {
+        needsRewrite = true;
+      }
+
+      const row = normalizeClassRow(source, (i + 1) * 10);
+
+      if (!row) {
+        needsRewrite = true;
+        continue;
+      }
+
+      if (seen.has(row.id)) {
+        needsRewrite = true;
+        continue;
+      }
+
       seen.add(row.id);
       normalized.push(row);
+
+      if (!String(source?.created_at || "").trim() || !String(source?.updated_at || "").trim()) {
+        needsRewrite = true;
+      }
     }
 
     if (!normalized.length) {
@@ -145,7 +187,14 @@ async function loadRows(env) {
       return bootstrap;
     }
 
-    return sortRows(normalized);
+    const finalRows = sortRows(normalized);
+
+    if (needsRewrite) {
+      await saveRows(env, finalRows);
+    }
+
+    await ensureDefaultClassSetting(env, finalRows);
+    return finalRows;
   } catch {
     const bootstrap = buildBootstrapRows();
     await saveRows(env, bootstrap);
@@ -183,17 +232,8 @@ export async function getPartnerClassLabel(env, classId) {
 }
 
 export async function getDefaultPartnerClassId(env) {
-  const configured = normalizeClassId(await getSetting(env, PARTNER_DEFAULT_CLASS_SETTING_KEY));
-  const activeRows = await listActivePartnerClasses(env);
-
-  if (configured && activeRows.some((row) => row.id === configured)) {
-    return configured;
-  }
-
-  if (activeRows.length) return activeRows[0].id;
-
-  const allRows = await loadRows(env);
-  return allRows[0]?.id || "general";
+  const rows = await loadRows(env);
+  return ensureDefaultClassSetting(env, rows);
 }
 
 export async function isSelectablePartnerClassId(env, classId) {
@@ -201,10 +241,11 @@ export async function isSelectablePartnerClassId(env, classId) {
   return Boolean(row && Number(row.is_active) === 1);
 }
 
+// Keep function name for compatibility, but pricing class is now always the class itself.
 export async function resolvePartnerPricingClassId(env, classId) {
-  const row = await getPartnerClassById(env, classId);
-  if (!row) return normalizeClassId(classId) || "";
-  return normalizeClassId(row.pricing_ref_id || row.id) || row.id;
+  const cid = normalizeClassId(classId);
+  if (cid) return cid;
+  return getDefaultPartnerClassId(env).catch(() => "general");
 }
 
 export async function setDefaultPartnerClassId(env, classId) {
@@ -238,7 +279,6 @@ export async function addPartnerClass(env, payload = {}) {
     label,
     is_active: 1,
     sort_order: maxSort + 10,
-    pricing_ref_id: normalizeClassId(payload?.pricing_ref_id || classId) || classId,
     created_at: ts,
     updated_at: ts,
   };
@@ -286,6 +326,8 @@ export async function deactivatePartnerClass(env, classId) {
   };
 
   await saveRows(env, rows);
+  await ensureDefaultClassSetting(env, rows);
+
   return { ok: true, row: rows[index] };
 }
 
@@ -296,11 +338,18 @@ export async function deletePartnerClass(env, classId) {
   const defaultClassId = await getDefaultPartnerClassId(env).catch(() => "general");
   if (cid === defaultClassId) return { ok: false, reason: "cannot_delete_default" };
 
+  const profiles = await listProfilesUsingClassId(env, cid);
+  if (profiles.length) {
+    return { ok: false, reason: "class_in_use", profiles };
+  }
+
   const rows = await loadRows(env);
   const nextRows = rows.filter((row) => row.id !== cid);
   if (nextRows.length === rows.length) return { ok: false, reason: "not_found" };
 
   await saveRows(env, nextRows);
+  await ensureDefaultClassSetting(env, nextRows);
+
   return { ok: true };
 }
 
