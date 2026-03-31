@@ -3,12 +3,24 @@
 import { CALLBACKS, cb } from "../telegram.constants.js";
 import { officerHomeButton, backAndHomeRow } from "./keyboards.shared.js";
 
-function buildSystemToolsRows(withBack = false) {
+function normalizeRole(role) {
+  return String(role || "").trim().toLowerCase();
+}
+
+function isOwnerRole(role) {
+  return normalizeRole(role) === "owner";
+}
+
+function buildSystemToolsRows(role, withBack = false) {
   const rows = [
     [{ text: "🧩 Config", callback_data: CALLBACKS.SUPERADMIN_CONFIG_MENU }],
     [{ text: "🗂️ Category", callback_data: CALLBACKS.SUPERADMIN_CATEGORY_MENU }],
     [{ text: "💰 Finance", callback_data: CALLBACKS.SUPERADMIN_FINANCE_MENU }],
   ];
+
+  if (isOwnerRole(role)) {
+    rows.splice(1, 0, [{ text: "🏷️ Partner Class", callback_data: CALLBACKS.SUPERADMIN_PARTNER_CLASS_MENU }]);
+  }
 
   if (withBack) {
     rows.push(backAndHomeRow(CALLBACKS.SUPERADMIN_TOOLS_MENU));
@@ -19,9 +31,15 @@ function buildSystemToolsRows(withBack = false) {
   return rows;
 }
 
-export function buildSuperadminToolsKeyboard() {
+function chunk(items, size) {
+  const out = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+export function buildSuperadminToolsKeyboard(role = null) {
   return {
-    inline_keyboard: buildSystemToolsRows(false),
+    inline_keyboard: buildSystemToolsRows(role, false),
   };
 }
 
@@ -50,7 +68,7 @@ export function buildAdminListKeyboard(admins = []) {
     rows.push(row);
   }
 
-  rows.push(backAndHomeRow(CALLBACKS.SUPERADMIN_ADMIN_MENU));
+  rows.push(backAndHomeRow(CALLBACKS.SUPERADMIN_ADMIN_LIST));
   return { inline_keyboard: rows };
 }
 
@@ -149,4 +167,48 @@ export function buildCategoryKeyboard() {
       backAndHomeRow(CALLBACKS.SUPERADMIN_TOOLS_MENU),
     ],
   };
+}
+
+export function buildPartnerClassMenuKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "📋 List Class", callback_data: CALLBACKS.SUPERADMIN_PARTNER_CLASS_LIST }],
+      [{ text: "➕ Tambah Class", callback_data: CALLBACKS.SUPERADMIN_PARTNER_CLASS_ADD }],
+      [{ text: "⭐ Set Default", callback_data: CALLBACKS.SUPERADMIN_PARTNER_CLASS_SET_DEFAULT }],
+      [{ text: "✏️ Rename Label", callback_data: CALLBACKS.SUPERADMIN_PARTNER_CLASS_RENAME }],
+      [{ text: "⛔ Nonaktifkan", callback_data: CALLBACKS.SUPERADMIN_PARTNER_CLASS_DEACTIVATE }],
+      [{ text: "🗑️ Delete", callback_data: CALLBACKS.SUPERADMIN_PARTNER_CLASS_DELETE }],
+      backAndHomeRow(CALLBACKS.SUPERADMIN_SETTINGS_MENU),
+    ],
+  };
+}
+
+export function buildPartnerClassBackKeyboard(backCallback = CALLBACKS.SUPERADMIN_PARTNER_CLASS_MENU) {
+  return {
+    inline_keyboard: [
+      [{ text: "⬅️ Back", callback_data: backCallback }],
+      [officerHomeButton()],
+    ],
+  };
+}
+
+export function buildPartnerClassSelectionKeyboard(items = [], action = "default") {
+  const mapper = {
+    default: (id) => cb.saPartnerClassDefaultSet(id),
+    rename: (id) => cb.saPartnerClassRenameStart(id),
+    deactivate: (id) => cb.saPartnerClassDeactivateExec(id),
+    delete: (id) => cb.saPartnerClassDeleteExec(id),
+  };
+
+  const makeCallback = mapper[action] || mapper.default;
+  const buttons = items.map((item) => ({
+    text: String(item.label || item.id),
+    callback_data: makeCallback(item.id),
+  }));
+
+  const rows = chunk(buttons, 2);
+  rows.push([{ text: "⬅️ Back", callback_data: CALLBACKS.SUPERADMIN_PARTNER_CLASS_MENU }]);
+  rows.push([officerHomeButton()]);
+
+  return { inline_keyboard: rows };
 }
