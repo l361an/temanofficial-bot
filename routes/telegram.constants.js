@@ -1,6 +1,7 @@
 // routes/telegram.constants.js
 
 export const SESSION_MODES = {
+  BOOKING: "booking",
   EDIT_PROFILE: "edit_profile",
   PARTNER_MODERATION: "partner_moderation",
   PARTNER_VIEW: "partner_view",
@@ -136,6 +137,12 @@ export const CALLBACK_PREFIX = {
   CATALOG_DETAILS: "catalog:details:",
   CATALOG_DETAILS_CLOSE: "catalog:details:close:",
   CATALOG_BOOK: "catalog:book:",
+
+  BK_SUMMARY: "bk:summary:",
+  BK_PROMPT_EXACT: "bk:prompt:exact:",
+  BK_PROMPT_WINDOW: "bk:prompt:window:",
+  BK_ACCEPT_EXACT: "bk:accept:exact:",
+  BK_CANCEL: "bk:cancel:",
 };
 
 export const OBSOLETE_ADMIN_COMMANDS = new Set([
@@ -240,6 +247,12 @@ export const cb = {
     `${CALLBACK_PREFIX.CATALOG_DETAILS_CLOSE}${encodeCatalogPayload(categoryCode, telegramId)}`,
   catalogBook: (categoryCode, telegramId) =>
     `${CALLBACK_PREFIX.CATALOG_BOOK}${encodeCatalogPayload(categoryCode, telegramId)}`,
+
+  bkSummary: (bookingId) => `${CALLBACK_PREFIX.BK_SUMMARY}${bookingId}`,
+  bkPromptExact: (bookingId) => `${CALLBACK_PREFIX.BK_PROMPT_EXACT}${bookingId}`,
+  bkPromptWindow: (bookingId) => `${CALLBACK_PREFIX.BK_PROMPT_WINDOW}${bookingId}`,
+  bkAcceptExact: (bookingId) => `${CALLBACK_PREFIX.BK_ACCEPT_EXACT}${bookingId}`,
+  bkCancel: (bookingId) => `${CALLBACK_PREFIX.BK_CANCEL}${bookingId}`,
 };
 
 export function parseCatalogCallbackPayload(data, prefix) {
