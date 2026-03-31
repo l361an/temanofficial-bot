@@ -36,6 +36,14 @@ export const CALLBACKS = {
 
   SUPERADMIN_SETTINGS_MENU: "sa:settings:menu",
 
+  SUPERADMIN_PARTNER_CLASS_MENU: "sa:pclass:menu",
+  SUPERADMIN_PARTNER_CLASS_LIST: "sa:pclass:list",
+  SUPERADMIN_PARTNER_CLASS_ADD: "sa:pclass:add",
+  SUPERADMIN_PARTNER_CLASS_SET_DEFAULT: "sa:pclass:set_default",
+  SUPERADMIN_PARTNER_CLASS_RENAME: "sa:pclass:rename",
+  SUPERADMIN_PARTNER_CLASS_DEACTIVATE: "sa:pclass:deactivate",
+  SUPERADMIN_PARTNER_CLASS_DELETE: "sa:pclass:delete",
+
   SUPERADMIN_CATEGORY_MENU: "sa:cat:menu",
   SUPERADMIN_CATEGORY_LIST: "sa:cat:list",
   SUPERADMIN_CATEGORY_ADD: "sa:cat:add",
@@ -133,6 +141,11 @@ export const CALLBACK_PREFIX = {
   SETCATALOGGROUP_CANCEL: "setcataloggroup_cancel:",
   SETCATALOGTOPIC_CONFIRM: "setcatalogtopic_confirm:",
   SETCATALOGTOPIC_CANCEL: "setcatalogtopic_cancel:",
+
+  SA_PCLASS_DEFAULT_SET: "sapclass:default:set:",
+  SA_PCLASS_RENAME_START: "sapclass:rename:start:",
+  SA_PCLASS_DEACTIVATE_EXEC: "sapclass:deactivate:exec:",
+  SA_PCLASS_DELETE_EXEC: "sapclass:delete:exec:",
 
   CATALOG_DETAILS: "catalog:details:",
   CATALOG_DETAILS_CLOSE: "catalog:details:close:",
@@ -240,6 +253,11 @@ export const cb = {
   setCatalogGroupCancel: (adminId) => `${CALLBACK_PREFIX.SETCATALOGGROUP_CANCEL}${adminId}`,
   setCatalogTopicConfirm: (adminId) => `${CALLBACK_PREFIX.SETCATALOGTOPIC_CONFIRM}${adminId}`,
   setCatalogTopicCancel: (adminId) => `${CALLBACK_PREFIX.SETCATALOGTOPIC_CANCEL}${adminId}`,
+
+  saPartnerClassDefaultSet: (classId) => `${CALLBACK_PREFIX.SA_PCLASS_DEFAULT_SET}${classId}`,
+  saPartnerClassRenameStart: (classId) => `${CALLBACK_PREFIX.SA_PCLASS_RENAME_START}${classId}`,
+  saPartnerClassDeactivateExec: (classId) => `${CALLBACK_PREFIX.SA_PCLASS_DEACTIVATE_EXEC}${classId}`,
+  saPartnerClassDeleteExec: (classId) => `${CALLBACK_PREFIX.SA_PCLASS_DELETE_EXEC}${classId}`,
 
   catalogDetails: (categoryCode, telegramId) =>
     `${CALLBACK_PREFIX.CATALOG_DETAILS}${encodeCatalogPayload(categoryCode, telegramId)}`,
