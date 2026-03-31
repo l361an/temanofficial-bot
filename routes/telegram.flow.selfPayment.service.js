@@ -141,13 +141,11 @@ export async function resolvePriceByClassAndDuration(env, classId, durationCode)
   const normalizedClassId = normalizeClassId(classId || defaultClassId || "general");
   const duration = resolveDurationMeta(durationCode);
 
-  const pricingFallbackClassId = await resolvePartnerPricingClassId(env, normalizedClassId).catch(() =>
-    normalizedClassId === "general" ? "bronze" : normalizedClassId
-  );
+  const pricingClassId = await resolvePartnerPricingClassId(env, normalizedClassId).catch(() => normalizedClassId);
 
   const keyCandidates = [
     ...buildPriceKeyCandidates(normalizedClassId, duration.durationCode),
-    ...buildPriceKeyCandidates(pricingFallbackClassId, duration.durationCode),
+    ...buildPriceKeyCandidates(pricingClassId, duration.durationCode),
   ].filter((value, index, array) => array.indexOf(value) === index);
 
   for (const key of keyCandidates) {
@@ -158,7 +156,7 @@ export async function resolvePriceByClassAndDuration(env, classId, durationCode)
         amount: num,
         key,
         classId: normalizedClassId,
-        pricingClassId: pricingFallbackClassId,
+        pricingClassId,
         durationCode: duration.durationCode,
         durationLabel: duration.durationLabel,
         durationDays: duration.durationDays,
@@ -171,7 +169,7 @@ export async function resolvePriceByClassAndDuration(env, classId, durationCode)
     amount: 0,
     key: null,
     classId: normalizedClassId,
-    pricingClassId: pricingFallbackClassId,
+    pricingClassId,
     durationCode: duration.durationCode,
     durationLabel: duration.durationLabel,
     durationDays: duration.durationDays,
