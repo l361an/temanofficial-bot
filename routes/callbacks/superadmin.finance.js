@@ -16,6 +16,48 @@ function getStateKey(adminId) {
   return `state:${adminId}`;
 }
 
+function buildPriceSettingKey(classId, durationCode) {
+  return `payment_price_${String(classId || "").trim().toLowerCase()}_${String(durationCode || "")
+    .trim()
+    .toLowerCase()}`;
+}
+
+function formatMoney(value) {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n) || n <= 0) return "Belum diset";
+  return `Rp ${n.toLocaleString("id-ID")}`;
+}
+
+function formatDurationLabel(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "1d") return "1 Hari";
+  if (raw === "3d") return "3 Hari";
+  if (raw === "7d") return "7 Hari";
+  return "1 Bulan";
+}
+
+async function getCurrentPrice(env, classId, durationCode) {
+  const key = buildPriceSettingKey(classId, durationCode);
+  const raw = await getSetting(env, key);
+  const amount = Number(raw || 0);
+
+  return {
+    key,
+    amount: Number.isFinite(amount) && amount > 0 ? amount : 0,
+  };
+}
+
+async function getPricingSnapshot(env, classId) {
+  const [d1, d3, d7, m1] = await Promise.all([
+    getCurrentPrice(env, classId, "1d"),
+    getCurrentPrice(env, classId, "3d"),
+    getCurrentPrice(env, classId, "7d"),
+    getCurrentPrice(env, classId, "1m"),
+  ]);
+
+  return { d1, d3, d7, m1 };
+}
+
 function buildFinanceMenuText(manualOn) {
   return [
     "💰 <b>Finance</b>",
@@ -34,13 +76,34 @@ function buildPricingClassText() {
   ].join("\n");
 }
 
-function buildPricingDurationText(classLabel) {
+function buildPricingDurationText(classLabel, snapshot) {
   return [
     "🏷️ <b>Set Pricing</b>",
     "",
     `Class: <b>${String(classLabel || "-")}</b>`,
     "",
+    "<b>Harga saat ini:</b>",
+    `• 1 Hari: <b>${formatMoney(snapshot?.d1?.amount)}</b>`,
+    `• 3 Hari: <b>${formatMoney(snapshot?.d3?.amount)}</b>`,
+    `• 7 Hari: <b>${formatMoney(snapshot?.d7?.amount)}</b>`,
+    `• 1 Bulan: <b>${formatMoney(snapshot?.m1?.amount)}</b>`,
+    "",
     "Pilih durasi harga yang ingin diatur.",
+  ].join("\n");
+}
+
+function buildPriceInputText(classLabel, durationCode, oldAmount) {
+  return [
+    "💰 <b>Set Harga</b>",
+    "",
+    `Class: <b>${String(classLabel || "-")}</b>`,
+    `Durasi: <b>${formatDurationLabel(durationCode)}</b>`,
+    `Harga saat ini: <b>${formatMoney(oldAmount)}</b>`,
+    "",
+    "Ketik angka harga baru.",
+    "Contoh: <code>150000</code>",
+    "",
+    "Ketik <b>batal</b> untuk keluar.",
   ].join("\n");
 }
 
@@ -163,8 +226,9 @@ export function buildSuperadminFinanceHandlers() {
     run: async (ctx) => {
       const classId = String(ctx.data || "").slice(CALLBACK_PREFIX.SA_FIN_PRICING_CLASS.length).trim().toLowerCase();
       const classLabel = await getPartnerClassLabel(ctx.env, classId).catch(() => classId);
+      const snapshot = await getPricingSnapshot(ctx.env, classId);
 
-      return renderMenuMessage(ctx, buildPricingDurationText(classLabel), {
+      return renderMenuMessage(ctx, buildPricingDurationText(classLabel, snapshot), {
         parse_mode: "HTML",
         reply_markup: buildFinanceClassPricingKeyboard(classId),
       });
@@ -180,12 +244,15 @@ export function buildSuperadminFinanceHandlers() {
         return true;
       }
 
+      const current = await getCurrentPrice(ctx.env, classId, durationCode);
+
       await saveSession(ctx.env, getStateKey(ctx.adminId), {
         mode: SESSION_MODES.SA_FINANCE,
         area: "price",
         step: "await_text",
         class_id: classId,
         duration_code: durationCode,
+        previous_amount: current.amount,
       });
 
       const classLabel = await getPartnerClassLabel(ctx.env, classId).catch(() => classId);
@@ -193,7 +260,7 @@ export function buildSuperadminFinanceHandlers() {
       await sendMessage(
         ctx.env,
         ctx.adminId,
-        `💰 <b>Set Harga</b>\n\nClass: <b>${classLabel}</b>\nDurasi: <b>${durationCode}</b>\n\nKetik angka harga.\nContoh: <code>150000</code>\n\nKetik <b>batal</b> untuk keluar.`,
+        buildPriceInputText(classLabel, durationCode, current.amount),
         {
           parse_mode: "HTML",
           reply_markup: buildFinanceClassPricingKeyboard(classId),
