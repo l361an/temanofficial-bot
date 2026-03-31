@@ -4,6 +4,7 @@ import { getSetting, upsertSetting } from "./settingsRepo.js";
 
 const PARTNER_CLASSES_SETTING_KEY = "partner_classes";
 const PARTNER_DEFAULT_CLASS_SETTING_KEY = "partner_default_class_id";
+const LEGACY_CLASS_IDS = new Set(["bronze", "gold", "platinum"]);
 
 function normalizeClassId(value) {
   return String(value || "").trim().toLowerCase();
@@ -43,30 +44,6 @@ function buildBootstrapRows() {
       label: "General",
       is_active: 1,
       sort_order: 10,
-      created_at: ts,
-      updated_at: ts,
-    },
-    {
-      id: "bronze",
-      label: "Bronze",
-      is_active: 0,
-      sort_order: 20,
-      created_at: ts,
-      updated_at: ts,
-    },
-    {
-      id: "gold",
-      label: "Gold",
-      is_active: 0,
-      sort_order: 30,
-      created_at: ts,
-      updated_at: ts,
-    },
-    {
-      id: "platinum",
-      label: "Platinum",
-      is_active: 0,
-      sort_order: 40,
       created_at: ts,
       updated_at: ts,
     },
@@ -135,6 +112,58 @@ async function ensureDefaultClassSetting(env, rows = []) {
   return fallback;
 }
 
+async function ensureGeneralRow(rows = []) {
+  if (rows.some((row) => row.id === "general")) return rows;
+
+  return sortRows([
+    ...rows,
+    {
+      id: "general",
+      label: "General",
+      is_active: 1,
+      sort_order: 10,
+      created_at: nowSql(),
+      updated_at: nowSql(),
+    },
+  ]);
+}
+
+async function pruneUnusedLegacyRows(env, rows = []) {
+  const defaultClassId = normalizeClassId(await getSetting(env, PARTNER_DEFAULT_CLASS_SETTING_KEY));
+  const kept = [];
+  let changed = false;
+
+  for (const row of rows) {
+    const rowId = normalizeClassId(row.id);
+    const isLegacy = LEGACY_CLASS_IDS.has(rowId);
+    const isActive = Number(row.is_active) === 1;
+    const isDefault = rowId === defaultClassId;
+
+    if (!isLegacy) {
+      kept.push(row);
+      continue;
+    }
+
+    if (isActive || isDefault) {
+      kept.push(row);
+      continue;
+    }
+
+    const usedProfiles = await listProfilesUsingClassId(env, rowId);
+    if (usedProfiles.length > 0) {
+      kept.push(row);
+      continue;
+    }
+
+    changed = true;
+  }
+
+  const finalRows = await ensureGeneralRow(kept);
+  if (finalRows.length !== kept.length) changed = true;
+
+  return { rows: finalRows, changed };
+}
+
 async function loadRows(env) {
   const raw = await getSetting(env, PARTNER_CLASSES_SETTING_KEY);
 
@@ -187,9 +216,13 @@ async function loadRows(env) {
       return bootstrap;
     }
 
-    const finalRows = sortRows(normalized);
+    let finalRows = sortRows(normalized);
+    finalRows = await ensureGeneralRow(finalRows);
 
-    if (needsRewrite) {
+    const pruned = await pruneUnusedLegacyRows(env, finalRows);
+    finalRows = pruned.rows;
+
+    if (needsRewrite || pruned.changed) {
       await saveRows(env, finalRows);
     }
 
