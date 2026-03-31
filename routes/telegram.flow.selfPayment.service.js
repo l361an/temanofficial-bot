@@ -5,6 +5,10 @@ import { getProfileFullByTelegramId } from "../repositories/profilesRepo.js";
 import { getSubscriptionInfoByTelegramId } from "../repositories/partnerSubscriptionsRepo.js";
 import { getOpenPaymentTicketByPartnerId } from "../repositories/paymentTicketsRepo.js";
 import { normalizeClassId } from "./telegram.user.shared.js";
+import {
+  getDefaultPartnerClassId,
+  resolvePartnerPricingClassId,
+} from "../repositories/partnerClassesRepo.js";
 
 export function resolvePartnerStatusLabel(profile) {
   const raw = String(profile?.status || "").trim().toLowerCase();
@@ -120,16 +124,31 @@ export async function getUniqueCodeRange(env) {
   };
 }
 
+function buildPriceKeyCandidates(classId, durationCode) {
+  const cid = normalizeClassId(classId);
+  const dcode = String(durationCode || "").trim().toLowerCase();
+
+  return [
+    `payment_price_${cid}_${dcode}`,
+    `payment_${cid}_${dcode}`,
+    `pp_price_${cid}_${dcode}`,
+    `${cid}_price_${dcode}`,
+  ];
+}
+
 export async function resolvePriceByClassAndDuration(env, classId, durationCode) {
-  const normalizedClassId = normalizeClassId(classId || "bronze");
+  const defaultClassId = await getDefaultPartnerClassId(env).catch(() => "general");
+  const normalizedClassId = normalizeClassId(classId || defaultClassId || "general");
   const duration = resolveDurationMeta(durationCode);
 
+  const pricingFallbackClassId = await resolvePartnerPricingClassId(env, normalizedClassId).catch(() =>
+    normalizedClassId === "general" ? "bronze" : normalizedClassId
+  );
+
   const keyCandidates = [
-    `payment_price_${normalizedClassId}_${duration.durationCode}`,
-    `payment_${normalizedClassId}_${duration.durationCode}`,
-    `pp_price_${normalizedClassId}_${duration.durationCode}`,
-    `${normalizedClassId}_price_${duration.durationCode}`,
-  ];
+    ...buildPriceKeyCandidates(normalizedClassId, duration.durationCode),
+    ...buildPriceKeyCandidates(pricingFallbackClassId, duration.durationCode),
+  ].filter((value, index, array) => array.indexOf(value) === index);
 
   for (const key of keyCandidates) {
     const raw = await getSetting(env, key);
@@ -139,6 +158,7 @@ export async function resolvePriceByClassAndDuration(env, classId, durationCode)
         amount: num,
         key,
         classId: normalizedClassId,
+        pricingClassId: pricingFallbackClassId,
         durationCode: duration.durationCode,
         durationLabel: duration.durationLabel,
         durationDays: duration.durationDays,
@@ -151,6 +171,7 @@ export async function resolvePriceByClassAndDuration(env, classId, durationCode)
     amount: 0,
     key: null,
     classId: normalizedClassId,
+    pricingClassId: pricingFallbackClassId,
     durationCode: duration.durationCode,
     durationLabel: duration.durationLabel,
     durationDays: duration.durationDays,
@@ -175,7 +196,8 @@ export async function loadSelfPaymentContext(env, telegramId) {
   const partnerStatusLabel = resolvePartnerStatusLabel(profile);
   const premiumAccessLabel = resolvePremiumAccessLabel(profile, subInfo);
   const primaryActionText = resolvePrimaryActionText(profile, subInfo);
-  const classId = normalizeClassId(profile?.class_id || "bronze");
+  const defaultClassId = await getDefaultPartnerClassId(env).catch(() => "general");
+  const classId = normalizeClassId(profile?.class_id || defaultClassId || "general");
 
   return {
     profile,
