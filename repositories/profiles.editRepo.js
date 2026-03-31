@@ -1,7 +1,16 @@
 // repositories/profiles.editRepo.js
 
+import {
+  getDefaultPartnerClassId,
+  isSelectablePartnerClassId,
+} from "./partnerClassesRepo.js";
+
 function normalizeUsername(u) {
   return String(u ?? "").trim().replace(/^@/, "");
+}
+
+function normalizeClassId(value) {
+  return String(value || "").trim().toLowerCase();
 }
 
 export async function deleteProfileByTelegramId(env, telegramId) {
@@ -11,7 +20,11 @@ export async function deleteProfileByTelegramId(env, telegramId) {
 }
 
 export async function insertPendingProfile(env, payload) {
-  const classId = String(payload?.class_id || "bronze").trim().toLowerCase() || "bronze";
+  let classId = normalizeClassId(payload?.class_id);
+
+  if (!classId || !(await isSelectablePartnerClassId(env, classId).catch(() => false))) {
+    classId = await getDefaultPartnerClassId(env).catch(() => "general");
+  }
 
   await env.DB.prepare(
     `
@@ -58,9 +71,11 @@ export async function updateProfileClassByTelegramId(env, telegramId, classId) {
   const tid = String(telegramId || "").trim();
   if (!tid) return { ok: false, reason: "empty_tid" };
 
-  const cleanClassId = String(classId || "").trim().toLowerCase();
-  const valid = ["bronze", "gold", "platinum"];
-  if (!valid.includes(cleanClassId)) return { ok: false, reason: "invalid_class_id" };
+  const cleanClassId = normalizeClassId(classId);
+  if (!cleanClassId) return { ok: false, reason: "invalid_class_id" };
+
+  const selectable = await isSelectablePartnerClassId(env, cleanClassId).catch(() => false);
+  if (!selectable) return { ok: false, reason: "invalid_class_id" };
 
   const existing = await env.DB.prepare(
     `
