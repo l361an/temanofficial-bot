@@ -1,34 +1,59 @@
-// routes/telegram.flow.superadminFinance.js
+// routes/callbacks/superadmin.finance.js
 
-import { sendMessage, sendPhoto } from "../services/telegramApi.js";
-import { getSetting, upsertSetting } from "../repositories/settingsRepo.js";
-import { clearSession } from "../utils/session.js";
+import { sendMessage, sendPhoto, upsertCallbackMessage } from "../../services/telegramApi.js";
+import { getSetting, upsertSetting } from "../../repositories/settingsRepo.js";
+import { getPartnerClassLabel } from "../../repositories/partnerClassesRepo.js";
+import { saveSession, clearSession } from "../../utils/session.js";
 import {
   buildFinanceKeyboard,
   buildFinanceQrisKeyboard,
+  buildFinancePricingKeyboard,
   buildFinanceClassPricingKeyboard,
-} from "./callbacks/keyboards.finance.js";
+} from "./keyboards.finance.js";
+import { CALLBACKS, CALLBACK_PREFIX, SESSION_MODES } from "../telegram.constants.js";
 
-function formatClassLabel(value) {
-  const raw = String(value || "").trim().toLowerCase();
-  if (raw === "bronze") return "Bronze";
-  if (raw === "gold") return "Gold";
-  if (raw === "platinum") return "Platinum";
-  return raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : "-";
+function getStateKey(adminId) {
+  return `state:${adminId}`;
 }
 
-function formatDurationLabel(value) {
-  const raw = String(value || "").trim().toLowerCase();
-  if (raw === "1d") return "1 Hari";
-  if (raw === "3d") return "3 Hari";
-  if (raw === "7d") return "7 Hari";
-  return "1 Bulan";
+function buildFinanceMenuText(manualOn) {
+  return [
+    "💰 <b>Finance</b>",
+    "",
+    `Manual Payment: <b>${manualOn ? "ON" : "OFF"}</b>`,
+    "",
+    "Pilih menu Finance di bawah.",
+  ].join("\n");
 }
 
-function buildPriceSettingKey(classId, durationCode) {
-  return `payment_price_${String(classId || "").trim().toLowerCase()}_${String(durationCode || "")
-    .trim()
-    .toLowerCase()}`;
+function buildPricingClassText() {
+  return [
+    "🏷️ <b>Set Pricing</b>",
+    "",
+    "Pilih class aktif yang ingin diatur harganya.",
+  ].join("\n");
+}
+
+function buildPricingDurationText(classLabel) {
+  return [
+    "🏷️ <b>Set Pricing</b>",
+    "",
+    `Class: <b>${String(classLabel || "-")}</b>`,
+    "",
+    "Pilih durasi harga yang ingin diatur.",
+  ].join("\n");
+}
+
+async function renderMenuMessage(ctx, text, extra) {
+  const { env, adminId, msg } = ctx;
+
+  if (msg) {
+    const res = await upsertCallbackMessage(env, msg, text, extra).catch(() => null);
+    if (res?.ok) return true;
+  }
+
+  await sendMessage(env, adminId, text, extra);
+  return true;
 }
 
 async function buildFinanceMenuKeyboard(env) {
@@ -37,100 +62,147 @@ async function buildFinanceMenuKeyboard(env) {
   return buildFinanceKeyboard(manualOn);
 }
 
-async function cancelFinanceSession(env, chatId, stateKey) {
-  await clearSession(env, stateKey).catch(() => {});
-  await sendMessage(env, chatId, "✅ Oke, input Finance dibatalkan.", {
-    reply_markup: await buildFinanceMenuKeyboard(env),
+async function openFinanceMenu(ctx) {
+  const manualRaw = (await getSetting(ctx.env, "payment_manual_enabled")) ?? "1";
+  const manualOn = String(manualRaw) !== "0";
+
+  await clearSession(ctx.env, getStateKey(ctx.adminId)).catch(() => {});
+  return renderMenuMessage(ctx, buildFinanceMenuText(manualOn), {
+    parse_mode: "HTML",
+    reply_markup: buildFinanceKeyboard(manualOn),
   });
-  return true;
 }
 
-export async function handleSuperadminFinanceInput({
-  env,
-  chatId,
-  telegramId,
-  text,
-  session,
-  STATE_KEY,
-  update,
-}) {
-  if (String(session?.mode || "").trim().toLowerCase() !== "sa_finance") {
-    return false;
+function parsePricingSetPayload(data) {
+  const raw = String(data || "");
+  if (!raw.startsWith(CALLBACK_PREFIX.SA_FIN_PRICE_SET)) {
+    return { classId: "", durationCode: "" };
   }
 
-  const rawText = String(text || "").trim();
+  const payload = raw.slice(CALLBACK_PREFIX.SA_FIN_PRICE_SET.length);
+  const lastColonIndex = payload.lastIndexOf(":");
+  if (lastColonIndex <= 0) return { classId: "", durationCode: "" };
 
-  if (/^(batal|cancel|keluar)$/i.test(rawText)) {
-    return cancelFinanceSession(env, chatId, STATE_KEY);
-  }
+  return {
+    classId: String(payload.slice(0, lastColonIndex) || "").trim().toLowerCase(),
+    durationCode: String(payload.slice(lastColonIndex + 1) || "").trim().toLowerCase(),
+  };
+}
 
-  if (session?.area === "price" && session?.step === "await_text") {
-    const normalized = rawText.replace(/[^\d]/g, "");
-    const amount = Number(normalized || 0);
+export function buildSuperadminFinanceHandlers() {
+  const EXACT = {};
+  const PREFIX = [];
 
-    if (!Number.isFinite(amount) || amount <= 0) {
-      await sendMessage(
-        env,
-        chatId,
-        "⚠️ Harga tidak valid.\nKetik angka saja.\nContoh: <code>150000</code>\n\nKetik <b>batal</b> untuk keluar.",
-        { parse_mode: "HTML" }
-      );
-      return true;
-    }
+  EXACT[CALLBACKS.SUPERADMIN_FINANCE_MENU] = async (ctx) => {
+    return openFinanceMenu(ctx);
+  };
 
-    const classId = String(session?.class_id || "").trim().toLowerCase();
-    const durationCode = String(session?.duration_code || "").trim().toLowerCase();
-    const key = buildPriceSettingKey(classId, durationCode);
+  EXACT[CALLBACKS.SUPERADMIN_FINANCE_MANUAL_TOGGLE] = async (ctx) => {
+    const current = (await getSetting(ctx.env, "payment_manual_enabled")) ?? "1";
+    const next = String(current) === "0" ? "1" : "0";
+    await upsertSetting(ctx.env, "payment_manual_enabled", next);
+    return openFinanceMenu(ctx);
+  };
 
-    await upsertSetting(env, key, String(amount));
-    await clearSession(env, STATE_KEY).catch(() => {});
+  EXACT[CALLBACKS.SUPERADMIN_FINANCE_PRICING_MENU] = async (ctx) => {
+    await clearSession(ctx.env, getStateKey(ctx.adminId)).catch(() => {});
+    return renderMenuMessage(ctx, buildPricingClassText(), {
+      parse_mode: "HTML",
+      reply_markup: await buildFinancePricingKeyboard(ctx.env),
+    });
+  };
 
-    await sendMessage(
-      env,
-      chatId,
-      `✅ Harga berhasil disimpan.\n${formatClassLabel(classId)} - ${formatDurationLabel(durationCode)} = Rp ${amount.toLocaleString("id-ID")}`,
-      {
-        reply_markup: buildFinanceClassPricingKeyboard(classId),
-      }
-    );
-    return true;
-  }
+  EXACT[CALLBACKS.SUPERADMIN_FINANCE_QRIS_MENU] = async (ctx) => {
+    await clearSession(ctx.env, getStateKey(ctx.adminId)).catch(() => {});
+    const fileId = String((await getSetting(ctx.env, "payment_qris_photo_file_id")) || "").trim();
 
-  if (session?.area === "qris" && session?.step === "await_photo") {
-    const photos = update?.message?.photo || [];
-    if (!photos.length) {
-      await sendMessage(
-        env,
-        chatId,
-        "⚠️ Kirim <b>photo</b> QRIS ya, bukan file atau teks.\n\nKetik <b>batal</b> untuk keluar.",
-        {
-          parse_mode: "HTML",
-          reply_markup: buildFinanceQrisKeyboard(Boolean(await getSetting(env, "payment_qris_photo_file_id"))),
-        }
-      );
-      return true;
-    }
+    return renderMenuMessage(ctx, "🖼️ <b>QRIS Payment</b>\n\nKelola gambar QRIS untuk pembayaran manual.", {
+      parse_mode: "HTML",
+      reply_markup: buildFinanceQrisKeyboard(Boolean(fileId)),
+    });
+  };
 
-    const best = photos[photos.length - 1];
-    const fileId = best?.file_id ? String(best.file_id) : "";
+  EXACT[CALLBACKS.SUPERADMIN_FINANCE_QRIS_VIEW] = async (ctx) => {
+    const fileId = String((await getSetting(ctx.env, "payment_qris_photo_file_id")) || "").trim();
     if (!fileId) {
-      await sendMessage(env, chatId, "⚠️ Gagal membaca foto QRIS. Kirim ulang ya.");
-      return true;
+      return renderMenuMessage(ctx, "⚠️ QRIS belum diset.", {
+        reply_markup: buildFinanceQrisKeyboard(false),
+      });
     }
 
-    await upsertSetting(env, "payment_qris_photo_file_id", fileId);
-    await clearSession(env, STATE_KEY).catch(() => {});
-
-    await sendPhoto(env, chatId, fileId, "✅ <b>Foto QRIS berhasil disimpan.</b>", {
+    await sendPhoto(ctx.env, ctx.adminId, fileId, "🖼️ <b>QRIS Saat Ini</b>", {
       parse_mode: "HTML",
       reply_markup: buildFinanceQrisKeyboard(true),
     });
-    return true;
-  }
 
-  await clearSession(env, STATE_KEY).catch(() => {});
-  await sendMessage(env, chatId, "⚠️ Session Finance tidak valid. Balik ke menu ya.", {
-    reply_markup: await buildFinanceMenuKeyboard(env),
+    return true;
+  };
+
+  EXACT[CALLBACKS.SUPERADMIN_FINANCE_QRIS_SET] = async (ctx) => {
+    await saveSession(ctx.env, getStateKey(ctx.adminId), {
+      mode: SESSION_MODES.SA_FINANCE,
+      area: "qris",
+      step: "await_photo",
+    });
+
+    await sendMessage(
+      ctx.env,
+      ctx.adminId,
+      "📸 <b>Upload QRIS</b>\n\nKirim foto QRIS baru.\n\nKetik <b>batal</b> untuk keluar.",
+      {
+        parse_mode: "HTML",
+        reply_markup: buildFinanceQrisKeyboard(Boolean(await getSetting(ctx.env, "payment_qris_photo_file_id"))),
+      }
+    );
+
+    return true;
+  };
+
+  PREFIX.push({
+    match: (d) => String(d || "").startsWith(CALLBACK_PREFIX.SA_FIN_PRICING_CLASS),
+    run: async (ctx) => {
+      const classId = String(ctx.data || "").slice(CALLBACK_PREFIX.SA_FIN_PRICING_CLASS.length).trim().toLowerCase();
+      const classLabel = await getPartnerClassLabel(ctx.env, classId).catch(() => classId);
+
+      return renderMenuMessage(ctx, buildPricingDurationText(classLabel), {
+        parse_mode: "HTML",
+        reply_markup: buildFinanceClassPricingKeyboard(classId),
+      });
+    },
   });
-  return true;
+
+  PREFIX.push({
+    match: (d) => String(d || "").startsWith(CALLBACK_PREFIX.SA_FIN_PRICE_SET),
+    run: async (ctx) => {
+      const { classId, durationCode } = parsePricingSetPayload(ctx.data);
+      if (!classId || !durationCode) {
+        await sendMessage(ctx.env, ctx.adminId, "⚠️ Payload pricing tidak valid.");
+        return true;
+      }
+
+      await saveSession(ctx.env, getStateKey(ctx.adminId), {
+        mode: SESSION_MODES.SA_FINANCE,
+        area: "price",
+        step: "await_text",
+        class_id: classId,
+        duration_code: durationCode,
+      });
+
+      const classLabel = await getPartnerClassLabel(ctx.env, classId).catch(() => classId);
+
+      await sendMessage(
+        ctx.env,
+        ctx.adminId,
+        `💰 <b>Set Harga</b>\n\nClass: <b>${classLabel}</b>\nDurasi: <b>${durationCode}</b>\n\nKetik angka harga.\nContoh: <code>150000</code>\n\nKetik <b>batal</b> untuk keluar.`,
+        {
+          parse_mode: "HTML",
+          reply_markup: buildFinanceClassPricingKeyboard(classId),
+        }
+      );
+
+      return true;
+    },
+  });
+
+  return { EXACT, PREFIX };
 }
