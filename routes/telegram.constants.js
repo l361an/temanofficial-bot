@@ -39,6 +39,8 @@ export const CALLBACKS = {
   SUPERADMIN_PARTNER_CLASS_MENU: "sa:pclass:menu",
   SUPERADMIN_PARTNER_CLASS_LIST: "sa:pclass:list",
   SUPERADMIN_PARTNER_CLASS_ADD: "sa:pclass:add",
+  SUPERADMIN_PARTNER_CLASS_ADD_CONFIRM: "sa:pclass:add:confirm",
+  SUPERADMIN_PARTNER_CLASS_ADD_EDIT_ID: "sa:pclass:add:edit_id",
   SUPERADMIN_PARTNER_CLASS_SET_DEFAULT: "sa:pclass:set_default",
   SUPERADMIN_PARTNER_CLASS_RENAME: "sa:pclass:rename",
   SUPERADMIN_PARTNER_CLASS_DEACTIVATE: "sa:pclass:deactivate",
