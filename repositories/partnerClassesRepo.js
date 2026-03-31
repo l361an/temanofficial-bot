@@ -112,7 +112,7 @@ async function ensureDefaultClassSetting(env, rows = []) {
   return fallback;
 }
 
-async function ensureGeneralRow(rows = []) {
+function ensureGeneralRow(rows = []) {
   if (rows.some((row) => row.id === "general")) return rows;
 
   return sortRows([
@@ -158,20 +158,20 @@ async function pruneUnusedLegacyRows(env, rows = []) {
     changed = true;
   }
 
-  const finalRows = await ensureGeneralRow(kept);
+  const finalRows = ensureGeneralRow(kept);
   if (finalRows.length !== kept.length) changed = true;
 
   return { rows: finalRows, changed };
 }
 
-async function loadRows(env) {
+async function parsePartnerClassRows(env) {
   const raw = await getSetting(env, PARTNER_CLASSES_SETTING_KEY);
 
   if (!String(raw || "").trim()) {
     const bootstrap = buildBootstrapRows();
     await saveRows(env, bootstrap);
     await upsertSetting(env, PARTNER_DEFAULT_CLASS_SETTING_KEY, "general");
-    return bootstrap;
+    return { rows: bootstrap, needsRewrite: false };
   }
 
   try {
@@ -213,27 +213,40 @@ async function loadRows(env) {
       const bootstrap = buildBootstrapRows();
       await saveRows(env, bootstrap);
       await upsertSetting(env, PARTNER_DEFAULT_CLASS_SETTING_KEY, "general");
-      return bootstrap;
+      return { rows: bootstrap, needsRewrite: false };
     }
 
-    let finalRows = sortRows(normalized);
-    finalRows = await ensureGeneralRow(finalRows);
-
-    const pruned = await pruneUnusedLegacyRows(env, finalRows);
-    finalRows = pruned.rows;
-
-    if (needsRewrite || pruned.changed) {
-      await saveRows(env, finalRows);
-    }
-
-    await ensureDefaultClassSetting(env, finalRows);
-    return finalRows;
+    return {
+      rows: ensureGeneralRow(sortRows(normalized)),
+      needsRewrite,
+    };
   } catch {
     const bootstrap = buildBootstrapRows();
     await saveRows(env, bootstrap);
     await upsertSetting(env, PARTNER_DEFAULT_CLASS_SETTING_KEY, "general");
-    return bootstrap;
+    return { rows: bootstrap, needsRewrite: false };
   }
+}
+
+async function loadRows(env, options = {}) {
+  const { pruneLegacy = true } = options;
+  const parsed = await parsePartnerClassRows(env);
+
+  let finalRows = parsed.rows;
+  let changed = Boolean(parsed.needsRewrite);
+
+  if (pruneLegacy) {
+    const pruned = await pruneUnusedLegacyRows(env, finalRows);
+    finalRows = pruned.rows;
+    changed = changed || pruned.changed;
+  }
+
+  if (changed) {
+    await saveRows(env, finalRows);
+  }
+
+  await ensureDefaultClassSetting(env, finalRows);
+  return finalRows;
 }
 
 function ensureValidClassId(classId) {
@@ -241,12 +254,17 @@ function ensureValidClassId(classId) {
   return /^[a-z][a-z0-9_]{1,31}$/.test(cid) ? cid : "";
 }
 
+export async function cleanupUnusedLegacyPartnerClasses(env) {
+  const rows = await loadRows(env, { pruneLegacy: true });
+  return rows;
+}
+
 export async function listPartnerClasses(env) {
-  return loadRows(env);
+  return loadRows(env, { pruneLegacy: true });
 }
 
 export async function listActivePartnerClasses(env) {
-  const rows = await loadRows(env);
+  const rows = await loadRows(env, { pruneLegacy: true });
   return rows.filter((row) => Number(row.is_active) === 1);
 }
 
@@ -254,7 +272,7 @@ export async function getPartnerClassById(env, classId) {
   const cid = normalizeClassId(classId);
   if (!cid) return null;
 
-  const rows = await loadRows(env);
+  const rows = await loadRows(env, { pruneLegacy: false });
   return rows.find((row) => row.id === cid) || null;
 }
 
@@ -265,7 +283,7 @@ export async function getPartnerClassLabel(env, classId) {
 }
 
 export async function getDefaultPartnerClassId(env) {
-  const rows = await loadRows(env);
+  const rows = await loadRows(env, { pruneLegacy: false });
   return ensureDefaultClassSetting(env, rows);
 }
 
@@ -299,7 +317,7 @@ export async function addPartnerClass(env, payload = {}) {
   const label = normalizeClassLabel(payload?.label);
   if (!label) return { ok: false, reason: "empty_label" };
 
-  const rows = await loadRows(env);
+  const rows = await loadRows(env, { pruneLegacy: true });
   if (rows.some((row) => row.id === classId)) {
     return { ok: false, reason: "class_id_exists" };
   }
@@ -327,7 +345,7 @@ export async function renamePartnerClassLabel(env, classId, nextLabel) {
   if (!cid) return { ok: false, reason: "empty_class_id" };
   if (!label) return { ok: false, reason: "empty_label" };
 
-  const rows = await loadRows(env);
+  const rows = await loadRows(env, { pruneLegacy: false });
   const index = rows.findIndex((row) => row.id === cid);
   if (index < 0) return { ok: false, reason: "not_found" };
 
@@ -348,7 +366,7 @@ export async function deactivatePartnerClass(env, classId) {
   const defaultClassId = await getDefaultPartnerClassId(env).catch(() => "general");
   if (cid === defaultClassId) return { ok: false, reason: "cannot_deactivate_default" };
 
-  const rows = await loadRows(env);
+  const rows = await loadRows(env, { pruneLegacy: false });
   const index = rows.findIndex((row) => row.id === cid);
   if (index < 0) return { ok: false, reason: "not_found" };
 
@@ -376,7 +394,7 @@ export async function deletePartnerClass(env, classId) {
     return { ok: false, reason: "class_in_use", profiles };
   }
 
-  const rows = await loadRows(env);
+  const rows = await loadRows(env, { pruneLegacy: false });
   const nextRows = rows.filter((row) => row.id !== cid);
   if (nextRows.length === rows.length) return { ok: false, reason: "not_found" };
 
