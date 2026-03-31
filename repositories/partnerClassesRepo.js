@@ -43,7 +43,7 @@ function buildBootstrapRows() {
       label: "General",
       is_active: 1,
       sort_order: 10,
-      pricing_ref_id: "bronze",
+      pricing_ref_id: "general",
       created_at: ts,
       updated_at: ts,
     },
@@ -203,7 +203,7 @@ export async function isSelectablePartnerClassId(env, classId) {
 
 export async function resolvePartnerPricingClassId(env, classId) {
   const row = await getPartnerClassById(env, classId);
-  if (!row) return normalizeClassId(classId) || "bronze";
+  if (!row) return normalizeClassId(classId) || "";
   return normalizeClassId(row.pricing_ref_id || row.id) || row.id;
 }
 
@@ -232,15 +232,13 @@ export async function addPartnerClass(env, payload = {}) {
 
   const ts = nowSql();
   const maxSort = rows.reduce((acc, row) => Math.max(acc, Number(row.sort_order || 0)), 0);
-  const defaultClassId = await getDefaultPartnerClassId(env).catch(() => "general");
-  const defaultPricingRefId = await resolvePartnerPricingClassId(env, defaultClassId).catch(() => "bronze");
 
   const newRow = {
     id: classId,
     label,
     is_active: 1,
     sort_order: maxSort + 10,
-    pricing_ref_id: normalizeClassId(payload?.pricing_ref_id || defaultPricingRefId || classId) || classId,
+    pricing_ref_id: normalizeClassId(payload?.pricing_ref_id || classId) || classId,
     created_at: ts,
     updated_at: ts,
   };
