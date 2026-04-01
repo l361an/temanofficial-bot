@@ -7,6 +7,7 @@ import { buildPartnerClassHandlers } from "./partnerClass.js";
 import { buildSuperadminHandlers } from "./superadmin.js";
 import { buildVerificationHandlers } from "./verification.js";
 import { buildCatalogHandlers } from "./catalog.js";
+import { buildBookingHandlers } from "./booking.js";
 
 function mergeHandlers(...parts) {
   const EXACT = {};
@@ -27,6 +28,7 @@ export function createHandlers() {
     buildPartnerClassHandlers(),
     buildSuperadminHandlers(),
     buildVerificationHandlers(),
-    buildCatalogHandlers()
+    buildCatalogHandlers(),
+    buildBookingHandlers()
   );
 }
