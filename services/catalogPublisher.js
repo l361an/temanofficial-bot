@@ -16,8 +16,10 @@ const VIEW_TYPE_FEED = "feed";
 const VIEW_TYPE_ON_DEMAND = "on_demand";
 const DETAILS_PREFIX = "catalog:details:";
 const DETAILS_CLOSE_PREFIX = "catalog:details:close:";
-const BOOK_PREFIX = "catalog:book:";
 const PAGER_PLACEHOLDER_TEXT = "Navigasi Premium Partner";
+
+const SAFETY_BOOKING_BOT_USERNAME = "temanofficial_bot";
+const SAFETY_BOOKING_START_PAYLOAD = "safety_booking";
 
 function normalizeString(value) {
   return String(value || "").trim();
@@ -218,6 +220,23 @@ function normalizePageOffset(offset, total, pageSize) {
   return safeOffset;
 }
 
+function buildBotDeepLink(username, startPayload) {
+  const cleanUsername = normalizeString(username).replace(/^@+/, "");
+  const cleanPayload = normalizeString(startPayload);
+
+  if (!cleanUsername) return "";
+
+  if (!cleanPayload) {
+    return `https://t.me/${encodeURIComponent(cleanUsername)}`;
+  }
+
+  return `https://t.me/${encodeURIComponent(cleanUsername)}?start=${encodeURIComponent(cleanPayload)}`;
+}
+
+function buildSafetyBookingUrl() {
+  return buildBotDeepLink(SAFETY_BOOKING_BOT_USERNAME, SAFETY_BOOKING_START_PAYLOAD);
+}
+
 export function buildCatalogPartnerSummaryText(row) {
   return buildPartnerHeadline(row);
 }
@@ -242,6 +261,9 @@ export function buildCatalogPartnerReplyMarkup(mode, categoryCodeOrTelegramId, m
   }
 
   const payload = encodeCatalogCallbackPayload(normalizedCategoryCode, normalizedTelegramId);
+  if (!payload) {
+    return undefined;
+  }
 
   const detailButton =
     normalizedMode === "details"
@@ -254,13 +276,15 @@ export function buildCatalogPartnerReplyMarkup(mode, categoryCodeOrTelegramId, m
           callback_data: `${DETAILS_PREFIX}${payload}`,
         };
 
+  const safetyBookingUrl = buildSafetyBookingUrl();
+
   return {
     inline_keyboard: [
       [
         detailButton,
         {
           text: "Safety Booking",
-          callback_data: `${BOOK_PREFIX}${payload}`,
+          url: safetyBookingUrl,
         },
       ],
     ],
