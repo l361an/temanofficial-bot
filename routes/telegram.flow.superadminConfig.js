@@ -2,6 +2,7 @@
 
 import { clearSession } from "../utils/session.js";
 import { sendMessage } from "../services/telegramApi.js";
+import { getAdminRole } from "../repositories/adminsRepo.js";
 import { getSetting, upsertSetting } from "../repositories/settingsRepo.js";
 import {
   buildLinkAturanPreviewText,
@@ -32,6 +33,10 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function isOwnerRole(role) {
+  return String(role || "").trim().toLowerCase() === "owner";
 }
 
 function slugifyClassId(label) {
@@ -84,11 +89,24 @@ export async function handleSuperadminConfigInput({ env, chatId, telegramId, tex
   const raw = String(text || "").trim();
   const area = String(session?.area || "");
   const adminId = String(telegramId || "");
+  const isPartnerClassArea = area.startsWith("partner_class");
+
+  if (isPartnerClassArea) {
+    const role = await getAdminRole(env, telegramId).catch(() => null);
+
+    if (!isOwnerRole(role)) {
+      await clearSession(env, STATE_KEY).catch(() => {});
+      await sendMessage(env, chatId, "⛔ Partner Class hanya untuk owner.\nBalik ke menu:", {
+        reply_markup: buildConfigBackKeyboard(),
+      });
+      return true;
+    }
+  }
 
   if (/^(batal|cancel|keluar)$/i.test(raw)) {
     await clearSession(env, STATE_KEY);
 
-    if (area.startsWith("partner_class")) {
+    if (isPartnerClassArea) {
       await sendMessage(env, chatId, "✅ Oke, input Partner Class dibatalkan.\nBalik ke menu:", {
         reply_markup: buildPartnerClassBackKeyboard(),
       });
@@ -225,7 +243,18 @@ export async function handleSuperadminConfigInput({ env, chatId, telegramId, tex
       return true;
     }
 
+    const currentRow = await getPartnerClassById(env, classId).catch(() => null);
+    if (!currentRow) {
+      await clearSession(env, STATE_KEY).catch(() => {});
+      await sendMessage(env, chatId, "⚠️ Class tidak ditemukan / sudah berubah.\nBalik ke menu:", {
+        reply_markup: buildPartnerClassBackKeyboard(),
+      });
+      return true;
+    }
+
+    const previousLabel = String(currentRow?.label || "").trim() || classId;
     const res = await renamePartnerClassLabel(env, classId, label);
+
     if (!res?.ok) {
       await sendMessage(env, chatId, "⚠️ Gagal rename label class.", {
         reply_markup: buildPartnerClassBackKeyboard(),
@@ -237,7 +266,7 @@ export async function handleSuperadminConfigInput({ env, chatId, telegramId, tex
     await sendMessage(
       env,
       chatId,
-      `✅ Label class berhasil diubah.\n\nID: <code>${classId}</code>\nLabel baru: <b>${escapeHtml(label)}</b>`,
+      `✅ Label class berhasil diubah.\n\nID: <code>${escapeHtml(classId)}</code>\nLabel lama: <b>${escapeHtml(previousLabel)}</b>\nLabel baru: <b>${escapeHtml(label)}</b>`,
       {
         parse_mode: "HTML",
         reply_markup: buildPartnerClassBackKeyboard(),
