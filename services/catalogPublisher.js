@@ -19,7 +19,7 @@ const DETAILS_CLOSE_PREFIX = "catalog:details:close:";
 const PAGER_PLACEHOLDER_TEXT = "Navigasi Premium Partner";
 
 const SAFETY_BOOKING_BOT_USERNAME = "temanofficial_bot";
-const SAFETY_BOOKING_START_PAYLOAD = "safety_booking";
+const SAFETY_BOOKING_START_PREFIX = "safety_booking";
 
 function normalizeString(value) {
   return String(value || "").trim();
@@ -220,9 +220,13 @@ function normalizePageOffset(offset, total, pageSize) {
   return safeOffset;
 }
 
+function sanitizeDeepLinkToken(value) {
+  return normalizeString(value).replace(/[^A-Za-z0-9_-]/g, "");
+}
+
 function buildBotDeepLink(username, startPayload) {
   const cleanUsername = normalizeString(username).replace(/^@+/, "");
-  const cleanPayload = normalizeString(startPayload);
+  const cleanPayload = sanitizeDeepLinkToken(startPayload);
 
   if (!cleanUsername) return "";
 
@@ -233,8 +237,20 @@ function buildBotDeepLink(username, startPayload) {
   return `https://t.me/${encodeURIComponent(cleanUsername)}?start=${encodeURIComponent(cleanPayload)}`;
 }
 
-function buildSafetyBookingUrl() {
-  return buildBotDeepLink(SAFETY_BOOKING_BOT_USERNAME, SAFETY_BOOKING_START_PAYLOAD);
+function buildSafetyBookingStartPayload(partnerTelegramId) {
+  const cleanPartnerId = sanitizeDeepLinkToken(partnerTelegramId);
+  if (!cleanPartnerId) {
+    return SAFETY_BOOKING_START_PREFIX;
+  }
+
+  return `${SAFETY_BOOKING_START_PREFIX}_${cleanPartnerId}`;
+}
+
+function buildSafetyBookingUrl(partnerTelegramId) {
+  return buildBotDeepLink(
+    SAFETY_BOOKING_BOT_USERNAME,
+    buildSafetyBookingStartPayload(partnerTelegramId)
+  );
 }
 
 export function buildCatalogPartnerSummaryText(row) {
@@ -276,7 +292,7 @@ export function buildCatalogPartnerReplyMarkup(mode, categoryCodeOrTelegramId, m
           callback_data: `${DETAILS_PREFIX}${payload}`,
         };
 
-  const safetyBookingUrl = buildSafetyBookingUrl();
+  const safetyBookingUrl = buildSafetyBookingUrl(normalizedTelegramId);
 
   return {
     inline_keyboard: [
