@@ -28,7 +28,7 @@ function buildReminderMessage(reminderKey, row) {
       "⏰ <b>Masa aktif Premium TeMan kamu akan berakhir dalam 3 jam lagi pada:</b>",
       `<b>${endAtText}</b>`,
       "",
-      "Silakan lakukan <b>Pembayaran / Renewal</b> di <b>Menu Premium Partner</b> agar <b>Akses Premium</b> tetap aktif dan tetap dapat menggunakan <b>Fitur Premium TeMan</b>.",
+      "Silakan lakukan <b>TopUp Premium</b> di <b>Menu Premium Partner</b> agar <b>Akses Premium</b> tetap aktif dan tetap dapat menggunakan <b>Fitur Premium TeMan</b>.",
     ].join("\n");
   }
 
@@ -36,7 +36,7 @@ function buildReminderMessage(reminderKey, row) {
     "⏰ <b>Masa aktif Premium TeMan kamu akan berakhir pada:</b>",
     `<b>${endAtText}</b>`,
     "",
-    "Silakan lakukan <b>Pembayaran / Renewal</b> di <b>Menu Premium Partner</b> agar <b>Akses Premium</b> tetap aktif dan tetap dapat menggunakan <b>Fitur Premium TeMan</b>.",
+    "Silakan lakukan <b>TopUp Premium</b> di <b>Menu Premium Partner</b> agar <b>Akses Premium</b> tetap aktif dan tetap dapat menggunakan <b>Fitur Premium TeMan</b>.",
   ].join("\n");
 }
 
@@ -59,7 +59,7 @@ function buildExpiredSubscriptionMessage() {
     "",
     "Status admin partner kamu di grup telah dinonaktifkan dan akun kamu telah di-mute otomatis.",
     "",
-    "Silakan lakukan <b>Pembayaran / Renewal</b> di <b>Menu Premium Partner</b> agar <b>Akses Premium</b> aktif kembali dan kamu tetap dapat menggunakan <b>Fitur Premium TeMan</b>.",
+    "Silakan lakukan <b>TopUp Premium</b> di <b>Menu Premium Partner</b> agar <b>Akses Premium</b> aktif kembali dan kamu tetap dapat menggunakan <b>Fitur Premium TeMan</b>.",
   ].join("\n");
 }
 
