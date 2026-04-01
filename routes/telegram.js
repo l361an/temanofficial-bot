@@ -12,6 +12,7 @@ import { handleUserCommand, handleUserEditFlow } from "./telegram.commands.user.
 import { buildSelfMenuMessage, buildSelfMenuKeyboard } from "./telegram.flow.selfProfile.menu.js";
 import { buildTeManMenuKeyboard } from "./telegram.user.shared.js";
 import { handleRegistrationFlow } from "./telegram.flow.js";
+import { handleSuperadminConfigInput } from "./telegram.flow.superadminConfig.js";
 import { handleSuperadminFinanceInput } from "./telegram.flow.superadminFinance.js";
 import { handleSuperadminAdminManagerInput } from "./telegram.flow.superadminAdminManager.js";
 import { handleSuperadminCategoryInput } from "./telegram.flow.superadminCategory.js";
@@ -665,6 +666,19 @@ async function handleAdminSessionInput({
   if (!isAdminRole(role) || !session) return false;
   if (!isPrivateChat(chat)) return false;
 
+  if (session?.mode === SESSION_MODES.SA_CONFIG) {
+    return Boolean(
+      await handleSuperadminConfigInput({
+        env,
+        chatId,
+        telegramId,
+        text,
+        session,
+        STATE_KEY,
+      })
+    );
+  }
+
   if (session?.mode === SESSION_MODES.SA_FINANCE) {
     return Boolean(
       await handleSuperadminFinanceInput({
@@ -704,7 +718,6 @@ async function handleAdminSessionInput({
       })
     );
   }
-
 
   if (session?.mode === SESSION_MODES.PARTNER_VIEW) {
     return Boolean(
