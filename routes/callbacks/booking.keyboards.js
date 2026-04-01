@@ -25,13 +25,13 @@ export function buildBookingPanelKeyboard(booking, actorSide) {
     normalizeString(booking?.last_proposed_by) !== normalizeString(actorSide);
 
   if (canAcceptExact) {
-    rows.push([{ text: "✅ Setuju Jam Ini", callback_data: cb.bkAcceptExact(safeBookingId) }]);
+    rows.push([{ text: "✅ Setujui Waktu Ini", callback_data: cb.bkAcceptExact(safeBookingId) }]);
   }
 
   if (canPropose) {
     rows.push([
-      { text: "🕒 Usul Jam Pas", callback_data: cb.bkPromptExact(safeBookingId) },
-      { text: "🪟 Usul Rentang", callback_data: cb.bkPromptWindow(safeBookingId) },
+      { text: "🕒 Ajukan Waktu Pas", callback_data: cb.bkPromptExact(safeBookingId) },
+      { text: "🪟 Ajukan Rentang Waktu", callback_data: cb.bkPromptWindow(safeBookingId) },
     ]);
   }
 
