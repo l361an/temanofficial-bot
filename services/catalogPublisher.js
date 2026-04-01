@@ -23,6 +23,10 @@ function normalizeString(value) {
   return String(value || "").trim();
 }
 
+function normalizeLower(value) {
+  return normalizeString(value).toLowerCase();
+}
+
 function normalizeChatId(value) {
   return normalizeString(value);
 }
@@ -77,6 +81,19 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function encodeCatalogCallbackPayload(categoryCode, telegramId) {
+  const normalizedTelegramId = normalizeString(telegramId);
+  const normalizedCategoryCode = normalizeLower(categoryCode);
+
+  if (!normalizedTelegramId) return "";
+
+  if (!normalizedCategoryCode) {
+    return normalizedTelegramId;
+  }
+
+  return `${normalizedCategoryCode}:${normalizedTelegramId}`;
 }
 
 function formatMoney(value) {
@@ -217,21 +234,24 @@ export function buildCatalogPartnerDetailsText(row) {
 
 export function buildCatalogPartnerReplyMarkup(mode, categoryCodeOrTelegramId, maybeTelegramId) {
   const normalizedMode = normalizeString(mode).toLowerCase() === "details" ? "details" : "summary";
+  const normalizedCategoryCode = maybeTelegramId === undefined ? "" : normalizeLower(categoryCodeOrTelegramId);
   const normalizedTelegramId = normalizeString(maybeTelegramId ?? categoryCodeOrTelegramId);
 
   if (!normalizedTelegramId) {
     return undefined;
   }
 
+  const payload = encodeCatalogCallbackPayload(normalizedCategoryCode, normalizedTelegramId);
+
   const detailButton =
     normalizedMode === "details"
       ? {
           text: "Tutup",
-          callback_data: `${DETAILS_CLOSE_PREFIX}${normalizedTelegramId}`,
+          callback_data: `${DETAILS_CLOSE_PREFIX}${payload}`,
         }
       : {
           text: "Details",
-          callback_data: `${DETAILS_PREFIX}${normalizedTelegramId}`,
+          callback_data: `${DETAILS_PREFIX}${payload}`,
         };
 
   return {
@@ -240,7 +260,7 @@ export function buildCatalogPartnerReplyMarkup(mode, categoryCodeOrTelegramId, m
         detailButton,
         {
           text: "Safety Booking",
-          callback_data: `${BOOK_PREFIX}${normalizedTelegramId}`,
+          callback_data: `${BOOK_PREFIX}${payload}`,
         },
       ],
     ],
@@ -351,7 +371,11 @@ async function loadCatalogBatch(env, filters = {}, options = {}) {
 
 async function sendCatalogPartnerCard(env, chatId, target, row) {
   const summaryText = buildCatalogPartnerSummaryText(row);
-  const replyMarkup = buildCatalogPartnerReplyMarkup("summary", row?.telegram_id);
+  const replyMarkup = buildCatalogPartnerReplyMarkup(
+    "summary",
+    target?.category_code,
+    row?.telegram_id
+  );
   const sendExtra = {
     parse_mode: "HTML",
     reply_markup: replyMarkup,
