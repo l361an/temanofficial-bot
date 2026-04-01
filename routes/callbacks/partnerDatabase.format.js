@@ -24,14 +24,66 @@ export function partnerStatusLabel(status) {
   return raw ? raw.replaceAll("_", " ") : "-";
 }
 
-export function premiumAccessLabel(profile, subInfo) {
+export function hasPremiumAccess(profile, subInfo) {
   const partnerStatus = String(profile?.status || "").trim().toLowerCase();
   const isManualSuspended = Number(profile?.is_manual_suspended || 0) === 1;
 
-  if (partnerStatus === "suspended" || isManualSuspended) return "Non-aktif";
-  if (subInfo?.is_active && subInfo?.row) return "Aktif";
+  if (partnerStatus === "suspended" || isManualSuspended) return false;
+  if (subInfo?.is_active && subInfo?.row) return true;
 
-  return "Non-aktif";
+  return false;
+}
+
+export function premiumAccessLabel(profile, subInfo) {
+  return hasPremiumAccess(profile, subInfo) ? "Aktif" : "Non-aktif";
+}
+
+export function resolveCatalogState(profile, subInfo) {
+  const partnerStatus = String(profile?.status || "").trim().toLowerCase();
+  const isManualSuspended = Number(profile?.is_manual_suspended || 0) === 1;
+  const isCatalogVisible = Number(profile?.is_catalog_visible || 0) === 1;
+  const hasStartPrice = Number(profile?.start_price || 0) > 0;
+  const premiumActive = hasPremiumAccess(profile, subInfo);
+
+  if (partnerStatus !== "approved") {
+    return {
+      statusText: "Belum Tampil",
+      noteText: "Partner belum approved.",
+    };
+  }
+
+  if (isManualSuspended) {
+    return {
+      statusText: "Belum Tampil",
+      noteText: "Partner sedang suspended.",
+    };
+  }
+
+  if (!premiumActive) {
+    return {
+      statusText: "Belum Tampil",
+      noteText: "Premium belum aktif.",
+    };
+  }
+
+  if (!hasStartPrice) {
+    return {
+      statusText: "Belum Tampil",
+      noteText: "Tarif minimum belum diisi.",
+    };
+  }
+
+  if (!isCatalogVisible) {
+    return {
+      statusText: "Disembunyikan",
+      noteText: "Visibilitas katalog sedang off.",
+    };
+  }
+
+  return {
+    statusText: "Tampil",
+    noteText: "Profile siap tampil di katalog.",
+  };
 }
 
 export function formatDateTime(value) {
@@ -114,6 +166,7 @@ export function buildPartnerViewPromptText() {
 export function buildPartnerControlPanelText(context) {
   const { profile, subInfo } = context;
   const premiumAccess = premiumAccessLabel(profile, subInfo);
+  const catalogState = resolveCatalogState(profile, subInfo);
   const username = cleanHandle(profile?.username);
   const selectedLabel = username || profile?.telegram_id || "-";
 
@@ -125,6 +178,8 @@ export function buildPartnerControlPanelText(context) {
     `Telegram ID : <code>${escapeHtml(profile?.telegram_id || "-")}</code>`,
     `Status Partner : <b>${escapeHtml(partnerStatusLabel(profile?.status))}</b>`,
     `Akses Premium : <b>${escapeHtml(premiumAccess)}</b>`,
+    `Status Katalog : <b>${escapeHtml(catalogState.statusText)}</b>`,
+    `Catatan Katalog : <b>${escapeHtml(catalogState.noteText)}</b>`,
     `Class Partner : <b>${escapeHtml(fmtClassId(profile?.class_id))}</b>`,
     "",
     "Pilih menu di bawah:",
@@ -132,8 +187,9 @@ export function buildPartnerControlPanelText(context) {
 }
 
 export function buildPartnerDetailsText(context) {
-  const { profile, categories, verificatorDisplay } = context;
-  const kategoriText = categories.length ? categories.join(", ") : "-";
+  const { profile, categories, verificatorDisplay, subInfo } = context;
+  const kategoriText = Array.isArray(categories) && categories.length ? categories.join(", ") : "-";
+  const catalogState = resolveCatalogState(profile, subInfo);
 
   return [
     "👤 <b>Partner Details</b>",
@@ -149,6 +205,8 @@ export function buildPartnerDetailsText(context) {
     `Kategori : <b>${escapeHtml(kategoriText)}</b>`,
     `Verificator : <b>${escapeHtml(verificatorDisplay || "-")}</b>`,
     `Approved At : <b>${escapeHtml(formatDateTime(profile?.approved_at))}</b>`,
+    `Status Katalog : <b>${escapeHtml(catalogState.statusText)}</b>`,
+    `Catatan Katalog : <b>${escapeHtml(catalogState.noteText)}</b>`,
   ].join("\n");
 }
 
