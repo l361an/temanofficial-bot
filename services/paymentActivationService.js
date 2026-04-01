@@ -141,7 +141,7 @@ function buildPartnerPaymentConfirmedMessage(subscription) {
       subscription?.end_at
     )}</b>`,
     "",
-    "Silakan lakukan perpanjangan sebelum masa aktif berakhir agar layanan <b>PREMIUM TeMan</b> tetap dapat digunakan tanpa terputus.",
+    "Silakan lakukan <b>TopUp Premium</b> sebelum masa aktif berakhir agar layanan <b>PREMIUM TeMan</b> tetap dapat digunakan tanpa terputus.",
     "",
     "Terima kasih telah menggunakan <b>TeMan Official</b>.",
   ].join("\n");
@@ -215,7 +215,7 @@ function resolveAccumulatedWindow(nowSql, coverage, durationCode) {
   return {
     startAt,
     endAt,
-    activationMode: "renewal_accumulation",
+    activationMode: "topup_accumulation",
     previousCoverageStartAt: coverage.earliestStartAt,
     previousCoverageEndAt: coverage.latestEndAt,
   };
@@ -276,7 +276,7 @@ export async function confirmPaymentAndActivateSubscription(env, ticketId, actor
     {
       cancelledBy: actorId,
       cancelReason: coverage.hasActiveCoverage
-        ? "replaced_by_renewal_accumulation"
+        ? "replaced_by_topup_accumulation"
         : "replaced_by_fresh_payment_activation",
     }
   );
