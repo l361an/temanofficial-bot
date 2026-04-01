@@ -166,7 +166,7 @@ export async function handleSuperadminConfigInput({ env, chatId, telegramId, tex
       await sendMessage(
         env,
         chatId,
-        "⚠️ Label class wajib diisi.\n\nContoh:\n• <b>VIP Plus</b>\n• <b>Corporate A</b>\n\nKetik <b>batal</b> untuk keluar.",
+        "⚠️ Label class wajib diisi.\n\nContoh:\n• <b>Terapis Squad</b>\n• <b>VIP Plus</b>\n• <b>Corporate A</b>\n\nKetik <b>batal</b> untuk keluar.",
         { parse_mode: "HTML" }
       );
       return true;
@@ -208,7 +208,7 @@ export async function handleSuperadminConfigInput({ env, chatId, telegramId, tex
     await sendMessage(
       env,
       chatId,
-      "⚠️ Format lama sudah tidak dipakai.\n\nSekarang cukup ketik <b>label class</b> saja.\nContoh:\n• <b>VIP Plus</b>\n• <b>Corporate A</b>\n\nBot akan buatkan <code>class_id</code> otomatis dan langsung simpan.",
+      "⚠️ Format lama sudah tidak dipakai.\n\nSekarang cukup ketik <b>label class</b> saja.\nContoh:\n• <b>Terapis Squad</b>\n• <b>VIP Plus</b>\n\nBot akan buatkan <code>class_id</code> otomatis dan langsung simpan.",
       { parse_mode: "HTML" }
     );
     return true;
