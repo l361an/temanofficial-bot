@@ -32,7 +32,7 @@ export function resolvePremiumAccessLabel(profile, subInfo) {
 
 export function resolvePrimaryActionText(profile, subInfo) {
   if (subInfo?.found) {
-    return "🔄 Renew Premium";
+    return "💳 TopUp Premium";
   }
 
   return "💳 Aktivasi Premium";
