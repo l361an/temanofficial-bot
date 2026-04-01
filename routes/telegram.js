@@ -26,17 +26,23 @@ import { OBSOLETE_ADMIN_COMMANDS, SESSION_MODES } from "./telegram.constants.js"
 import { isScopeAllowed } from "./telegram.guard.js";
 import { handlePartnerCloseupEditInput } from "./telegram.flow.partnerCloseupEdit.js";
 import { handleAdminInviteStart } from "./telegram.flow.adminInviteActivation.js";
+import { handleBookingSessionInput } from "./telegram.flow.booking.js";
 import {
   addOrUpdateCatalogTarget,
   deactivateCatalogTarget,
   getCatalogTargets,
 } from "../repositories/catalogTargetsRepo.js";
 import { listCategories } from "../repositories/categoriesRepo.js";
+import { getCatalogPartnerByTelegramId } from "../repositories/catalogRepo.js";
 import {
   publishCatalogToTarget,
   cleanupPublishedCatalogForTarget,
   publishOnDemandCatalog,
 } from "../services/catalogPublisher.js";
+import { findOrCreateBooking } from "../repositories/bookingsRepo.js";
+import { createBookingEvent } from "../repositories/bookingEventsRepo.js";
+import { persistBookingSession } from "./callbacks/booking.session.js";
+import { sendBookingPanel } from "./callbacks/booking.shared.js";
 
 import {
   getProfileFullByTelegramId,
@@ -82,27 +88,137 @@ function getStartCommandPayload(value) {
   return normalizeLower(parts[1] || "");
 }
 
-function isSafetyBookingStartPayload(value) {
+function parseSafetyBookingStartPayload(value) {
   const payload = normalizeLower(value);
-  return payload === "safety_booking" || payload === "safety-booking";
+
+  if (!payload) return null;
+
+  if (payload === "safety_booking" || payload === "safety-booking") {
+    return {
+      kind: "generic",
+      partnerTelegramId: "",
+    };
+  }
+
+  const contextualMatch = payload.match(/^safety[_-]booking[_-](\d+)$/);
+  if (!contextualMatch) {
+    return null;
+  }
+
+  return {
+    kind: "partner",
+    partnerTelegramId: contextualMatch[1],
+  };
 }
 
-function buildSafetyBookingStartText() {
+function isSafetyBookingStartPayload(value) {
+  return Boolean(parseSafetyBookingStartPayload(value));
+}
+
+function makeId() {
+  return crypto.randomUUID();
+}
+
+function buildSafetyBookingMissingContextText() {
   return [
     "🛡️ <b>Safety Booking</b>",
     "",
-    "Kamu masuk lewat jalur <b>user-side</b>.",
-    "Entry ini tidak akan diarahkan ke menu officer atau menu partner.",
-    "",
-    "Kalau nanti flow booking mau dibuka langsung dari deep link, payload partner perlu dibawa terpisah.",
+    "Link ini belum membawa data partner.",
+    "Buka lagi lewat tombol <b>Safety Booking</b> dari katalog yang terbaru ya.",
   ].join("\n");
 }
 
-async function handleSafetyBookingStart({ env, chatId }) {
-  await sendMessage(env, chatId, buildSafetyBookingStartText(), {
-    parse_mode: "HTML",
-    disable_web_page_preview: true,
+async function handleSafetyBookingStart({
+  env,
+  chatId,
+  telegramId,
+  msg,
+  startPayload,
+}) {
+  const parsedPayload = parseSafetyBookingStartPayload(startPayload);
+
+  if (!parsedPayload) {
+    return false;
+  }
+
+  if (parsedPayload.kind !== "partner" || !parsedPayload.partnerTelegramId) {
+    await sendMessage(env, chatId, buildSafetyBookingMissingContextText(), {
+      parse_mode: "HTML",
+      disable_web_page_preview: true,
+    });
+    return true;
+  }
+
+  const actorId = normalizeString(telegramId);
+  const partnerTelegramId = normalizeString(parsedPayload.partnerTelegramId);
+
+  if (!actorId || !partnerTelegramId) {
+    await sendMessage(env, chatId, "Data Safety Booking tidak valid.");
+    return true;
+  }
+
+  const targetPartner = await getCatalogPartnerByTelegramId(env, partnerTelegramId).catch(() => null);
+
+  if (!targetPartner) {
+    await sendMessage(env, chatId, "Partner ini sudah tidak tersedia di katalog.");
+    return true;
+  }
+
+  if (actorId === partnerTelegramId) {
+    await sendMessage(
+      env,
+      chatId,
+      "Ini profil kamu sendiri. Safety Booking tidak bisa dibuka untuk profil sendiri."
+    );
+    return true;
+  }
+
+  const booking = await findOrCreateBooking(env, {
+    id: makeId(),
+    userTelegramId: actorId,
+    partnerTelegramId,
+    sourceCategoryCode: null,
   });
+
+  await createBookingEvent(env, {
+    id: makeId(),
+    bookingId: booking.id,
+    actorTelegramId: actorId,
+    actorType: "user",
+    eventType: "booking_opened_from_catalog",
+    fromStatus: null,
+    toStatus: booking.status,
+    payload: {
+      source_category_code: null,
+      partner_telegram_id: partnerTelegramId,
+      entry: "catalog_deeplink",
+    },
+  }).catch(() => null);
+
+  await persistBookingSession(
+    env,
+    actorId,
+    null,
+    {
+      step: "panel",
+      data: {
+        booking_id: booking.id,
+        actor_side: "user",
+        source_chat_id: chatId,
+        source_message_id: msg?.message_id ?? null,
+      },
+    },
+    msg
+  ).catch(() => null);
+
+  const panelRes = await sendBookingPanel(env, actorId, booking.id, {
+    noticeText: "🛡️ Booking dibuka dari katalog.",
+  }).catch(() => ({ ok: false }));
+
+  if (!panelRes?.ok) {
+    await sendMessage(env, chatId, "Gagal membuka panel booking. Coba lagi dari tombol Safety Booking.");
+    return true;
+  }
 
   return true;
 }
@@ -646,7 +762,13 @@ async function handleTelegramCommand({
   }
 
   if (isSafetyBookingStart) {
-    return handleSafetyBookingStart({ env, chatId });
+    return handleSafetyBookingStart({
+      env,
+      chatId,
+      telegramId,
+      msg,
+      startPayload,
+    });
   }
 
   if (baseCmd === "/temanku") {
@@ -958,6 +1080,20 @@ export async function handleTelegramWebhook(request, env) {
     });
 
     if (handledAdminSession) return ok();
+
+    if (session?.mode === SESSION_MODES.BOOKING) {
+      const handledBookingSession = await handleBookingSessionInput({
+        env,
+        chatId,
+        telegramId,
+        text,
+        msg,
+        session,
+        STATE_KEY,
+      });
+
+      if (handledBookingSession) return ok();
+    }
 
     if (session?.mode === SESSION_MODES.EDIT_PROFILE) {
       await handleUserEditFlow({
