@@ -73,6 +73,20 @@ function splitCommandParts(value) {
   return normalizeString(value).split(/\s+/).filter(Boolean);
 }
 
+function getStartCommandPayload(value) {
+  if (normalizeCommandToken(value) !== "/start") {
+    return "";
+  }
+
+  const parts = splitCommandParts(value);
+  return normalizeLower(parts[1] || "");
+}
+
+function isSafetyBookingStartPayload(value) {
+  const payload = normalizeLower(value);
+  return payload === "safety_booking" || payload === "safety-booking";
+}
+
 function escapeHtml(value) {
   return String(value || "")
     .replaceAll("&", "&amp;")
@@ -594,6 +608,8 @@ async function handleTelegramCommand({
   const raw = String(text || "").trim();
   const cmdToken = raw.split(/\s+/)[0];
   const baseCmd = cmdToken.split("@")[0].toLowerCase();
+  const startPayload = baseCmd === "/start" ? getStartCommandPayload(raw) : "";
+  const forceUserStart = isPrivateChat(chat) && isSafetyBookingStartPayload(startPayload);
 
   if (baseCmd === "/start") {
     const handledInviteStart = await handleAdminInviteStart({
@@ -617,7 +633,7 @@ async function handleTelegramCommand({
     return handleDisabledLegacyCommand({ env, chat, msg, chatId });
   }
 
-  if (isAdminRole(role)) {
+  if (isAdminRole(role) && !forceUserStart) {
     const handledAdmin = await handleAdminCommand({
       env,
       chat,
@@ -638,8 +654,8 @@ async function handleTelegramCommand({
     chat,
     chatId,
     telegramId,
-    role,
-    text: raw,
+    role: forceUserStart ? "" : role,
+    text: forceUserStart ? "/start" : raw,
   });
 
   if (handledUser) return true;
