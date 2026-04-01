@@ -1,8 +1,9 @@
 // repositories/catalogPublishStateRepo.js
 
-import { getSetting, upsertSetting } from "./settingsRepo.js";
+import { getSetting, upsertSetting, deleteSetting } from "./settingsRepo.js";
 
 const CATALOG_PUBLISH_STATES_KEY = "catalog_publish_states";
+const CATALOG_PUBLISH_STATE_KEY_PREFIX = "catalog_publish_state::";
 const VIEW_TYPE_FEED = "feed";
 const VIEW_TYPE_ON_DEMAND = "on_demand";
 
@@ -92,6 +93,17 @@ function buildStateKey(chatId, topicId, categoryCode, kota, kecamatan, viewType)
   ].join("::");
 }
 
+function buildScopedSettingKey(chatId, topicId, categoryCode, kota, kecamatan, viewType) {
+  return `${CATALOG_PUBLISH_STATE_KEY_PREFIX}${buildStateKey(
+    chatId,
+    topicId,
+    categoryCode,
+    kota,
+    kecamatan,
+    viewType
+  )}`;
+}
+
 function buildLegacyScopeOnlyKey(chatId, topicId) {
   return [normalizeChatId(chatId), normalizeTopicId(topicId) || "-", "-", "-"].join("::");
 }
@@ -105,38 +117,52 @@ function buildLegacyCategoryOnlyKey(chatId, topicId, categoryCode) {
   ].join("::");
 }
 
-function parseStates(rawValue) {
+function normalizeStateItem(item) {
+  const chatId = normalizeChatId(item?.chat_id);
+  if (!chatId) return null;
+
+  return {
+    chat_id: chatId,
+    topic_id: normalizeTopicId(item?.topic_id),
+    category_code: normalizeCategoryCode(item?.category_code),
+    kota: normalizeKota(item?.kota),
+    kecamatan: normalizeKecamatan(item?.kecamatan),
+    view_type: normalizeViewType(item?.view_type),
+    message_ids: normalizeMessageIds(item?.message_ids),
+    partner_count: normalizeNonNegativeInteger(item?.partner_count, 0),
+    page_count: normalizeNonNegativeInteger(item?.page_count, 0),
+    rotation_cursor: normalizeNonNegativeInteger(item?.rotation_cursor, 0),
+    current_offset: normalizeNonNegativeInteger(item?.current_offset, 0),
+    page_size: normalizeNonNegativeInteger(item?.page_size, 0),
+    updated_at: normalizeString(item?.updated_at) || nowIso(),
+  };
+}
+
+function parseLegacyStates(rawValue) {
   const raw = normalizeString(rawValue);
   if (!raw) return [];
 
   try {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-
-    return parsed
-      .map((item) => {
-        const chatId = normalizeChatId(item?.chat_id);
-        if (!chatId) return null;
-
-        return {
-          chat_id: chatId,
-          topic_id: normalizeTopicId(item?.topic_id),
-          category_code: normalizeCategoryCode(item?.category_code),
-          kota: normalizeKota(item?.kota),
-          kecamatan: normalizeKecamatan(item?.kecamatan),
-          view_type: normalizeViewType(item?.view_type),
-          message_ids: normalizeMessageIds(item?.message_ids),
-          partner_count: normalizeNonNegativeInteger(item?.partner_count, 0),
-          page_count: normalizeNonNegativeInteger(item?.page_count, 0),
-          rotation_cursor: normalizeNonNegativeInteger(item?.rotation_cursor, 0),
-          current_offset: normalizeNonNegativeInteger(item?.current_offset, 0),
-          page_size: normalizeNonNegativeInteger(item?.page_size, 0),
-          updated_at: normalizeString(item?.updated_at) || nowIso(),
-        };
-      })
-      .filter(Boolean);
+    return parsed.map((item) => normalizeStateItem(item)).filter(Boolean);
   } catch (_) {
     return [];
+  }
+}
+
+function parseScopedState(rawValue) {
+  const raw = normalizeString(rawValue);
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
+      return null;
+    }
+    return normalizeStateItem(parsed);
+  } catch (_) {
+    return null;
   }
 }
 
@@ -144,13 +170,133 @@ function serializeStates(states) {
   return JSON.stringify(Array.isArray(states) ? states : []);
 }
 
-export async function getCatalogPublishStates(env) {
+function serializeState(item) {
+  return JSON.stringify(item || {});
+}
+
+function getStateIdentity(item) {
+  return buildStateKey(
+    item?.chat_id,
+    item?.topic_id,
+    item?.category_code,
+    item?.kota,
+    item?.kecamatan,
+    item?.view_type
+  );
+}
+
+function getMatchingKeys(target = {}) {
+  const chatId = normalizeChatId(target?.chat_id);
+  const topicId = normalizeTopicId(target?.topic_id);
+  const categoryCode = normalizeCategoryCode(target?.category_code);
+  const kota = normalizeKota(target?.kota);
+  const kecamatan = normalizeKecamatan(target?.kecamatan);
+  const viewType = normalizeViewType(target?.view_type);
+
+  const keys = new Set();
+
+  if (!chatId) {
+    return keys;
+  }
+
+  keys.add(buildStateKey(chatId, topicId, categoryCode, kota, kecamatan, viewType));
+
+  if (viewType === VIEW_TYPE_FEED && categoryCode) {
+    keys.add(buildLegacyCategoryOnlyKey(chatId, topicId, categoryCode));
+    keys.add(buildLegacyScopeOnlyKey(chatId, topicId));
+  }
+
+  return keys;
+}
+
+async function listScopedStateRows(env) {
+  const { results } = await env.DB.prepare(
+    `
+    SELECT key, value
+    FROM settings
+    WHERE key LIKE ?
+  `
+  )
+    .bind(`${CATALOG_PUBLISH_STATE_KEY_PREFIX}%`)
+    .all();
+
+  const rows = Array.isArray(results) ? results : [];
+
+  return rows
+    .map((row) => {
+      const item = parseScopedState(row?.value);
+      if (!item) return null;
+      return {
+        key: normalizeString(row?.key),
+        item,
+      };
+    })
+    .filter(Boolean);
+}
+
+async function getLegacyStates(env) {
   const raw = await getSetting(env, CATALOG_PUBLISH_STATES_KEY).catch(() => null);
-  return parseStates(raw);
+  return parseLegacyStates(raw);
+}
+
+async function saveLegacyStates(env, states) {
+  const safeStates = Array.isArray(states) ? states : [];
+
+  if (!safeStates.length) {
+    await deleteSetting(env, CATALOG_PUBLISH_STATES_KEY).catch(() => null);
+    return;
+  }
+
+  await upsertSetting(env, CATALOG_PUBLISH_STATES_KEY, serializeStates(safeStates));
+}
+
+async function cleanupLegacyStatesForTarget(env, target = {}) {
+  const legacyStates = await getLegacyStates(env);
+  if (!legacyStates.length) {
+    return { removed_items: [], items: [] };
+  }
+
+  const matchingKeys = getMatchingKeys(target);
+  const removedItems = legacyStates.filter((item) => matchingKeys.has(getStateIdentity(item)));
+  const nextStates = legacyStates.filter((item) => !matchingKeys.has(getStateIdentity(item)));
+
+  if (removedItems.length) {
+    await saveLegacyStates(env, nextStates);
+  }
+
+  return {
+    removed_items: removedItems,
+    items: nextStates,
+  };
+}
+
+export async function getCatalogPublishStates(env) {
+  const [scopedRows, legacyStates] = await Promise.all([
+    listScopedStateRows(env),
+    getLegacyStates(env),
+  ]);
+
+  const map = new Map();
+
+  for (const row of scopedRows) {
+    const key = getStateIdentity(row.item);
+    if (!map.has(key)) {
+      map.set(key, row.item);
+    }
+  }
+
+  for (const item of legacyStates) {
+    const key = getStateIdentity(item);
+    if (!map.has(key)) {
+      map.set(key, item);
+    }
+  }
+
+  return Array.from(map.values());
 }
 
 export async function saveCatalogPublishStates(env, states) {
-  await upsertSetting(env, CATALOG_PUBLISH_STATES_KEY, serializeStates(states));
+  await saveLegacyStates(env, states);
 }
 
 export async function getCatalogPublishState(env, target = {}) {
@@ -163,21 +309,18 @@ export async function getCatalogPublishState(env, target = {}) {
 
   if (!chatId) return null;
 
-  const states = await getCatalogPublishStates(env);
+  const scopedKey = buildScopedSettingKey(chatId, topicId, categoryCode, kota, kecamatan, viewType);
+  const scopedRaw = await getSetting(env, scopedKey).catch(() => null);
+  const scopedItem = parseScopedState(scopedRaw);
+  if (scopedItem) {
+    return scopedItem;
+  }
+
+  const legacyStates = await getLegacyStates(env);
   const exactKey = buildStateKey(chatId, topicId, categoryCode, kota, kecamatan, viewType);
 
   const exact =
-    states.find(
-      (item) =>
-        buildStateKey(
-          item.chat_id,
-          item.topic_id,
-          item.category_code,
-          item.kota,
-          item.kecamatan,
-          item.view_type
-        ) === exactKey
-    ) || null;
+    legacyStates.find((item) => getStateIdentity(item) === exactKey) || null;
 
   if (exact) return exact;
 
@@ -186,31 +329,15 @@ export async function getCatalogPublishState(env, target = {}) {
   }
 
   const legacyCategoryOnly =
-    states.find(
-      (item) =>
-        buildStateKey(
-          item.chat_id,
-          item.topic_id,
-          item.category_code,
-          item.kota,
-          item.kecamatan,
-          item.view_type
-        ) === buildLegacyCategoryOnlyKey(chatId, topicId, categoryCode)
+    legacyStates.find(
+      (item) => getStateIdentity(item) === buildLegacyCategoryOnlyKey(chatId, topicId, categoryCode)
     ) || null;
 
   if (legacyCategoryOnly) return legacyCategoryOnly;
 
   return (
-    states.find(
-      (item) =>
-        buildStateKey(
-          item.chat_id,
-          item.topic_id,
-          item.category_code,
-          item.kota,
-          item.kecamatan,
-          item.view_type
-        ) === buildLegacyScopeOnlyKey(chatId, topicId)
+    legacyStates.find(
+      (item) => getStateIdentity(item) === buildLegacyScopeOnlyKey(chatId, topicId)
     ) || null
   );
 }
@@ -249,12 +376,14 @@ export async function upsertCatalogPublishState(env, payload = {}) {
     return { ok: false, reason: "missing_category_code" };
   }
 
-  const states = await getCatalogPublishStates(env);
-  const stateKey = buildStateKey(chatId, topicId, categoryCode, kota, kecamatan, viewType);
-  const legacyCategoryOnlyKey =
-    viewType === VIEW_TYPE_FEED ? buildLegacyCategoryOnlyKey(chatId, topicId, categoryCode) : null;
-  const legacyScopeOnlyKey =
-    viewType === VIEW_TYPE_FEED ? buildLegacyScopeOnlyKey(chatId, topicId) : null;
+  const existing = await getCatalogPublishState(env, {
+    chat_id: chatId,
+    topic_id: topicId,
+    category_code: categoryCode,
+    kota,
+    kecamatan,
+    view_type: viewType,
+  });
 
   const nextItem = {
     chat_id: chatId,
@@ -272,40 +401,23 @@ export async function upsertCatalogPublishState(env, payload = {}) {
     updated_at: nowIso(),
   };
 
-  let found = false;
+  const scopedKey = buildScopedSettingKey(
+    chatId,
+    topicId,
+    categoryCode,
+    kota,
+    kecamatan,
+    viewType
+  );
 
-  const nextStates = states.filter((item) => {
-    const itemKey = buildStateKey(
-      item.chat_id,
-      item.topic_id,
-      item.category_code,
-      item.kota,
-      item.kecamatan,
-      item.view_type
-    );
-
-    const shouldReplace =
-      itemKey === stateKey ||
-      (legacyCategoryOnlyKey && itemKey === legacyCategoryOnlyKey) ||
-      (legacyScopeOnlyKey && itemKey === legacyScopeOnlyKey);
-
-    if (shouldReplace) {
-      found = true;
-      return false;
-    }
-
-    return true;
-  });
-
-  nextStates.push(nextItem);
-
-  await saveCatalogPublishStates(env, nextStates);
+  await upsertSetting(env, scopedKey, serializeState(nextItem));
+  await cleanupLegacyStatesForTarget(env, nextItem);
 
   return {
     ok: true,
-    created: !found,
+    created: !existing,
     item: nextItem,
-    items: nextStates,
+    items: await getCatalogPublishStates(env),
   };
 }
 
@@ -321,55 +433,33 @@ export async function removeCatalogPublishState(env, target = {}) {
     return { ok: false, reason: "missing_chat_id" };
   }
 
-  const states = await getCatalogPublishStates(env);
-  const stateKey = buildStateKey(chatId, topicId, categoryCode, kota, kecamatan, viewType);
-  const legacyCategoryOnlyKey =
-    viewType === VIEW_TYPE_FEED && categoryCode
-      ? buildLegacyCategoryOnlyKey(chatId, topicId, categoryCode)
-      : null;
-  const legacyScopeOnlyKey =
-    viewType === VIEW_TYPE_FEED && categoryCode ? buildLegacyScopeOnlyKey(chatId, topicId) : null;
+  const removedItems = [];
+  const scopedKey = buildScopedSettingKey(
+    chatId,
+    topicId,
+    categoryCode,
+    kota,
+    kecamatan,
+    viewType
+  );
 
-  const removedItems = states.filter((item) => {
-    const itemKey = buildStateKey(
-      item.chat_id,
-      item.topic_id,
-      item.category_code,
-      item.kota,
-      item.kecamatan,
-      item.view_type
-    );
+  const scopedRaw = await getSetting(env, scopedKey).catch(() => null);
+  const scopedItem = parseScopedState(scopedRaw);
 
-    return (
-      itemKey === stateKey ||
-      (legacyCategoryOnlyKey && itemKey === legacyCategoryOnlyKey) ||
-      (legacyScopeOnlyKey && itemKey === legacyScopeOnlyKey)
-    );
-  });
+  if (scopedItem) {
+    removedItems.push(scopedItem);
+    await deleteSetting(env, scopedKey).catch(() => null);
+  }
 
-  const nextStates = states.filter((item) => {
-    const itemKey = buildStateKey(
-      item.chat_id,
-      item.topic_id,
-      item.category_code,
-      item.kota,
-      item.kecamatan,
-      item.view_type
-    );
-
-    return (
-      itemKey !== stateKey &&
-      (!legacyCategoryOnlyKey || itemKey !== legacyCategoryOnlyKey) &&
-      (!legacyScopeOnlyKey || itemKey !== legacyScopeOnlyKey)
-    );
-  });
-
-  await saveCatalogPublishStates(env, nextStates);
+  const legacyCleanup = await cleanupLegacyStatesForTarget(env, target);
+  if (Array.isArray(legacyCleanup.removed_items) && legacyCleanup.removed_items.length) {
+    removedItems.push(...legacyCleanup.removed_items);
+  }
 
   return {
     ok: true,
     removed: removedItems[0] || null,
     removed_items: removedItems,
-    items: nextStates,
+    items: await getCatalogPublishStates(env),
   };
 }
