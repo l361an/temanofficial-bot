@@ -87,6 +87,26 @@ function isSafetyBookingStartPayload(value) {
   return payload === "safety_booking" || payload === "safety-booking";
 }
 
+function buildSafetyBookingStartText() {
+  return [
+    "🛡️ <b>Safety Booking</b>",
+    "",
+    "Kamu masuk lewat jalur <b>user-side</b>.",
+    "Entry ini tidak akan diarahkan ke menu officer atau menu partner.",
+    "",
+    "Kalau nanti flow booking mau dibuka langsung dari deep link, payload partner perlu dibawa terpisah.",
+  ].join("\n");
+}
+
+async function handleSafetyBookingStart({ env, chatId }) {
+  await sendMessage(env, chatId, buildSafetyBookingStartText(), {
+    parse_mode: "HTML",
+    disable_web_page_preview: true,
+  });
+
+  return true;
+}
+
 function escapeHtml(value) {
   return String(value || "")
     .replaceAll("&", "&amp;")
@@ -609,7 +629,7 @@ async function handleTelegramCommand({
   const cmdToken = raw.split(/\s+/)[0];
   const baseCmd = cmdToken.split("@")[0].toLowerCase();
   const startPayload = baseCmd === "/start" ? getStartCommandPayload(raw) : "";
-  const forceUserStart = isPrivateChat(chat) && isSafetyBookingStartPayload(startPayload);
+  const isSafetyBookingStart = isPrivateChat(chat) && isSafetyBookingStartPayload(startPayload);
 
   if (baseCmd === "/start") {
     const handledInviteStart = await handleAdminInviteStart({
@@ -625,6 +645,10 @@ async function handleTelegramCommand({
     if (handledInviteStart) return true;
   }
 
+  if (isSafetyBookingStart) {
+    return handleSafetyBookingStart({ env, chatId });
+  }
+
   if (baseCmd === "/temanku") {
     return handleTemankuCommand({ env, chat, msg, chatId, telegramId, role });
   }
@@ -633,7 +657,7 @@ async function handleTelegramCommand({
     return handleDisabledLegacyCommand({ env, chat, msg, chatId });
   }
 
-  if (isAdminRole(role) && !forceUserStart) {
+  if (isAdminRole(role)) {
     const handledAdmin = await handleAdminCommand({
       env,
       chat,
@@ -654,8 +678,8 @@ async function handleTelegramCommand({
     chat,
     chatId,
     telegramId,
-    role: forceUserStart ? "" : role,
-    text: forceUserStart ? "/start" : raw,
+    role,
+    text: raw,
   });
 
   if (handledUser) return true;
