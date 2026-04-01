@@ -9,8 +9,9 @@ import {
   buildCatalogPartnerDetailsText,
   buildCatalogPartnerSummaryText,
   buildCatalogPartnerReplyMarkup,
+  republishCatalogPageByMessage,
 } from "../../services/catalogPublisher.js";
-import { parseCatalogCallbackPayload, CALLBACK_PREFIX } from "../telegram.constants.js";
+import { CALLBACKS, parseCatalogCallbackPayload, CALLBACK_PREFIX } from "../telegram.constants.js";
 import { sendSelfMenu } from "../telegram.flow.selfProfile.menu.js";
 import { sendBookingPanel } from "./booking.shared.js";
 import { persistBookingSession } from "./booking.session.js";
@@ -34,6 +35,11 @@ async function answerAlert(env, callbackQueryId, text) {
     text,
     show_alert: true,
   });
+}
+
+async function answerOk(env, callbackQueryId) {
+  if (!callbackQueryId) return;
+  await answerCallbackQuery(env, callbackQueryId, {});
 }
 
 async function renderCatalogCard(ctx, categoryCode, telegramId, mode) {
@@ -74,7 +80,7 @@ async function renderCatalogCard(ctx, categoryCode, telegramId, mode) {
     throw new Error(res?.description || "failed_to_render_catalog_card");
   }
 
-  await answerCallbackQuery(env, callbackQueryId, {});
+  await answerOk(env, callbackQueryId);
 }
 
 async function handleCatalogDetails(ctx) {
@@ -96,6 +102,47 @@ async function handleCatalogDetailsClose(ctx) {
   }
 
   await renderCatalogCard(ctx, payload?.categoryCode || "", payload?.telegramId || "", "summary");
+}
+
+async function handleCatalogPagination(ctx, direction) {
+  const { env, callbackQueryId, msg } = ctx;
+  const chatId = msg?.chat?.id ?? null;
+  const messageId = msg?.message_id ?? null;
+
+  if (!chatId || !messageId) {
+    await answerAlert(env, callbackQueryId, "Batch katalog tidak valid.");
+    return;
+  }
+
+  const result = await republishCatalogPageByMessage(
+    env,
+    {
+      chat_id: chatId,
+      topic_id: msg?.message_thread_id ?? null,
+      message_id: messageId,
+    },
+    { direction }
+  ).catch((err) => ({
+    ok: false,
+    reason: err?.message || "exception",
+  }));
+
+  if (!result?.ok) {
+    const reason = String(result?.reason || "").trim().toLowerCase();
+    const text =
+      reason === "state_not_found"
+        ? "Batch katalog sudah tidak aktif. Kirim command katalog lagi ya."
+        : reason === "single_page"
+          ? "Katalog ini cuma punya satu halaman."
+          : reason === "missing_message_id" || reason === "missing_chat_id"
+            ? "Batch katalog tidak valid."
+            : "Gagal membuka halaman katalog.";
+
+    await answerAlert(env, callbackQueryId, text);
+    return;
+  }
+
+  await answerOk(env, callbackQueryId);
 }
 
 async function handleCatalogBook(ctx) {
@@ -187,7 +234,10 @@ async function handleCatalogBook(ctx) {
 
 export function buildCatalogHandlers() {
   return {
-    EXACT: {},
+    EXACT: {
+      [CALLBACKS.CATALOG_PAGE_PREV]: async (ctx) => handleCatalogPagination(ctx, "prev"),
+      [CALLBACKS.CATALOG_PAGE_NEXT]: async (ctx) => handleCatalogPagination(ctx, "next"),
+    },
     PREFIX: [
       {
         match: (data) => String(data || "").startsWith(DETAILS_CLOSE_PREFIX),
