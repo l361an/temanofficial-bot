@@ -3,9 +3,11 @@
 import { sendMessage, upsertCallbackMessage } from "../../services/telegramApi.js";
 import { saveSession, clearSession } from "../../utils/session.js";
 import {
+  addPartnerClass,
   deactivatePartnerClass,
   deletePartnerClass,
   getDefaultPartnerClassId,
+  getPartnerClassLabel,
   listActivePartnerClasses,
   listPartnerClasses,
   listProfilesUsingClassId,
@@ -78,6 +80,17 @@ function buildPartnerClassListText(rows, defaultClassId) {
   });
 
   return lines.join("\n");
+}
+
+function buildSetDefaultText(currentLabel, currentClassId) {
+  return [
+    "⭐ <b>Set Default Class</b>",
+    "",
+    `Default saat ini: <b>${escapeHtml(currentLabel || "-")}</b>`,
+    `Class ID: <code>${escapeHtml(currentClassId || "-")}</code>`,
+    "",
+    "Pilih class default baru.",
+  ].join("\n");
 }
 
 function buildProfilesUsingClassText(classId, rows = []) {
@@ -167,8 +180,12 @@ export function buildSuperadminPartnerClassHandlers() {
     if (!isOwnerRole(ctx.role)) return denyOwnerOnly(ctx);
 
     const rows = await listActivePartnerClasses(ctx.env);
+    const currentDefaultClassId = await getDefaultPartnerClassId(ctx.env);
+    const currentDefaultLabel = await getPartnerClassLabel(ctx.env, currentDefaultClassId).catch(
+      () => currentDefaultClassId
+    );
 
-    return renderMenuMessage(ctx, "⭐ <b>Set Default Class</b>\n\nPilih class default baru.", {
+    return renderMenuMessage(ctx, buildSetDefaultText(currentDefaultLabel, currentDefaultClassId), {
       parse_mode: "HTML",
       reply_markup: buildPartnerClassSelectionKeyboard(rows, "default"),
     });
@@ -214,11 +231,20 @@ export function buildSuperadminPartnerClassHandlers() {
     run: async (ctx) => {
       if (!isOwnerRole(ctx.role)) return denyOwnerOnly(ctx);
 
-      const classId = String(ctx.data || "").slice(CALLBACK_PREFIX.SA_PCLASS_DEFAULT_SET.length).trim();
-      const res = await setDefaultPartnerClassId(ctx.env, classId);
+      const nextClassId = String(ctx.data || "").slice(CALLBACK_PREFIX.SA_PCLASS_DEFAULT_SET.length).trim();
+      const prevClassId = await getDefaultPartnerClassId(ctx.env).catch(() => "");
+      const prevLabel = await getPartnerClassLabel(ctx.env, prevClassId).catch(() => prevClassId);
+
+      const res = await setDefaultPartnerClassId(ctx.env, nextClassId);
+      const nextLabel = await getPartnerClassLabel(ctx.env, nextClassId).catch(() => nextClassId);
 
       const text = res?.ok
-        ? `✅ Default class diubah ke <code>${escapeHtml(classId)}</code>.`
+        ? [
+            "✅ <b>Default class berhasil diubah</b>",
+            "",
+            `Default lama: <b>${escapeHtml(prevLabel || "-")}</b> (<code>${escapeHtml(prevClassId || "-")}</code>)`,
+            `Default baru: <b>${escapeHtml(nextLabel || "-")}</b> (<code>${escapeHtml(nextClassId || "-")}</code>)`,
+          ].join("\n")
         : "⚠️ Gagal set default class.";
 
       return renderMenuMessage(ctx, text, {
