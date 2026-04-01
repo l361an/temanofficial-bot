@@ -70,6 +70,9 @@ export const CALLBACKS = {
   SUPERADMIN_CATALOG_TOPIC_EDIT: "sa:catalog:topic:edit",
 
   SELF_CATALOG_TOGGLE: "self:catalog:toggle",
+
+  CATALOG_PAGE_PREV: "catalog:page:prev",
+  CATALOG_PAGE_NEXT: "catalog:page:next",
 };
 
 export const CALLBACK_PREFIX = {
@@ -271,6 +274,8 @@ export function isCatalogCallbackData(data) {
   return (
     value.startsWith(CALLBACK_PREFIX.CATALOG_DETAILS) ||
     value.startsWith(CALLBACK_PREFIX.CATALOG_DETAILS_CLOSE) ||
-    value.startsWith(CALLBACK_PREFIX.CATALOG_BOOK)
+    value.startsWith(CALLBACK_PREFIX.CATALOG_BOOK) ||
+    value === CALLBACKS.CATALOG_PAGE_PREV ||
+    value === CALLBACKS.CATALOG_PAGE_NEXT
   );
 }
