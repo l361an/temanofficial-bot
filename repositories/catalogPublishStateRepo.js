@@ -3,6 +3,8 @@
 import { getSetting, upsertSetting } from "./settingsRepo.js";
 
 const CATALOG_PUBLISH_STATES_KEY = "catalog_publish_states";
+const VIEW_TYPE_FEED = "feed";
+const VIEW_TYPE_ON_DEMAND = "on_demand";
 
 function normalizeString(value) {
   return String(value || "").trim();
@@ -39,6 +41,20 @@ function normalizeKotaKey(value) {
   return normalizeLower(value) || null;
 }
 
+function normalizeKecamatan(value) {
+  const raw = normalizeString(value);
+  return raw || null;
+}
+
+function normalizeKecamatanKey(value) {
+  return normalizeLower(value) || null;
+}
+
+function normalizeViewType(value) {
+  const raw = normalizeLower(value);
+  return raw === VIEW_TYPE_ON_DEMAND ? VIEW_TYPE_ON_DEMAND : VIEW_TYPE_FEED;
+}
+
 function normalizeMessageIds(values) {
   if (!Array.isArray(values)) return [];
 
@@ -58,17 +74,21 @@ function nowIso() {
   return new Date().toISOString();
 }
 
-function buildStateKey(chatId, topicId, categoryCode, kota) {
+function buildStateKey(chatId, topicId, categoryCode, kota, kecamatan, viewType) {
   const normalizedChatId = normalizeChatId(chatId);
   const normalizedTopicId = normalizeTopicId(topicId);
   const normalizedCategoryKey = normalizeCategoryKey(categoryCode);
   const normalizedKotaKey = normalizeKotaKey(kota);
+  const normalizedKecamatanKey = normalizeKecamatanKey(kecamatan);
+  const normalizedViewType = normalizeViewType(viewType);
 
   return [
     normalizedChatId,
     normalizedTopicId || "-",
+    normalizedViewType,
     normalizedCategoryKey || "-",
     normalizedKotaKey || "-",
+    normalizedKecamatanKey || "-",
   ].join("::");
 }
 
@@ -103,10 +123,14 @@ function parseStates(rawValue) {
           topic_id: normalizeTopicId(item?.topic_id),
           category_code: normalizeCategoryCode(item?.category_code),
           kota: normalizeKota(item?.kota),
+          kecamatan: normalizeKecamatan(item?.kecamatan),
+          view_type: normalizeViewType(item?.view_type),
           message_ids: normalizeMessageIds(item?.message_ids),
           partner_count: normalizeNonNegativeInteger(item?.partner_count, 0),
           page_count: normalizeNonNegativeInteger(item?.page_count, 0),
           rotation_cursor: normalizeNonNegativeInteger(item?.rotation_cursor, 0),
+          current_offset: normalizeNonNegativeInteger(item?.current_offset, 0),
+          page_size: normalizeNonNegativeInteger(item?.page_size, 0),
           updated_at: normalizeString(item?.updated_at) || nowIso(),
         };
       })
@@ -134,27 +158,44 @@ export async function getCatalogPublishState(env, target = {}) {
   const topicId = normalizeTopicId(target?.topic_id);
   const categoryCode = normalizeCategoryCode(target?.category_code);
   const kota = normalizeKota(target?.kota);
+  const kecamatan = normalizeKecamatan(target?.kecamatan);
+  const viewType = normalizeViewType(target?.view_type);
 
   if (!chatId) return null;
 
   const states = await getCatalogPublishStates(env);
-  const exactKey = buildStateKey(chatId, topicId, categoryCode, kota);
+  const exactKey = buildStateKey(chatId, topicId, categoryCode, kota, kecamatan, viewType);
 
   const exact =
     states.find(
       (item) =>
-        buildStateKey(item.chat_id, item.topic_id, item.category_code, item.kota) === exactKey
+        buildStateKey(
+          item.chat_id,
+          item.topic_id,
+          item.category_code,
+          item.kota,
+          item.kecamatan,
+          item.view_type
+        ) === exactKey
     ) || null;
 
   if (exact) return exact;
 
-  if (!categoryCode) return null;
+  if (viewType !== VIEW_TYPE_FEED || !categoryCode) {
+    return null;
+  }
 
   const legacyCategoryOnly =
     states.find(
       (item) =>
-        buildStateKey(item.chat_id, item.topic_id, item.category_code, item.kota) ===
-        buildLegacyCategoryOnlyKey(chatId, topicId, categoryCode)
+        buildStateKey(
+          item.chat_id,
+          item.topic_id,
+          item.category_code,
+          item.kota,
+          item.kecamatan,
+          item.view_type
+        ) === buildLegacyCategoryOnlyKey(chatId, topicId, categoryCode)
     ) || null;
 
   if (legacyCategoryOnly) return legacyCategoryOnly;
@@ -162,9 +203,33 @@ export async function getCatalogPublishState(env, target = {}) {
   return (
     states.find(
       (item) =>
-        buildStateKey(item.chat_id, item.topic_id, item.category_code, item.kota) ===
-        buildLegacyScopeOnlyKey(chatId, topicId)
+        buildStateKey(
+          item.chat_id,
+          item.topic_id,
+          item.category_code,
+          item.kota,
+          item.kecamatan,
+          item.view_type
+        ) === buildLegacyScopeOnlyKey(chatId, topicId)
     ) || null
+  );
+}
+
+export async function findCatalogPublishStateByMessageId(env, target = {}) {
+  const chatId = normalizeChatId(target?.chat_id);
+  const messageId = Number(target?.message_id);
+
+  if (!chatId || !Number.isFinite(messageId) || messageId <= 0) {
+    return null;
+  }
+
+  const states = await getCatalogPublishStates(env);
+
+  return (
+    states.find((item) => {
+      if (normalizeChatId(item?.chat_id) !== chatId) return false;
+      return normalizeMessageIds(item?.message_ids).includes(Math.floor(messageId));
+    }) || null
   );
 }
 
@@ -173,6 +238,8 @@ export async function upsertCatalogPublishState(env, payload = {}) {
   const topicId = normalizeTopicId(payload?.topic_id);
   const categoryCode = normalizeCategoryCode(payload?.category_code);
   const kota = normalizeKota(payload?.kota);
+  const kecamatan = normalizeKecamatan(payload?.kecamatan);
+  const viewType = normalizeViewType(payload?.view_type);
 
   if (!chatId) {
     return { ok: false, reason: "missing_chat_id" };
@@ -183,30 +250,44 @@ export async function upsertCatalogPublishState(env, payload = {}) {
   }
 
   const states = await getCatalogPublishStates(env);
-  const stateKey = buildStateKey(chatId, topicId, categoryCode, kota);
-  const legacyCategoryOnlyKey = buildLegacyCategoryOnlyKey(chatId, topicId, categoryCode);
-  const legacyScopeOnlyKey = buildLegacyScopeOnlyKey(chatId, topicId);
+  const stateKey = buildStateKey(chatId, topicId, categoryCode, kota, kecamatan, viewType);
+  const legacyCategoryOnlyKey =
+    viewType === VIEW_TYPE_FEED ? buildLegacyCategoryOnlyKey(chatId, topicId, categoryCode) : null;
+  const legacyScopeOnlyKey =
+    viewType === VIEW_TYPE_FEED ? buildLegacyScopeOnlyKey(chatId, topicId) : null;
 
   const nextItem = {
     chat_id: chatId,
     topic_id: topicId,
     category_code: categoryCode,
     kota,
+    kecamatan,
+    view_type: viewType,
     message_ids: normalizeMessageIds(payload?.message_ids),
     partner_count: normalizeNonNegativeInteger(payload?.partner_count, 0),
     page_count: normalizeNonNegativeInteger(payload?.page_count, 0),
     rotation_cursor: normalizeNonNegativeInteger(payload?.rotation_cursor, 0),
+    current_offset: normalizeNonNegativeInteger(payload?.current_offset, 0),
+    page_size: normalizeNonNegativeInteger(payload?.page_size, 0),
     updated_at: nowIso(),
   };
 
   let found = false;
 
   const nextStates = states.filter((item) => {
-    const itemKey = buildStateKey(item.chat_id, item.topic_id, item.category_code, item.kota);
+    const itemKey = buildStateKey(
+      item.chat_id,
+      item.topic_id,
+      item.category_code,
+      item.kota,
+      item.kecamatan,
+      item.view_type
+    );
+
     const shouldReplace =
       itemKey === stateKey ||
-      itemKey === legacyCategoryOnlyKey ||
-      itemKey === legacyScopeOnlyKey;
+      (legacyCategoryOnlyKey && itemKey === legacyCategoryOnlyKey) ||
+      (legacyScopeOnlyKey && itemKey === legacyScopeOnlyKey);
 
     if (shouldReplace) {
       found = true;
@@ -233,20 +314,32 @@ export async function removeCatalogPublishState(env, target = {}) {
   const topicId = normalizeTopicId(target?.topic_id);
   const categoryCode = normalizeCategoryCode(target?.category_code);
   const kota = normalizeKota(target?.kota);
+  const kecamatan = normalizeKecamatan(target?.kecamatan);
+  const viewType = normalizeViewType(target?.view_type);
 
   if (!chatId) {
     return { ok: false, reason: "missing_chat_id" };
   }
 
   const states = await getCatalogPublishStates(env);
-  const stateKey = buildStateKey(chatId, topicId, categoryCode, kota);
-  const legacyCategoryOnlyKey = categoryCode
-    ? buildLegacyCategoryOnlyKey(chatId, topicId, categoryCode)
-    : null;
-  const legacyScopeOnlyKey = categoryCode ? buildLegacyScopeOnlyKey(chatId, topicId) : null;
+  const stateKey = buildStateKey(chatId, topicId, categoryCode, kota, kecamatan, viewType);
+  const legacyCategoryOnlyKey =
+    viewType === VIEW_TYPE_FEED && categoryCode
+      ? buildLegacyCategoryOnlyKey(chatId, topicId, categoryCode)
+      : null;
+  const legacyScopeOnlyKey =
+    viewType === VIEW_TYPE_FEED && categoryCode ? buildLegacyScopeOnlyKey(chatId, topicId) : null;
 
   const removedItems = states.filter((item) => {
-    const itemKey = buildStateKey(item.chat_id, item.topic_id, item.category_code, item.kota);
+    const itemKey = buildStateKey(
+      item.chat_id,
+      item.topic_id,
+      item.category_code,
+      item.kota,
+      item.kecamatan,
+      item.view_type
+    );
+
     return (
       itemKey === stateKey ||
       (legacyCategoryOnlyKey && itemKey === legacyCategoryOnlyKey) ||
@@ -255,7 +348,15 @@ export async function removeCatalogPublishState(env, target = {}) {
   });
 
   const nextStates = states.filter((item) => {
-    const itemKey = buildStateKey(item.chat_id, item.topic_id, item.category_code, item.kota);
+    const itemKey = buildStateKey(
+      item.chat_id,
+      item.topic_id,
+      item.category_code,
+      item.kota,
+      item.kecamatan,
+      item.view_type
+    );
+
     return (
       itemKey !== stateKey &&
       (!legacyCategoryOnlyKey || itemKey !== legacyCategoryOnlyKey) &&
