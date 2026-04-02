@@ -153,18 +153,22 @@ async function handleBookingCancel(ctx) {
   const context = await loadBookingContext(ctx.env, bookingId);
 
   if (!context?.booking) {
-    return sendBookingPanel(ctx.env, ctx.adminId, bookingId, {
+    await sendBookingPanel(ctx.env, ctx.adminId, bookingId, {
       sourceMessage: ctx.msg,
       noticeText: "⚠️ Booking tidak ditemukan.",
     });
+
+    return { ok: true };
   }
 
   const actorSide = resolveBookingActorSide(context.booking, ctx.adminId);
   if (!actorSide) {
-    return sendBookingPanel(ctx.env, ctx.adminId, bookingId, {
+    await sendBookingPanel(ctx.env, ctx.adminId, bookingId, {
       sourceMessage: ctx.msg,
       noticeText: "⚠️ Kamu tidak punya akses ke booking ini.",
     });
+
+    return { ok: true };
   }
 
   const before = context.booking;
@@ -191,7 +195,12 @@ async function handleBookingCancel(ctx) {
     "❌ Booking ini dibatalkan oleh pihak lawan."
   ).catch(() => null);
 
-  return true;
+  return {
+    ok: true,
+    callback_answer: {
+      text: "Booking dibatalkan.",
+    },
+  };
 }
 
 export function buildBookingHandlers() {
@@ -217,6 +226,7 @@ export function buildBookingHandlers() {
       {
         match: (data) => String(data || "").startsWith(CALLBACK_PREFIX.BK_CANCEL),
         run: handleBookingCancel,
+        deferCallbackAnswer: true,
       },
     ],
   };
