@@ -70,6 +70,10 @@ function buildUnknownCallbackText() {
   return "Panel ini sudah tidak aktif atau menu lama. Silakan buka menu terbaru.";
 }
 
+function shouldDeferCallbackAnswer(handler) {
+  return Boolean(handler?.deferCallbackAnswer);
+}
+
 export async function handleCallback(update, env) {
   const callback = update?.callback_query || null;
   const data = String(callback?.data || "");
@@ -186,7 +190,9 @@ export async function handleCallback(update, env) {
   try {
     const exactHandler = EXACT[data];
     if (exactHandler) {
-      if (!catalogAction) {
+      const deferCallbackAnswer = shouldDeferCallbackAnswer(exactHandler);
+
+      if (!catalogAction && !deferCallbackAnswer) {
         await answerCallbackSafely(env, callbackQueryId, null, {
           adminId,
           role,
@@ -195,13 +201,25 @@ export async function handleCallback(update, env) {
         });
       }
 
-      await exactHandler(ctx);
+      const result = await exactHandler(ctx);
+
+      if (!catalogAction && deferCallbackAnswer) {
+        await answerCallbackSafely(env, callbackQueryId, result?.callback_answer || null, {
+          adminId,
+          role,
+          data,
+          stage: "exact_ack_deferred",
+        });
+      }
+
       return ok();
     }
 
     for (const handler of PREFIX) {
       if (handler.match(data)) {
-        if (!catalogAction) {
+        const deferCallbackAnswer = shouldDeferCallbackAnswer(handler);
+
+        if (!catalogAction && !deferCallbackAnswer) {
           await answerCallbackSafely(env, callbackQueryId, null, {
             adminId,
             role,
@@ -210,7 +228,17 @@ export async function handleCallback(update, env) {
           });
         }
 
-        await handler.run(ctx);
+        const result = await handler.run(ctx);
+
+        if (!catalogAction && deferCallbackAnswer) {
+          await answerCallbackSafely(env, callbackQueryId, result?.callback_answer || null, {
+            adminId,
+            role,
+            data,
+            stage: "prefix_ack_deferred",
+          });
+        }
+
         return ok();
       }
     }
