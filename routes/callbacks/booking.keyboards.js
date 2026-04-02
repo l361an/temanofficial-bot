@@ -10,12 +10,31 @@ function isTerminalStatus(status) {
   return ["cancelled", "completed", "expired"].includes(normalizeString(status));
 }
 
+function getProposalLabels(actorSide) {
+  const side = normalizeString(actorSide);
+
+  if (side === "partner") {
+    return {
+      exact: "🕒 Waktu Tersedia",
+      window: "🪟 Rentang Waktu Tersedia",
+      accept: "✅ Setuju",
+    };
+  }
+
+  return {
+    exact: "🕒 Perkiraan Waktu Tiba",
+    window: "🪟 Rentang Waktu Tiba",
+    accept: "✅ Setuju",
+  };
+}
+
 export function buildBookingPanelKeyboard(booking, actorSide) {
   const safeBookingId = String(booking?.id || "").trim();
   if (!safeBookingId) return undefined;
 
   const rows = [];
   const status = normalizeString(booking?.status);
+  const labels = getProposalLabels(actorSide);
 
   const canPropose = !isTerminalStatus(status);
   const canAcceptExact =
@@ -25,13 +44,13 @@ export function buildBookingPanelKeyboard(booking, actorSide) {
     normalizeString(booking?.last_proposed_by) !== normalizeString(actorSide);
 
   if (canAcceptExact) {
-    rows.push([{ text: "✅ Setujui Waktu Ini", callback_data: cb.bkAcceptExact(safeBookingId) }]);
+    rows.push([{ text: labels.accept, callback_data: cb.bkAcceptExact(safeBookingId) }]);
   }
 
   if (canPropose) {
     rows.push([
-      { text: "🕒 Ajukan Waktu Pas", callback_data: cb.bkPromptExact(safeBookingId) },
-      { text: "🪟 Ajukan Rentang Waktu", callback_data: cb.bkPromptWindow(safeBookingId) },
+      { text: labels.exact, callback_data: cb.bkPromptExact(safeBookingId) },
+      { text: labels.window, callback_data: cb.bkPromptWindow(safeBookingId) },
     ]);
   }
 
