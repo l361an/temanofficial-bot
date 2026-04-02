@@ -1,95 +1,166 @@
-// routes/callbacks/booking.shared.js
-
-import { sendMessage, upsertCallbackMessage } from "../../services/telegramApi.js";
-import { getProfileFullByTelegramId } from "../../repositories/profilesRepo.js";
-import { getBookingById } from "../../repositories/bookingsRepo.js";
-import { buildBookingPanelText } from "./booking.render.js";
-import { buildBookingPanelKeyboard } from "./booking.keyboards.js";
+// routes/callbacks/booking.render.js
 
 function normalizeString(value) {
   return String(value || "").trim();
 }
 
-export function resolveBookingActorSide(booking, actorId) {
-  const safeActorId = normalizeString(actorId);
-  if (!safeActorId || !booking) return "";
-  if (safeActorId === normalizeString(booking.partner_telegram_id)) return "partner";
-  if (safeActorId === normalizeString(booking.user_telegram_id)) return "user";
-  return "";
+function escapeHtml(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
-export async function loadBookingContext(env, bookingId) {
-  const booking = await getBookingById(env, bookingId);
-  if (!booking) return null;
-
-  const partnerProfile = await getProfileFullByTelegramId(env, booking.partner_telegram_id).catch(() => null);
-
-  return {
-    booking,
-    partnerProfile,
-  };
+function pad2(value) {
+  return String(value).padStart(2, "0");
 }
 
-export function buildBookingPanelPayload(context, actorSide, noticeText = "") {
-  return {
-    text: buildBookingPanelText({
-      booking: context.booking,
-      actorSide,
-      partnerProfile: context.partnerProfile,
-      noticeText,
-    }),
-    reply_markup: buildBookingPanelKeyboard(context.booking, actorSide),
-  };
+export function formatBookingDateTime(value) {
+  const raw = normalizeString(value);
+  if (!raw) return "-";
+
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (m) {
+    const [, yyyy, mm, dd, hh, mi] = m;
+    return `${dd}-${mm}-${yyyy} ${hh}:${mi}`;
+  }
+
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return raw;
+
+  return `${pad2(date.getDate())}-${pad2(date.getMonth() + 1)}-${date.getFullYear()} ${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
 }
 
-export async function sendBookingPanel(env, actorId, bookingId, options = {}) {
-  const { sourceMessage = null, noticeText = "" } = options;
-  const context = await loadBookingContext(env, bookingId);
-
-  if (!context?.booking) {
-    return { ok: false, reason: "booking_not_found" };
-  }
-
-  const actorSide = resolveBookingActorSide(context.booking, actorId);
-  if (!actorSide) {
-    return { ok: false, reason: "booking_actor_not_allowed" };
-  }
-
-  const payload = buildBookingPanelPayload(context, actorSide, noticeText);
-  const extra = {
-    parse_mode: "HTML",
-    reply_markup: payload.reply_markup,
-    disable_web_page_preview: true,
-  };
-
-  if (sourceMessage) {
-    const res = await upsertCallbackMessage(env, sourceMessage, payload.text, extra);
-    return {
-      ...res,
-      actor_side: actorSide,
-      booking: context.booking,
-      partner_profile: context.partnerProfile,
-    };
-  }
-
-  const res = await sendMessage(env, actorId, payload.text, extra);
-  return {
-    ...res,
-    actor_side: actorSide,
-    booking: context.booking,
-    partner_profile: context.partnerProfile,
-  };
+function formatStatusLabel(status) {
+  const raw = normalizeString(status).toLowerCase();
+  if (raw === "negotiating") return "Sedang Nego";
+  if (raw === "agreed") return "Sudah Sepakat";
+  if (raw === "awaiting_dp") return "Menunggu DP";
+  if (raw === "dp_review") return "Review DP";
+  if (raw === "secured") return "Aman / Hold";
+  if (raw === "completed") return "Selesai";
+  if (raw === "cancelled") return "Dibatalkan";
+  if (raw === "expired") return "Expired";
+  if (raw === "partner_terlambat") return "Partner Terlambat";
+  if (raw === "user_terlambat") return "User Terlambat";
+  if (raw === "menunggu_bantuan_admin") return "Menunggu Bantuan Admin";
+  return raw ? raw.replaceAll("_", " ") : "-";
 }
 
-export async function notifyBookingCounterparty(env, booking, senderActorId, noticeText = "") {
-  const senderId = normalizeString(senderActorId);
-  const partnerId = normalizeString(booking?.partner_telegram_id);
-  const userId = normalizeString(booking?.user_telegram_id);
+function formatActorLabel(side) {
+  return normalizeString(side).toLowerCase() === "partner" ? "Partner" : "User";
+}
 
-  const targetId = senderId === partnerId ? userId : partnerId;
-  if (!targetId) {
-    return { ok: false, reason: "counterparty_not_found" };
+function formatPartnerLabel(profile, booking) {
+  const nickname = normalizeString(profile?.nickname);
+  const fullname = normalizeString(profile?.nama_lengkap);
+  const username = normalizeString(profile?.username).replace(/^@+/, "");
+  const telegramId = normalizeString(booking?.partner_telegram_id) || "-";
+
+  const name = nickname || fullname || `Partner ${telegramId}`;
+  if (!username) return `<b>${escapeHtml(name)}</b>`;
+  return `<b>${escapeHtml(name)}</b> - <b>@${escapeHtml(username)}</b>`;
+}
+
+function formatUserLabel(profile, booking) {
+  const nickname = normalizeString(profile?.nickname);
+  const fullname = normalizeString(profile?.nama_lengkap);
+  const username = normalizeString(profile?.username).replace(/^@+/, "");
+  const telegramId = normalizeString(booking?.user_telegram_id) || "-";
+
+  const name = nickname || fullname || `User ${telegramId}`;
+
+  if (username) {
+    return `<b>${escapeHtml(name)}</b> - <b>@${escapeHtml(username)}</b> - <code>${escapeHtml(telegramId)}</code>`;
   }
 
-  return sendBookingPanel(env, targetId, booking?.id, { noticeText });
+  return `<b>${escapeHtml(name)}</b> - <code>${escapeHtml(telegramId)}</code>`;
+}
+
+function buildLastProposalText(booking) {
+  const kind = normalizeString(booking?.last_proposal_kind).toLowerCase();
+  const by = normalizeString(booking?.last_proposed_by).toLowerCase();
+  const actorLabel = by === "partner" ? "Partner" : by === "user" ? "User" : "-";
+
+  if (kind === "exact" && booking?.last_proposed_exact_at) {
+    return `Jam Pas : <b>${escapeHtml(formatBookingDateTime(booking.last_proposed_exact_at))}</b> (${escapeHtml(actorLabel)})`;
+  }
+
+  if (kind === "window" && booking?.last_proposed_window_start_at && booking?.last_proposed_window_end_at) {
+    return `Rentang : <b>${escapeHtml(formatBookingDateTime(booking.last_proposed_window_start_at))}</b> s/d <b>${escapeHtml(formatBookingDateTime(booking.last_proposed_window_end_at))}</b> (${escapeHtml(actorLabel)})`;
+  }
+
+  return "Belum ada usulan waktu.";
+}
+
+export function buildBookingPanelText({ booking, actorSide, partnerProfile, userProfile, noticeText = "" }) {
+  const lines = ["🛡️ <b>Safety Booking</b>"];
+
+  if (noticeText) {
+    lines.push("");
+    lines.push(noticeText);
+  }
+
+  lines.push("");
+  lines.push(`Posisi Kamu : <b>${escapeHtml(formatActorLabel(actorSide))}</b>`);
+  lines.push(`Status : <b>${escapeHtml(formatStatusLabel(booking?.status))}</b>`);
+
+  if (normalizeString(actorSide).toLowerCase() === "partner") {
+    lines.push(`Pemesan : ${formatUserLabel(userProfile, booking)}`);
+  } else {
+    lines.push(`Partner : ${formatPartnerLabel(partnerProfile, booking)}`);
+  }
+
+  lines.push(`Usulan Terakhir : ${buildLastProposalText(booking)}`);
+
+  if (booking?.agreed_exact_at) {
+    lines.push(`Waktu Fix : <b>${escapeHtml(formatBookingDateTime(booking.agreed_exact_at))}</b>`);
+  }
+
+  lines.push("");
+
+  if (normalizeString(booking?.status).toLowerCase() === "agreed") {
+    lines.push("Waktu sudah fix. Jalur DP disiapkan terpisah dari patch ini.");
+  } else if (normalizeString(booking?.status).toLowerCase() === "cancelled") {
+    lines.push("Booking ini sudah dibatalkan.");
+  } else {
+    lines.push("Pilih aksi di bawah untuk lanjut nego waktu.");
+  }
+
+  return lines.join("\n");
+}
+
+export function buildBookingExactInputPromptText({ booking, actorSide }) {
+  const sideLabel = formatActorLabel(actorSide);
+
+  return [
+    "🕒 <b>Usul Jam Pas</b>",
+    "",
+    `Posisi Kamu : <b>${escapeHtml(sideLabel)}</b>`,
+    `Booking ID : <code>${escapeHtml(booking?.id || "-")}</code>`,
+    "",
+    "Kirim format:",
+    "<code>2026-04-05 18:30</code>",
+    "",
+    "Ketik <b>batal</b> untuk kembali ke ringkasan.",
+  ].join("\n");
+}
+
+export function buildBookingWindowInputPromptText({ booking, actorSide }) {
+  const sideLabel = formatActorLabel(actorSide);
+
+  return [
+    "🪟 <b>Usul Rentang Waktu</b>",
+    "",
+    `Posisi Kamu : <b>${escapeHtml(sideLabel)}</b>`,
+    `Booking ID : <code>${escapeHtml(booking?.id || "-")}</code>`,
+    "",
+    "Kirim format:",
+    "<code>2026-04-05 18:00 - 20:00</code>",
+    "",
+    "Final booking tetap harus turun ke jam pas.",
+    "Ketik <b>batal</b> untuk kembali ke ringkasan.",
+  ].join("\n");
 }
