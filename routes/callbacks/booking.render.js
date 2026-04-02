@@ -64,38 +64,23 @@ function formatPartnerLabel(profile, booking) {
   return `<b>${escapeHtml(name)}</b> - <b>@${escapeHtml(username)}</b>`;
 }
 
-function formatUserLabel(profile, booking) {
-  const nickname = normalizeString(profile?.nickname);
-  const fullname = normalizeString(profile?.nama_lengkap);
-  const username = normalizeString(profile?.username).replace(/^@+/, "");
-  const telegramId = normalizeString(booking?.user_telegram_id) || "-";
-
-  const name = nickname || fullname || `User ${telegramId}`;
-
-  if (username) {
-    return `<b>${escapeHtml(name)}</b> - <b>@${escapeHtml(username)}</b> - <code>${escapeHtml(telegramId)}</code>`;
-  }
-
-  return `<b>${escapeHtml(name)}</b> - <code>${escapeHtml(telegramId)}</code>`;
-}
-
 function buildLastProposalText(booking) {
   const kind = normalizeString(booking?.last_proposal_kind).toLowerCase();
   const by = normalizeString(booking?.last_proposed_by).toLowerCase();
   const actorLabel = by === "partner" ? "Partner" : by === "user" ? "User" : "-";
 
   if (kind === "exact" && booking?.last_proposed_exact_at) {
-    return `Jam Pas : <b>${escapeHtml(formatBookingDateTime(booking.last_proposed_exact_at))}</b> (${escapeHtml(actorLabel)})`;
+    return `Usulan Waktu : <b>${escapeHtml(formatBookingDateTime(booking.last_proposed_exact_at))}</b> (${escapeHtml(actorLabel)})`;
   }
 
   if (kind === "window" && booking?.last_proposed_window_start_at && booking?.last_proposed_window_end_at) {
-    return `Rentang : <b>${escapeHtml(formatBookingDateTime(booking.last_proposed_window_start_at))}</b> s/d <b>${escapeHtml(formatBookingDateTime(booking.last_proposed_window_end_at))}</b> (${escapeHtml(actorLabel)})`;
+    return `Usulan Rentang Waktu : <b>${escapeHtml(formatBookingDateTime(booking.last_proposed_window_start_at))}</b> s/d <b>${escapeHtml(formatBookingDateTime(booking.last_proposed_window_end_at))}</b> (${escapeHtml(actorLabel)})`;
   }
 
   return "Belum ada usulan waktu.";
 }
 
-export function buildBookingPanelText({ booking, actorSide, partnerProfile, userProfile, noticeText = "" }) {
+export function buildBookingPanelText({ booking, actorSide, partnerProfile, noticeText = "" }) {
   const lines = ["🛡️ <b>Safety Booking</b>"];
 
   if (noticeText) {
@@ -108,7 +93,7 @@ export function buildBookingPanelText({ booking, actorSide, partnerProfile, user
   lines.push(`Status : <b>${escapeHtml(formatStatusLabel(booking?.status))}</b>`);
 
   if (normalizeString(actorSide).toLowerCase() === "partner") {
-    lines.push(`Pemesan : ${formatUserLabel(userProfile, booking)}`);
+    lines.push(`Pemesan : <code>${escapeHtml(booking?.user_telegram_id || "-")}</code>`);
   } else {
     lines.push(`Partner : ${formatPartnerLabel(partnerProfile, booking)}`);
   }
@@ -134,9 +119,11 @@ export function buildBookingPanelText({ booking, actorSide, partnerProfile, user
 
 export function buildBookingExactInputPromptText({ booking, actorSide }) {
   const sideLabel = formatActorLabel(actorSide);
+  const isPartner = normalizeString(actorSide).toLowerCase() === "partner";
+  const title = isPartner ? "Waktu Tersedia" : "Perkiraan Waktu Tiba";
 
   return [
-    "🕒 <b>Usul Jam Pas</b>",
+    `🕒 <b>${escapeHtml(title)}</b>`,
     "",
     `Posisi Kamu : <b>${escapeHtml(sideLabel)}</b>`,
     `Booking ID : <code>${escapeHtml(booking?.id || "-")}</code>`,
@@ -150,9 +137,11 @@ export function buildBookingExactInputPromptText({ booking, actorSide }) {
 
 export function buildBookingWindowInputPromptText({ booking, actorSide }) {
   const sideLabel = formatActorLabel(actorSide);
+  const isPartner = normalizeString(actorSide).toLowerCase() === "partner";
+  const title = isPartner ? "Rentang Waktu Tersedia" : "Rentang Waktu Tiba";
 
   return [
-    "🪟 <b>Usul Rentang Waktu</b>",
+    `🪟 <b>${escapeHtml(title)}</b>`,
     "",
     `Posisi Kamu : <b>${escapeHtml(sideLabel)}</b>`,
     `Booking ID : <code>${escapeHtml(booking?.id || "-")}</code>`,
@@ -160,7 +149,7 @@ export function buildBookingWindowInputPromptText({ booking, actorSide }) {
     "Kirim format:",
     "<code>2026-04-05 18:00 - 20:00</code>",
     "",
-    "Final booking tetap harus turun ke jam pas.",
+    "Final booking tetap harus turun ke satu waktu fix.",
     "Ketik <b>batal</b> untuk kembali ke ringkasan.",
   ].join("\n");
 }
